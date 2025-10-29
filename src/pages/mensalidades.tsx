@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
+// import { useRouter } from 'next/router'; // Removido - não utilizado
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import PainelHeader from '../components/PainelHeader';
@@ -10,7 +10,7 @@ import { mensalidadesService, Mensalidade } from '../services/mensalidadesServic
 import { Cliente } from '../types/firebase';
 
 export default function Mensalidades() {
-  const router = useRouter();
+  // const router = useRouter(); // Removido - não utilizado
   const [filtroDataInicio, setFiltroDataInicio] = useState('');
   const [filtroDataFim, setFiltroDataFim] = useState('');
   const [filtroCliente, setFiltroCliente] = useState('');
@@ -18,15 +18,41 @@ export default function Mensalidades() {
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [mensalidades, setMensalidades] = useState<Mensalidade[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [clientesComStatus, setClientesComStatus] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingAction, setLoadingAction] = useState(false);
   const [showMultaModal, setShowMultaModal] = useState(false);
   const [multaPercentual, setMultaPercentual] = useState<string>('');
   const [clienteParaMulta, setClienteParaMulta] = useState<Cliente | null>(null);
+  const [menuAberto, setMenuAberto] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+  const [showClienteModal, setShowClienteModal] = useState(false);
+  const [clienteParaEditar, setClienteParaEditar] = useState<Cliente | null>(null);
+  const [formDataCliente, setFormDataCliente] = useState({
+    cnpj: '',
+    razaoSocial: '',
+    nomeFantasia: '',
+    telefone: '',
+    email: '',
+    cidade: '',
+    bairro: '',
+    cep: '',
+    responsavel: '',
+    dataVencimento: '',
+    valor: '',
+    servico: '',
+    status: 'ativo' as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo'
+  });
+  const [loadingCliente, setLoadingCliente] = useState(false);
+  const [showVencimentoModal, setShowVencimentoModal] = useState(false);
+  const [showValorModal, setShowValorModal] = useState(false);
+  const [mensalidadeParaEditar, setMensalidadeParaEditar] = useState<any>(null);
+  const [novoVencimento, setNovoVencimento] = useState('');
+  const [novoValor, setNovoValor] = useState('');
+  const [loadingMensalidade, setLoadingMensalidade] = useState(false);
 
-  // Normalizador seguro de datas (Date | string | Firestore Timestamp)
+  // Função removida - não utilizada
+  /*
   const toDate = (value: unknown): Date | null => {
     if (!value) return null;
     if (value instanceof Date) return value;
@@ -36,6 +62,7 @@ export default function Mensalidades() {
     }
     return null;
   };
+  */
 
   useEffect(() => {
     loadMensalidades();
@@ -45,6 +72,27 @@ export default function Mensalidades() {
   useEffect(() => {
     processarClientesComStatus();
   }, [clientes, mensalidades, filtroDataInicio, filtroDataFim, filtroCliente, filtroStatus]);
+
+  // Fechar menu quando clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuAberto) {
+        const target = event.target as Element;
+        // Verificar se o clique foi fora do menu
+        if (!target.closest('.menu-dropdown') && !target.closest('.menu-button')) {
+          fecharMenu();
+        }
+      }
+    };
+
+    if (menuAberto) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [menuAberto]);
 
   const loadMensalidades = async () => {
     try {
@@ -67,239 +115,310 @@ export default function Mensalidades() {
     }
   };
 
-  const processarClientesComStatus = () => {
-    if (clientes.length === 0) return;
+  const getMesAbreviado = (mes: number): string => {
+    const meses = [
+      'jan', 'fev', 'mar', 'abr', 'mai', 'jun',
+      'jul', 'ago', 'set', 'out', 'nov', 'dez'
+    ];
+    return meses[mes] || 'inv';
+  };
 
-    // Determinar o período baseado no filtro de data
-    let dataInicio: Date;
-    let dataFim: Date;
-    
-    if (filtroDataInicio && filtroDataFim) {
-      dataInicio = new Date(filtroDataInicio + 'T00:00:00');
-      dataFim = new Date(filtroDataFim + 'T23:59:59');
-    } else if (filtroDataInicio) {
-      dataInicio = new Date(filtroDataInicio + 'T00:00:00');
-      dataFim = new Date(filtroDataInicio + 'T23:59:59');
-    } else if (filtroDataFim) {
-      dataInicio = new Date(filtroDataFim + 'T00:00:00');
-      dataFim = new Date(filtroDataFim + 'T23:59:59');
+  const toggleMenu = (id: string, event: React.MouseEvent) => {
+    if (menuAberto === id) {
+      setMenuAberto(null);
     } else {
-      // Se não há filtro de data, usar o mês atual
-    const hoje = new Date();
-      dataInicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-      dataFim = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
+      // Capturar posição do mouse
+      const x = event.clientX;
+      const y = event.clientY;
+      
+      // Ajustar posição se o menu sair da tela
+      const menuWidth = 192; // w-48 = 192px
+      const menuHeight = 120; // Altura aproximada do menu
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      
+      let adjustedX = x;
+      let adjustedY = y;
+      
+      // Ajustar horizontalmente se sair da tela
+      if (x + menuWidth / 2 > viewportWidth) {
+        adjustedX = viewportWidth - menuWidth / 2 - 10; // 10px de margem
+      } else if (x - menuWidth / 2 < 0) {
+        adjustedX = menuWidth / 2 + 10; // 10px de margem
+      }
+      
+      // Ajustar verticalmente se sair da tela
+      if (y + menuHeight > viewportHeight) {
+        adjustedY = y - menuHeight - 10; // Mostrar acima do cursor
+      }
+      
+      setMenuPosition({
+        x: adjustedX,
+        y: adjustedY
+      });
+      setMenuAberto(id);
     }
+  };
+
+  const fecharMenu = () => {
+    setMenuAberto(null);
+  };
+
+  const abrirModalCliente = (cliente: any) => {
+    setClienteParaEditar(cliente);
+    setFormDataCliente({
+      cnpj: cliente.cnpj || '',
+      razaoSocial: cliente.razaoSocial || '',
+      nomeFantasia: cliente.nomeFantasia || '',
+      telefone: cliente.telefone || '',
+      email: cliente.email || '',
+      cidade: cliente.cidade || '',
+      bairro: cliente.bairro || '',
+      cep: cliente.cep || '',
+      responsavel: cliente.responsavel || '',
+      dataVencimento: cliente.dataVencimento || '',
+      valor: cliente.valor || '',
+      servico: cliente.servico || '',
+      status: cliente.status || 'ativo'
+    });
+    setShowClienteModal(true);
+    fecharMenu();
+  };
+
+  const fecharModalCliente = () => {
+    setShowClienteModal(false);
+    setClienteParaEditar(null);
+    setFormDataCliente({
+      cnpj: '',
+      razaoSocial: '',
+      nomeFantasia: '',
+      telefone: '',
+      email: '',
+      cidade: '',
+      bairro: '',
+      cep: '',
+      responsavel: '',
+      dataVencimento: '',
+      valor: '',
+      servico: '',
+      status: 'ativo'
+    });
+  };
+
+  const handleSalvarCliente = async () => {
+    if (!clienteParaEditar?.id) return;
+
+    try {
+      setLoadingCliente(true);
+      await clientesService.update(clienteParaEditar.id, formDataCliente);
+      await loadClientes(); // Recarregar clientes
+      fecharModalCliente();
+      alert('Cliente atualizado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao atualizar cliente:', error);
+      alert('Erro ao atualizar cliente');
+    } finally {
+      setLoadingCliente(false);
+    }
+  };
+
+  const abrirModalVencimento = (cliente: any) => {
+    setMensalidadeParaEditar(cliente);
+    // Extrair dia atual do vencimento
+    const diaAtual = cliente.dataVencimento ? 
+      (() => {
+        try {
+          const data = new Date(cliente.dataVencimento);
+          return data.getDate().toString();
+        } catch {
+          return '';
+        }
+      })() : '';
+    setNovoVencimento(diaAtual);
+    setShowVencimentoModal(true);
+    fecharMenu();
+  };
+
+  const abrirModalValor = (cliente: any) => {
+    setMensalidadeParaEditar(cliente);
+    setNovoValor(cliente.valorMensalidade ? formatCurrency(cliente.valorMensalidade) : '');
+    setShowValorModal(true);
+    fecharMenu();
+  };
+
+  const fecharModalVencimento = () => {
+    setShowVencimentoModal(false);
+    setMensalidadeParaEditar(null);
+    setNovoVencimento('');
+  };
+
+  const fecharModalValor = () => {
+    setShowValorModal(false);
+    setMensalidadeParaEditar(null);
+    setNovoValor('');
+  };
+
+  const handleSalvarVencimento = async () => {
+    if (!mensalidadeParaEditar || !novoVencimento) {
+      return;
+    }
+
+    const mensalidadeId = mensalidadeParaEditar.mensalidadeId;
     
+    if (!mensalidadeId) {
+      alert('Erro: ID da mensalidade não encontrado');
+      return;
+    }
 
-    // const hoje = new Date();
-    // const isDataFutura = dataInicio > hoje;
+    const dia = parseInt(novoVencimento);
+    
+    if (dia < 1 || dia > 31) {
+      alert('Por favor, informe um dia válido (1 a 31).');
+      return;
+    }
 
-    // Processar cada cliente e gerar mensalidades para o período
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mensalidadesProcessadas: any[] = [];
-
-    clientes.forEach((cliente) => {
-      // Data de criação do cliente (converter Timestamp/string se necessário)
-      const dataCriacaoClienteParsed = toDate(cliente.createdAt) || new Date();
-      // Zerar horas para comparações corretas
-      const dataCriacaoCliente = new Date(
-        dataCriacaoClienteParsed.getFullYear(),
-        dataCriacaoClienteParsed.getMonth(),
-        dataCriacaoClienteParsed.getDate()
-      );
+    try {
+      setLoadingMensalidade(true);
       
-      // Só processar se o cliente foi criado antes ou durante o período filtrado
-      if (dataCriacaoCliente > dataFim) {
-        return; // Cliente foi criado depois do período, pular
-      }
+      // Atualizar mensalidade existente
+      const mensalidade = mensalidades.find(m => m.id === mensalidadeId);
       
-      // Determinar data de início para este cliente específico
-      const dataInicioCliente = dataCriacaoCliente > dataInicio ? dataCriacaoCliente : dataInicio;
-      
-      
-      // Gerar mensalidades para cada mês no período (a partir da criação do cliente)
-      const dataAtual = new Date(dataInicioCliente);
-      
-      while (dataAtual <= dataFim) {
-        const mes = dataAtual.getMonth();
-        const ano = dataAtual.getFullYear();
+      if (mensalidade) {
+        const novaDataVencimento = new Date(mensalidade.dataVencimento);
+        novaDataVencimento.setDate(dia);
         
-        
-        // Buscar mensalidade específica do banco para este mês/ano
-        const mensalidadeDoMes = mensalidades.find(m => 
-          m.clienteId === cliente.id &&
-          m.dataVencimento.getMonth() === mes &&
-          m.dataVencimento.getFullYear() === ano
-        );
-
-
-        let statusMensalidade = 'sem_mensalidade';
-        let valorMensalidade = 0;
-        let dataVencimento: Date | null = null;
-        let mensalidadeId = '';
-        let multaPercentual: number | undefined = undefined;
-
-        if (mensalidadeDoMes) {
-          console.log('Mensalidade encontrada no banco para:', cliente.razaoSocial, 'mês:', mes + 1, 'ano:', ano);
-          console.log('Data da mensalidade no banco:', mensalidadeDoMes.dataVencimento.toLocaleDateString('pt-BR'));
-          
-          // Verificar se a data de vencimento da mensalidade está correta
-          // Extrair o dia correto do cliente
-          let diaVencimentoCorreto = 1;
-          if (cliente.dataVencimento) {
-            const dv = String(cliente.dataVencimento).trim();
-            if (dv.includes('-')) {
-              const parts = dv.split('-');
-              if (parts.length >= 3) {
-                const dia = parseInt(parts[2], 10);
-                if (!isNaN(dia) && dia >= 1 && dia <= 31) {
-                  diaVencimentoCorreto = dia;
-                }
-              }
-            } else if (/^\d+$/.test(dv)) {
-              const dia = parseInt(dv, 10);
-              if (dia >= 1 && dia <= 31) {
-                diaVencimentoCorreto = dia;
-              }
-            }
-          }
-          
-          // Ajustar o dia para não ultrapassar o último dia do mês
-          const ultimoDiaMes = new Date(ano, mes + 1, 0).getDate();
-          const diaVencimentoAjustado = Math.max(1, Math.min(diaVencimentoCorreto, ultimoDiaMes));
-          
-          // Verificar se a data da mensalidade está correta
-          const dataVencimentoCorreta = new Date(ano, mes, diaVencimentoAjustado);
-          const dataVencimentoAtual = new Date(mensalidadeDoMes.dataVencimento);
-          
-          console.log('Comparação de datas:', {
-            dataAtual: dataVencimentoAtual.toLocaleDateString('pt-BR'),
-            dataCorreta: dataVencimentoCorreta.toLocaleDateString('pt-BR'),
-            diaAtual: dataVencimentoAtual.getDate(),
-            diaCorreto: dataVencimentoCorreta.getDate(),
-            mesAtual: dataVencimentoAtual.getMonth(),
-            mesCorreto: dataVencimentoCorreta.getMonth()
-          });
-          
-          if (dataVencimentoAtual.getDate() !== dataVencimentoCorreta.getDate() || 
-              dataVencimentoAtual.getMonth() !== dataVencimentoCorreta.getMonth()) {
-            console.log('Data incorreta detectada, usando data correta');
-            // Atualizar a data de vencimento da mensalidade
-            dataVencimento = dataVencimentoCorreta;
-          } else {
-            dataVencimento = mensalidadeDoMes.dataVencimento;
-          }
-          
-          // Se há mensalidade específica para o mês
-          statusMensalidade = mensalidadeDoMes.status;
-          valorMensalidade = mensalidadeDoMes.valor;
-          mensalidadeId = mensalidadeDoMes.id;
-          multaPercentual = mensalidadeDoMes.multaPercentual;
-          
-          console.log('Status da mensalidade após recarregamento:', statusMensalidade);
-          console.log('Dados completos da mensalidade:', {
-            id: mensalidadeDoMes.id,
-            status: mensalidadeDoMes.status,
-            dataPagamento: mensalidadeDoMes.dataPagamento,
-            valor: mensalidadeDoMes.valor
-          });
-        } else {
-          // Se não há mensalidade específica, usar dados do cadastro do cliente
-          // Extrair o dia da data de vencimento cadastrada
-          let diaVencimentoBase = 1; // Valor padrão
-          
-          try {
-            if (cliente.dataVencimento) {
-              const dv = String(cliente.dataVencimento).trim();
-              
-              if (dv.includes('-')) {
-                // Formato antigo: YYYY-MM-DD
-                const parts = dv.split('-');
-                if (parts.length >= 3) {
-                  const dia = parseInt(parts[2], 10);
-                  if (!isNaN(dia) && dia >= 1 && dia <= 31) {
-                    diaVencimentoBase = dia;
-                  }
-                }
-              } else if (/^\d+$/.test(dv)) {
-                // Formato novo: apenas o dia (apenas números)
-                const dia = parseInt(dv, 10);
-                if (dia >= 1 && dia <= 31) {
-                  diaVencimentoBase = dia;
-                }
-              }
-            }
-          } catch (error) {
-            console.error('Erro ao processar dataVencimento:', error);
-            diaVencimentoBase = 1;
-          }
-          
-          // Criar data de vencimento baseada no dia extraído do mês de referência
-          // Ajustar para não ultrapassar o último dia do mês
-          const ultimoDiaMes = new Date(ano, mes + 1, 0).getDate();
-          const diaVencimento = Math.max(1, Math.min(diaVencimentoBase, ultimoDiaMes));
-          const dataVencimentoCliente = new Date(ano, mes, diaVencimento);
-          
-          // Verificar se a data de vencimento é futura
-          const hoje = new Date();
-          hoje.setHours(0, 0, 0, 0);
-          dataVencimentoCliente.setHours(0, 0, 0, 0);
-          
-          if (dataVencimentoCliente > hoje) {
-            // Data futura: sempre "aberto" (previsão)
-            statusMensalidade = 'aberto';
-          } else if (dataVencimentoCliente < hoje) {
-            // Data passada: "vencido"
-            statusMensalidade = 'vencido';
-          } else {
-            // Data de hoje: "aberto"
-            statusMensalidade = 'aberto';
-          }
-          
-          valorMensalidade = parseFloat(cliente.valor.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
-          dataVencimento = dataVencimentoCliente;
-        }
-
-        // Garantir lógica de PREVISÃO: para datas futuras, considerar como "aberto"
-        // APENAS se não for uma mensalidade já paga no banco
-        if (dataVencimento) {
-          const hojeCheck = new Date();
-          hojeCheck.setHours(0, 0, 0, 0);
-          const vencZero = new Date(dataVencimento);
-          vencZero.setHours(0, 0, 0, 0);
-          if (vencZero > hojeCheck) {
-            // Só sobrescrever para "aberto" se não for uma mensalidade já paga no banco
-            if (!mensalidadeDoMes || mensalidadeDoMes.status !== 'pago') {
-              statusMensalidade = 'aberto';
-              multaPercentual = undefined;
-            }
-          }
-        }
-
-        console.log('Status final antes de adicionar ao array:', statusMensalidade, 'para cliente:', cliente.razaoSocial, 'mês:', mes + 1);
-        
-        mensalidadesProcessadas.push({
-          ...cliente,
-          statusMensalidade,
-          valorMensalidade,
-          dataVencimento: dataVencimento ? dataVencimento.toISOString() : '',
-          mensalidadeId,
-          multaPercentual,
-          mesReferencia: `${mes + 1}/${ano}`,
-          // Adicionar ID único para cada mensalidade
-          mensalidadeUnicaId: `${cliente.id}_${ano}_${mes + 1}`
+        await mensalidadesService.update(mensalidadeId, {
+          dataVencimento: novaDataVencimento
         });
-
-        // Próximo mês
-        dataAtual.setMonth(dataAtual.getMonth() + 1);
       }
+      
+      await loadMensalidades();
+      fecharModalVencimento();
+      alert('Data de vencimento alterada com sucesso!');
+    } catch (error) {
+      console.error('Erro ao alterar vencimento:', error);
+      alert('Erro ao alterar data de vencimento: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setLoadingMensalidade(false);
+    }
+  };
+
+  const handleSalvarValor = async () => {
+    if (!mensalidadeParaEditar || !novoValor) return;
+
+    const mensalidadeId = mensalidadeParaEditar.mensalidadeId;
+    
+    if (!mensalidadeId) {
+      alert('Erro: ID da mensalidade não encontrado');
+      return;
+    }
+
+    const valorNumerico = parseFloat(novoValor.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    if (valorNumerico <= 0) {
+      alert('Por favor, informe um valor válido.');
+      return;
+    }
+
+    try {
+      setLoadingMensalidade(true);
+      
+      // Atualizar mensalidade existente
+      await mensalidadesService.update(mensalidadeId, {
+        valor: valorNumerico
+      });
+      
+      await loadMensalidades();
+      fecharModalValor();
+      alert('Valor alterado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao alterar valor:', error);
+      alert('Erro ao alterar valor');
+    } finally {
+      setLoadingMensalidade(false);
+    }
+  };
+
+  const handleValorChange = (value: string) => {
+    // Formatar valor monetário
+    const numberValue = parseFloat(value.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    const formattedValue = new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(numberValue);
+    
+    setNovoValor(formattedValue);
+  };
+
+  const processarClientesComStatus = () => {
+    // Processar diretamente as mensalidades do banco de dados
+    const mensalidadesProcessadas = mensalidades.map(mensalidade => {
+      // Buscar dados do cliente para informações adicionais
+      const cliente = clientes.find(c => c.id === mensalidade.clienteId);
+      
+      // Calcular mês/ano de referência
+      const dataVencimento = mensalidade.dataVencimento instanceof Date 
+        ? mensalidade.dataVencimento 
+        : new Date(mensalidade.dataVencimento);
+      
+      return {
+        // Dados da mensalidade (principais)
+        id: mensalidade.id,
+        mensalidadeId: mensalidade.id,
+        statusMensalidade: mensalidade.status,
+        valorMensalidade: mensalidade.valor,
+        dataVencimento: dataVencimento.toISOString(),
+        dataPagamento: mensalidade.dataPagamento ? 
+          (mensalidade.dataPagamento instanceof Date 
+            ? mensalidade.dataPagamento.toISOString() 
+            : mensalidade.dataPagamento) : null,
+        multaPercentual: mensalidade.multaPercentual,
+        numeroParcela: mensalidade.numeroParcela,
+        totalParcelas: mensalidade.totalParcelas,
+        observacoes: mensalidade.observacoes,
+        mesReferencia: `${getMesAbreviado(dataVencimento.getMonth())}/${dataVencimento.getFullYear()}`,
+        mensalidadeUnicaId: mensalidade.id,
+        
+        // Dados do cliente (para exibição)
+        razaoSocial: cliente?.razaoSocial || mensalidade.clienteNome,
+        nomeFantasia: cliente?.nomeFantasia || '',
+        telefone: cliente?.telefone || '',
+        email: cliente?.email || '',
+        cidade: cliente?.cidade || '',
+        bairro: cliente?.bairro || '',
+        cep: cliente?.cep || '',
+        responsavel: cliente?.responsavel || '',
+        servico: cliente?.servico || '',
+        status: cliente?.status || 'ativo',
+        motivoStatus: cliente?.motivoStatus || '',
+        estagiariosVinculados: cliente?.estagiariosVinculados || [],
+        createdAt: cliente?.createdAt || new Date(),
+        updatedAt: cliente?.updatedAt || new Date()
+      };
     });
 
-    // Usar mensalidades processadas em vez de clientes processados
-    const clientesProcessados = mensalidadesProcessadas;
-
     // Aplicar filtros
-    let filtrados = clientesProcessados;
+    let filtrados = mensalidadesProcessadas;
+
+    // Filtro por data (se especificado)
+    if (filtroDataInicio || filtroDataFim) {
+      filtrados = filtrados.filter(item => {
+        const dataVencimento = new Date(item.dataVencimento);
+        
+        if (filtroDataInicio && filtroDataFim) {
+          const dataInicio = new Date(filtroDataInicio + 'T00:00:00');
+          const dataFim = new Date(filtroDataFim + 'T23:59:59');
+          return dataVencimento >= dataInicio && dataVencimento <= dataFim;
+        } else if (filtroDataInicio) {
+          const dataInicio = new Date(filtroDataInicio + 'T00:00:00');
+          return dataVencimento >= dataInicio;
+        } else if (filtroDataFim) {
+          const dataFim = new Date(filtroDataFim + 'T23:59:59');
+          return dataVencimento <= dataFim;
+        }
+        
+        return true;
+      });
+    }
 
     // Filtro por cliente (nome)
     if (filtroCliente) {
@@ -320,47 +439,11 @@ export default function Mensalidades() {
     try {
       setLoadingAction(true);
       
-      console.log('Marcando como pago - ID:', id);
-      console.log('É mensalidade gerada?', id.startsWith('gerada_'));
-      
-      // Se é uma mensalidade gerada automaticamente, criar no banco
-      if (id.startsWith('gerada_')) {
-        // Encontrar a mensalidade gerada nos dados processados
-        const mensalidadeGerada = clientesComStatus.find(c => c.mensalidadeId === id);
-        console.log('Mensalidade gerada encontrada:', mensalidadeGerada);
-        
-        if (mensalidadeGerada) {
-          const novaMensalidade = {
-            clienteId: mensalidadeGerada.id,
-            clienteNome: mensalidadeGerada.razaoSocial,
-            dataVencimento: mensalidadeGerada.dataVencimento,
-            valor: mensalidadeGerada.valorMensalidade,
-            multaPercentual: mensalidadeGerada.multaPercentual,
-            status: 'pago' as const,
-            dataPagamento: new Date(),
-            observacoes: 'Marcado como pago via sistema'
-          };
-          
-          console.log('Criando nova mensalidade no banco:', novaMensalidade);
-          await mensalidadesService.create(novaMensalidade);
-          console.log('Mensalidade criada com sucesso!');
-        } else {
-          console.error('Mensalidade gerada não encontrada nos dados processados');
-          alert('Erro: Mensalidade não encontrada');
-          return;
-        }
-      } else {
-        // Se é uma mensalidade existente, apenas marcar como pago
-        console.log('Atualizando mensalidade existente no banco');
-        await mensalidadesService.marcarComoPago(id);
-        console.log('Mensalidade atualizada com sucesso!');
-      }
+      // Marcar mensalidade existente como paga
+      await mensalidadesService.marcarComoPago(id, new Date());
       
       // Recarregar mensalidades
-      console.log('Recarregando dados...');
       await loadMensalidades();
-      console.log('Dados recarregados');
-      console.log('Total de clientes após recarregamento:', clientesComStatus.length);
     } catch (error) {
       console.error('Erro ao marcar mensalidade como paga:', error);
       alert('Erro ao marcar mensalidade como paga: ' + (error instanceof Error ? error.message : String(error)));
@@ -430,17 +513,20 @@ export default function Mensalidades() {
       // Preparar dados da tabela
       const tableData = clientesComStatus.map(cliente => [
         cliente.razaoSocial,
+        cliente.observacoes || '-',
+        cliente.numeroParcela && cliente.totalParcelas ? 
+          `${cliente.numeroParcela}/${cliente.totalParcelas}` : '-',
         cliente.mesReferencia || '-',
         cliente.dataVencimento ? formatarData(cliente.dataVencimento) : '-',
         cliente.valorMensalidade > 0 ? formatCurrency(cliente.valorMensalidade) : '-',
         getStatusText(cliente.statusMensalidade),
-        getDiasVencimentoText(cliente.dataVencimento)
+        cliente.dataPagamento ? formatarData(cliente.dataPagamento) : '-'
       ]);
       
       // Configurações da tabela
       const tableConfig = {
         startY: 115,
-        head: [['Cliente', 'Mês/Ano', 'Data Vencimento', 'Valor', 'Status', 'Situação']],
+        head: [['Cliente', 'Descrição (Observações)', 'Parcela', 'Mês/Ano', 'Data Vencimento', 'Valor', 'Status', 'Data Pagamento']],
         body: tableData,
         styles: {
           fontSize: 8,
@@ -455,12 +541,14 @@ export default function Mensalidades() {
           fillColor: [245, 245, 245],
         },
         columnStyles: {
-          0: { cellWidth: 40 }, // Cliente
-          1: { cellWidth: 20 }, // Mês/Ano
-          2: { cellWidth: 25 }, // Data Vencimento
-          3: { cellWidth: 25 }, // Valor
-          4: { cellWidth: 20 }, // Status
-          5: { cellWidth: 30 }, // Situação
+          0: { cellWidth: 30 }, // Cliente
+          1: { cellWidth: 25 }, // Descrição (Observações)
+          2: { cellWidth: 12 }, // Parcela
+          3: { cellWidth: 15 }, // Mês/Ano
+          4: { cellWidth: 20 }, // Data Vencimento
+          5: { cellWidth: 20 }, // Valor
+          6: { cellWidth: 15 }, // Status
+          7: { cellWidth: 20 }, // Data Pagamento
         },
         margin: { left: 14, right: 14 },
       };
@@ -484,8 +572,16 @@ export default function Mensalidades() {
     }
   };
 
-  const formatarData = (data: Date) => {
-    return data.toLocaleDateString('pt-BR');
+  const formatarData = (data: Date | string) => {
+    try {
+      if (typeof data === 'string') {
+        return new Date(data).toLocaleDateString('pt-BR');
+      }
+      return data.toLocaleDateString('pt-BR');
+    } catch (error) {
+      console.error('Erro ao formatar data:', error);
+      return String(data);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -518,6 +614,8 @@ export default function Mensalidades() {
     }
   };
 
+  // Função removida - não utilizada
+  /*
   const getDiasVencimentoText = (dataVencimento: Date | string | null) => {
     if (!dataVencimento) {
       return 'Sem data';
@@ -553,6 +651,7 @@ export default function Mensalidades() {
       return `Vence em ${dias} dias`;
     }
   };
+  */
 
   // const clientesUnicos = Array.from(new Set(clientes.map(c => c.razaoSocial).filter(razao => razao))).sort();
 
@@ -581,7 +680,6 @@ export default function Mensalidades() {
   const abrirModalMulta = (cliente: Cliente) => {
     setClienteParaMulta(cliente);
     // Se já tem multa aplicada, mostrar o percentual atual, senão deixar vazio
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setMultaPercentual((cliente as any).multaPercentual ? (cliente as any).multaPercentual.toString() : '');
     setShowMultaModal(true);
   };
@@ -596,49 +694,17 @@ export default function Mensalidades() {
 
     try {
       setLoadingAction(true);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const novoValor = Math.round(((clienteParaMulta as any).valorMensalidade * (1 + perc / 100)) * 100) / 100;
-      
-      console.log('Aplicando multa:', {
-        cliente: clienteParaMulta.razaoSocial,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        valorOriginal: (clienteParaMulta as any).valorMensalidade,
-        percentual: perc,
-        novoValor,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        mensalidadeId: (clienteParaMulta as any).mensalidadeId
-      });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if ((clienteParaMulta as any).mensalidadeId) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        console.log('Atualizando mensalidade existente:', (clienteParaMulta as any).mensalidadeId);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await mensalidadesService.update((clienteParaMulta as any).mensalidadeId, {
           valor: novoValor,
           multaPercentual: perc,
           observacoes: `Multa de ${perc}% aplicada em ${new Date().toLocaleDateString('pt-BR')}`
         });
-        console.log('Mensalidade atualizada com sucesso');
-      } else {
-        console.log('Criando nova mensalidade com multa');
-        // Mensalidade gerada virtualmente: criar registro com status vencido
-        await mensalidadesService.create({
-          clienteId: clienteParaMulta.id || '',
-          clienteNome: clienteParaMulta.razaoSocial,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          dataVencimento: new Date((clienteParaMulta as any).dataVencimento),
-          valor: novoValor,
-          multaPercentual: perc,
-          status: 'vencido',
-          observacoes: `Multa de ${perc}% aplicada em ${new Date().toLocaleDateString('pt-BR')}`
-        });
-        console.log('Nova mensalidade criada com sucesso');
       }
 
-      console.log('Recarregando dados...');
       await loadMensalidades();
-      console.log('Dados recarregados');
       
       setShowMultaModal(false);
       setClienteParaMulta(null);
@@ -1051,6 +1117,12 @@ export default function Mensalidades() {
                         Cliente
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Descrição (Observações)
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Parcela
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Mês/Ano
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -1063,7 +1135,7 @@ export default function Mensalidades() {
                         Status
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Situação
+                        Data Pagamento
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Ações
@@ -1081,6 +1153,29 @@ export default function Mensalidades() {
                             <div className="text-sm text-gray-500 dark:text-gray-400">
                               {cliente.nomeFantasia}
                             </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                              <a
+                                href={`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 hover:underline cursor-pointer"
+                              >
+                                📱 {cliente.telefone}
+                              </a>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-gray-900 dark:text-gray-100">
+                            {cliente.observacoes || '-'}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900 dark:text-gray-100">
+                            {cliente.numeroParcela && cliente.totalParcelas ? 
+                              `${cliente.numeroParcela}/${cliente.totalParcelas}` : 
+                              '-'
+                            }
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1092,14 +1187,28 @@ export default function Mensalidades() {
                           <div className="text-sm text-gray-900 dark:text-gray-100">
                             {cliente.dataVencimento ? 
                               (() => {
-                                const dv = String(cliente.dataVencimento).trim();
-                                if (dv.includes('-')) {
-                                  // Formato YYYY-MM-DD - extrair apenas o dia
-                                  const parts = dv.split('-');
-                                  return parts[2] || dv;
-                                } else {
-                                  // Formato DD - retornar como está
+                                try {
+                                  // Se é uma string ISO, converter para Date e formatar
+                                  if (typeof cliente.dataVencimento === 'string' && cliente.dataVencimento.includes('T')) {
+                                    const data = new Date(cliente.dataVencimento);
+                                    return data.toLocaleDateString('pt-BR');
+                                  }
+                                  
+                                  // Se é apenas o dia (formato antigo)
+                                  const dv = String(cliente.dataVencimento).trim();
+                                  if (dv.includes('-')) {
+                                    // Formato YYYY-MM-DD - extrair apenas o dia
+                                    const parts = dv.split('-');
+                                    return parts[2] || dv;
+                                  } else if (/^\d+$/.test(dv)) {
+                                    // Formato DD - retornar como está
+                                    return dv;
+                                  }
+                                  
                                   return dv;
+                                } catch (error) {
+                                  console.error('Erro ao formatar data de vencimento:', error);
+                                  return String(cliente.dataVencimento);
                                 }
                               })()
                               : '-'
@@ -1129,56 +1238,111 @@ export default function Mensalidades() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900 dark:text-gray-100">
-                            {getDiasVencimentoText(cliente.dataVencimento)}
+                            {cliente.dataPagamento ? 
+                              (() => {
+                                try {
+                                  const data = new Date(cliente.dataPagamento);
+                                  return data.toLocaleDateString('pt-BR');
+                                } catch (error) {
+                                  console.error('Erro ao formatar data de pagamento:', error);
+                                  return String(cliente.dataPagamento);
+                                }
+                              })()
+                              : '-'
+                            }
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex flex-col space-y-2">
-                          <button 
-                              className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300"
-                              onClick={() => router.push(`/cliente-detalhes?id=${cliente.id}`)}
-                          >
-                            Ver Cliente
-                          </button>
-                            
-                            {/* Botões de Status */}
-                            <div className="flex flex-col space-y-1">
-                              {cliente.statusMensalidade === 'pago' ? (
-                                <button 
-                                  className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-                                  onClick={() => marcarComoNaoPago(cliente.mensalidadeId)}
-                                  disabled={loadingAction}
-                                >
-                                  {loadingAction ? (
-                                    <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
-                                  ) : (
-                                    'Marcar como Não Pago'
-                                  )}
-                                </button>
-                              ) : (
-                                <button 
-                                  className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-                                  onClick={() => marcarComoPago(cliente.mensalidadeId)}
-                                  disabled={loadingAction}
-                                >
-                                  {loadingAction ? (
-                                    <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
-                                  ) : (
-                                    'Marcar como Pago'
-                                  )}
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Multa para vencidos */}
-                            {cliente.statusMensalidade === 'vencido' && (
-                              <button
-                                className="text-orange-600 dark:text-orange-400 hover:text-orange-900 dark:hover:text-orange-300 text-xs"
-                                onClick={() => abrirModalMulta(cliente)}
-                              >
-                                Multa
+                          <div className="relative">
+                            <button
+                              onClick={(e) => toggleMenu(cliente.mensalidadeUnicaId || cliente.id, e)}
+                              className="menu-button p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700"
+                            >
+                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                              </svg>
                             </button>
-                          )}
+
+                            {/* Menu Dropdown */}
+                            {menuAberto === (cliente.mensalidadeUnicaId || cliente.id) && (
+                              <div 
+                                className="menu-dropdown fixed w-48 bg-white dark:bg-slate-800 rounded-md shadow-lg z-50 border border-gray-200 dark:border-gray-700"
+                                style={{
+                                  left: `${menuPosition.x}px`,
+                                  top: `${menuPosition.y}px`,
+                                  transform: 'translate(-50%, 10px)' // Centralizar horizontalmente e dar um pequeno offset vertical
+                                }}
+                              >
+                                <div className="py-1">
+                                  <button
+                                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                    onClick={() => abrirModalCliente(cliente)}
+                                  >
+                                    Editar Cliente
+                                  </button>
+                                  
+                                  {cliente.statusMensalidade === 'pago' ? (
+                                    <button 
+                                      className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      onClick={() => {
+                                        marcarComoNaoPago(cliente.mensalidadeId);
+                                        fecharMenu();
+                                      }}
+                                      disabled={loadingAction}
+                                    >
+                                      {loadingAction ? (
+                                        <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
+                                      ) : null}
+                                      Marcar como Não Pago
+                                    </button>
+                                  ) : (
+                                    <button 
+                                      className="block w-full text-left px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      onClick={() => {
+                                        marcarComoPago(cliente.mensalidadeId);
+                                        fecharMenu();
+                                      }}
+                                      disabled={loadingAction}
+                                    >
+                                      {loadingAction ? (
+                                        <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
+                                      ) : null}
+                                      Marcar como Pago
+                                    </button>
+                                  )}
+
+                                  {cliente.statusMensalidade === 'vencido' && (
+                                    <button
+                                      className="block w-full text-left px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                      onClick={() => {
+                                        abrirModalMulta(cliente);
+                                        fecharMenu();
+                                      }}
+                                    >
+                                      Aplicar Multa
+                                    </button>
+                                  )}
+
+                                  {cliente.statusMensalidade !== 'pago' && (
+                                    <>
+                                      <button
+                                        className="block w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                        onClick={() => abrirModalVencimento(cliente)}
+                                      >
+                                        Alterar Vencimento
+                                      </button>
+
+                                      <button
+                                        className="block w-full text-left px-4 py-2 text-sm text-purple-600 dark:text-purple-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                        onClick={() => abrirModalValor(cliente)}
+                                      >
+                                        Alterar Valor
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1197,12 +1361,340 @@ export default function Mensalidades() {
         </main>
       </div>
 
+      {/* Modal de Edição do Cliente */}
+      {showClienteModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                Editar Cliente
+              </h3>
+              <button
+                onClick={fecharModalCliente}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  CNPJ *
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.cnpj}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, cnpj: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Razão Social *
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.razaoSocial}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, razaoSocial: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Nome Fantasia
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.nomeFantasia}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, nomeFantasia: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Telefone *
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.telefone}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, telefone: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Email *
+                </label>
+                <input
+                  type="email"
+                  value={formDataCliente.email}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, email: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Cidade *
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.cidade}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, cidade: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Bairro *
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.bairro}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, bairro: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  CEP *
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.cep}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, cep: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Responsável *
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.responsavel}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, responsavel: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Dia de Vencimento
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={formDataCliente.dataVencimento}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, dataVencimento: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                  placeholder="Ex: 15"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Valor
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.valor}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, valor: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                  placeholder="Ex: R$ 1.200,00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Serviço
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.servico}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, servico: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                  placeholder="Ex: Consultoria em TI"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Status *
+                </label>
+                <select
+                  value={formDataCliente.status}
+                  onChange={(e) => setFormDataCliente({...formDataCliente, status: e.target.value as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo'})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="ativo">Ativo</option>
+                  <option value="em-andamento">Em andamento</option>
+                  <option value="bloqueado">Bloqueado</option>
+                  <option value="inativo">Inativo</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                onClick={fecharModalCliente}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSalvarCliente}
+                disabled={loadingCliente || !formDataCliente.cnpj || !formDataCliente.razaoSocial || !formDataCliente.telefone || !formDataCliente.email || !formDataCliente.cidade || !formDataCliente.bairro || !formDataCliente.cep || !formDataCliente.responsavel}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingCliente ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Salvar'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Alterar Vencimento */}
+      {showVencimentoModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                Alterar Data de Vencimento
+              </h3>
+              <button
+                onClick={fecharModalVencimento}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar?.razaoSocial}</span>
+              </p>
+              
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Novo Dia de Vencimento *
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="31"
+                value={novoVencimento}
+                onChange={(e) => setNovoVencimento(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                placeholder="Ex: 15"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Digite apenas o dia do mês (1 a 31)
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={fecharModalVencimento}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSalvarVencimento}
+                disabled={loadingMensalidade || !novoVencimento}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMensalidade ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Salvar'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Alterar Valor */}
+      {showValorModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                Alterar Valor
+              </h3>
+              <button
+                onClick={fecharModalValor}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar?.razaoSocial}</span>
+              </p>
+              
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Novo Valor *
+              </label>
+              <input
+                type="text"
+                value={novoValor}
+                onChange={(e) => handleValorChange(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                placeholder="Ex: R$ 1.200,00"
+              />
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={fecharModalValor}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSalvarValor}
+                disabled={loadingMensalidade || !novoValor}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMensalidade ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Salvar'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showMultaModal && (
         <div className="fixed inset-0 bg-black/40 dark:bg-slate-900/80 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
-                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                 {(clienteParaMulta as any)?.multaPercentual ? 'Editar Multa' : 'Aplicar Multa'}
               </h3>
               <button
@@ -1217,14 +1709,13 @@ export default function Mensalidades() {
               Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{clienteParaMulta?.razaoSocial}</span>
             </p>
 
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             {(clienteParaMulta as any)?.multaPercentual && (
               <div className="mb-4 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
                 <p className="text-sm text-orange-800 dark:text-orange-200">
-                  <span className="font-medium">Multa atual:</span> {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}{(clienteParaMulta as any).multaPercentual}%
+                  <span className="font-medium">Multa atual:</span> {(clienteParaMulta as any).multaPercentual}%
                 </p>
                 <p className="text-sm text-orange-800 dark:text-orange-200">
-                  <span className="font-medium">Valor atual:</span> {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}{formatCurrency((clienteParaMulta as any).valorMensalidade)}
+                  <span className="font-medium">Valor atual:</span> {formatCurrency((clienteParaMulta as any).valorMensalidade)}
                 </p>
               </div>
             )}

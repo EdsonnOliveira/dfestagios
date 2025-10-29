@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import PainelHeader from '../components/PainelHeader';
@@ -27,8 +26,17 @@ export default function ClienteDetalhes() {
   const [loadingCadastrar, setLoadingCadastrar] = useState(false);
   const [loadingMensalidade, setLoadingMensalidade] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'estagiarios' | 'financeiro'>('info');
-  const [showMensalidadeModal, setShowMensalidadeModal] = useState(false);
-  const [isEditandoMensalidade, setIsEditandoMensalidade] = useState(false);
+  const [showPlanoModal, setShowPlanoModal] = useState(false);
+  const [menuAberto, setMenuAberto] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+  const [showMultaModal, setShowMultaModal] = useState(false);
+  const [multaPercentual, setMultaPercentual] = useState<string>('');
+  const [mensalidadeParaMulta, setMensalidadeParaMulta] = useState<Mensalidade | null>(null);
+  const [showVencimentoModal, setShowVencimentoModal] = useState(false);
+  const [showValorModal, setShowValorModal] = useState(false);
+  const [mensalidadeParaEditar, setMensalidadeParaEditar] = useState<Mensalidade | null>(null);
+  const [novoVencimento, setNovoVencimento] = useState('');
+  const [novoValor, setNovoValor] = useState('');
   
   const [formDataEstagiario, setFormDataEstagiario] = useState({
     nome: '',
@@ -37,13 +45,16 @@ export default function ClienteDetalhes() {
     dataNascimento: ''
   });
 
-  const [formDataMensalidade, setFormDataMensalidade] = useState({
-    diaVencimento: '',
-    valor: '',
-    servico: ''
+  const [formDataPlano, setFormDataPlano] = useState({
+    descricaoServico: '',
+    dataPrimeiroVencimento: '',
+    periodoPagamento: 'mensal',
+    numeroParcelas: '12-parcelas',
+    valorParcela: ''
   });
 
-  // Normalizador seguro de datas (Date | string | Firestore Timestamp)
+  // Função removida - não utilizada
+  /*
   const toDate = (value: unknown): Date | null => {
     if (!value) return null;
     if (value instanceof Date) return value;
@@ -53,6 +64,7 @@ export default function ClienteDetalhes() {
     }
     return null;
   };
+  */
 
   useEffect(() => {
     if (id) {
@@ -79,6 +91,27 @@ export default function ClienteDetalhes() {
       setEstagiariosFiltrados(estagiariosDisponiveis);
     }
   }, [filtroEstagiario, estagiariosDisponiveis]);
+
+  // Fechar menu quando clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuAberto) {
+        const target = event.target as Element;
+        // Verificar se o clique foi fora do menu
+        if (!target.closest('.menu-dropdown') && !target.closest('.menu-button')) {
+          fecharMenu();
+        }
+      }
+    };
+
+    if (menuAberto) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [menuAberto]);
 
   const loadCliente = async () => {
     try {
@@ -121,14 +154,10 @@ export default function ClienteDetalhes() {
     try {
       setLoadingMensalidades(true);
       
-      if (id && cliente) {
-        // Buscar mensalidades específicas do banco
+      if (id) {
+        // Buscar apenas mensalidades específicas do banco para este cliente
         const mensalidadesData = await mensalidadesService.getByCliente(id as string);
-        
-        // Gerar mensalidades mensais desde a criação do cliente
-        const mensalidadesGeradas = gerarMensalidadesMensais(cliente, mensalidadesData);
-        
-        setMensalidades(mensalidadesGeradas);
+        setMensalidades(mensalidadesData);
       }
     } catch (error) {
       console.error('Erro ao carregar mensalidades:', error);
@@ -137,6 +166,8 @@ export default function ClienteDetalhes() {
     }
   };
 
+  // Função removida - não utilizada
+  /*
   const gerarMensalidadesMensais = (cliente: Cliente, mensalidadesExistentes: Mensalidade[]) => {
     if (!cliente.dataVencimento) {
       return mensalidadesExistentes;
@@ -229,12 +260,13 @@ export default function ClienteDetalhes() {
     // Ordenar por data de vencimento
     return mensalidades.sort((a, b) => {
       const dateA = a.dataVencimento instanceof Date ? a.dataVencimento : 
-                   (typeof a.dataVencimento === 'string' ? new Date(a.dataVencimento) : /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ (a.dataVencimento as any).toDate());
+                   (typeof a.dataVencimento === 'string' ? new Date(a.dataVencimento) : (a.dataVencimento as any).toDate());
       const dateB = b.dataVencimento instanceof Date ? b.dataVencimento : 
-                   (typeof b.dataVencimento === 'string' ? new Date(b.dataVencimento) : /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ (b.dataVencimento as any).toDate());
+                   (typeof b.dataVencimento === 'string' ? new Date(b.dataVencimento) : (b.dataVencimento as any).toDate());
       return dateA.getTime() - dateB.getTime();
     });
   };
+  */
 
   const handleVincular = () => {
     // Filtrar estagiários que não estão vinculados a este cliente
@@ -258,49 +290,26 @@ export default function ClienteDetalhes() {
     setShowCadastrarModal(true);
   };
 
-  // Função para verificar se o cliente tem dados de vencimento e valor
-  const clienteTemDadosFinanceiros = () => {
-    if (!cliente) return false;
-    
-    // Verifica se tem dataVencimento e valor preenchidos
-    const temDataVencimento = cliente.dataVencimento && cliente.dataVencimento.trim() !== '';
-    const temValor = cliente.valor && cliente.valor.trim() !== '';
-    
-    return temDataVencimento && temValor;
+
+  const handleAdicionarPlano = () => {
+    // Sempre inicia com formulário vazio para adicionar novo plano
+    setFormDataPlano({
+      descricaoServico: '',
+      dataPrimeiroVencimento: '',
+      periodoPagamento: 'mensal',
+      numeroParcelas: '12-parcelas',
+      valorParcela: ''
+    });
+    setShowPlanoModal(true);
   };
 
-  const handleAdicionarMensalidade = () => {
-    if (clienteTemDadosFinanceiros()) {
-      // Se já tem dados, carrega os dados existentes para edição
-      const diaVencimento = cliente?.dataVencimento || '';
-      const valor = cliente?.valor || '';
-      const servico = cliente?.servico || '';
-      
-      setFormDataMensalidade({
-        diaVencimento: diaVencimento,
-        valor: valor,
-        servico: servico
-      });
-      setIsEditandoMensalidade(true);
-    } else {
-      // Se não tem dados, inicia com formulário vazio
-      setFormDataMensalidade({
-        diaVencimento: '',
-        valor: '',
-        servico: ''
-      });
-      setIsEditandoMensalidade(false);
-    }
-    setShowMensalidadeModal(true);
-  };
-
-  const handleValorMensalidadeChange = (value: string) => {
+  const handleValorParcelaChange = (value: string) => {
     // Remove tudo que não é dígito
     const numericValue = value.replace(/\D/g, '');
     
     // Se estiver vazio, define como vazio
     if (!numericValue) {
-      setFormDataMensalidade({...formDataMensalidade, valor: ''});
+      setFormDataPlano({...formDataPlano, valorParcela: ''});
       return;
     }
     
@@ -313,23 +322,58 @@ export default function ClienteDetalhes() {
       currency: 'BRL'
     }).format(numberValue);
     
-    setFormDataMensalidade({...formDataMensalidade, valor: formattedValue});
+    setFormDataPlano({...formDataPlano, valorParcela: formattedValue});
   };
 
-  const handleSalvarMensalidade = async () => {
-    if (!formDataMensalidade.diaVencimento || !formDataMensalidade.valor) {
+  const encontrarProximaDataDisponivel = (dataInicio: Date, mensalidades: Mensalidade[], intervaloMeses: number, numeroParcelas: number): Date | null => {
+    // Criar um array com todas as datas ocupadas
+    const datasOcupadas = mensalidades
+      .filter(m => m.status !== 'pago')
+      .map(m => {
+        const data = m.dataVencimento instanceof Date ? m.dataVencimento : new Date(m.dataVencimento);
+        return {
+          mes: data.getMonth(),
+          ano: data.getFullYear()
+        };
+      });
+
+    // Tentar encontrar uma data de início que não cause conflitos
+    for (let tentativa = 0; tentativa < 24; tentativa++) { // Tentar até 2 anos à frente
+      const dataTeste = new Date(dataInicio);
+      dataTeste.setMonth(dataTeste.getMonth() + tentativa);
+      
+      let conflitoEncontrado = false;
+      
+      // Verificar se todas as parcelas do plano cabem sem conflito
+      for (let i = 0; i < numeroParcelas; i++) {
+        const dataParcela = new Date(dataTeste);
+        dataParcela.setMonth(dataParcela.getMonth() + (i * intervaloMeses));
+        
+        const mesParcela = dataParcela.getMonth();
+        const anoParcela = dataParcela.getFullYear();
+        
+        // Verificar se esta data está ocupada
+        const estaOcupada = datasOcupadas.some(ocupada => 
+          ocupada.mes === mesParcela && ocupada.ano === anoParcela
+        );
+        
+        if (estaOcupada) {
+          conflitoEncontrado = true;
+          break;
+        }
+      }
+      
+      if (!conflitoEncontrado) {
+        return dataTeste;
+      }
+    }
+    
+    return null; // Não foi possível encontrar uma data disponível
+  };
+
+  const handleSalvarPlano = async () => {
+    if (!formDataPlano.descricaoServico || !formDataPlano.dataPrimeiroVencimento || !formDataPlano.valorParcela) {
       alert('Por favor, preencha todos os campos obrigatórios.');
-      return;
-    }
-
-    if (!isEditandoMensalidade && !formDataMensalidade.servico.trim()) {
-      alert('Por favor, preencha o campo serviço.');
-      return;
-    }
-
-    const dia = parseInt(formDataMensalidade.diaVencimento);
-    if (dia < 1 || dia > 31) {
-      alert('Por favor, informe um dia válido (1 a 31).');
       return;
     }
 
@@ -341,52 +385,138 @@ export default function ClienteDetalhes() {
         return;
       }
 
-      // Converter valor para number
-      const valorNumerico = parseFloat(formDataMensalidade.valor.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
-      
-      if (isEditandoMensalidade) {
-        // Atualizar dados do cliente
-        await clientesService.update(id as string, {
-          dataVencimento: formDataMensalidade.diaVencimento,
-          valor: formDataMensalidade.valor,
-          servico: formDataMensalidade.servico.trim() || ''
+      // Verificar se já existe mensalidade em aberto para o mesmo mês/ano
+      const dataPrimeiroVencimento = new Date(formDataPlano.dataPrimeiroVencimento);
+
+      // Extrair número de parcelas
+      const numeroParcelas = (() => {
+        switch (formDataPlano.numeroParcelas) {
+          case 'a-vista': return 1;
+          case '3-parcelas': return 3;
+          case '6-parcelas': return 6;
+          case '9-parcelas': return 9;
+          case '12-parcelas': return 12;
+          case '18-parcelas': return 18;
+          case '24-parcelas': return 24;
+          case '36-parcelas': return 36;
+          case '48-parcelas': return 48;
+          case '60-parcelas': return 60;
+          case '72-parcelas': return 72;
+          case '84-parcelas': return 84;
+          case '96-parcelas': return 96;
+          case '108-parcelas': return 108;
+          case '120-parcelas': return 120;
+          default: return 1;
+        }
+      })();
+
+      // Determinar intervalo entre parcelas baseado no período de pagamento
+      const intervaloMeses = (() => {
+        switch (formDataPlano.periodoPagamento) {
+          case 'mensal': return 1;
+          case 'bimestral': return 2;
+          case 'trimestral': return 3;
+          case 'semestral': return 6;
+          case 'anual': return 12;
+          default: return 1;
+        }
+      })();
+
+      // Verificar conflitos para cada parcela do novo plano
+      for (let i = 0; i < numeroParcelas; i++) {
+        const dataVencimentoParcela = new Date(dataPrimeiroVencimento);
+        dataVencimentoParcela.setMonth(dataVencimentoParcela.getMonth() + (i * intervaloMeses));
+        
+        const mesParcela = dataVencimentoParcela.getMonth();
+        const anoParcela = dataVencimentoParcela.getFullYear();
+
+        // Verificar se já existe mensalidade em aberto para este mês/ano
+        const mensalidadeConflitante = mensalidades.find(mensalidade => {
+          const dataMensalidade = mensalidade.dataVencimento instanceof Date 
+            ? mensalidade.dataVencimento 
+            : new Date(mensalidade.dataVencimento);
+          
+          return dataMensalidade.getMonth() === mesParcela && 
+                 dataMensalidade.getFullYear() === anoParcela &&
+                 mensalidade.status !== 'pago';
         });
+
+        if (mensalidadeConflitante) {
+          const mesNome = dataVencimentoParcela.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+          
+          // Encontrar a próxima data disponível
+          const proximaDataDisponivel = encontrarProximaDataDisponivel(dataPrimeiroVencimento, mensalidades, intervaloMeses, numeroParcelas);
+          
+          if (proximaDataDisponivel) {
+            const proximaDataFormatada = proximaDataDisponivel.toLocaleDateString('pt-BR');
+            alert(`Já existe uma mensalidade em aberto para ${mesNome}. Sugestão: altere a data de início para ${proximaDataFormatada} para evitar conflitos.`);
+          } else {
+            alert(`Já existe uma mensalidade em aberto para ${mesNome}. Não é possível criar um novo plano com conflito de datas.`);
+          }
+          
+          setLoadingMensalidade(false);
+          return;
+        }
+      }
+
+      // Converter data para formato do banco (apenas o dia)
+      const dataVencimento = new Date(formDataPlano.dataPrimeiroVencimento).getDate().toString();
+      
+      // Converter valor para number
+      const valorNumerico = parseFloat(formDataPlano.valorParcela.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+
+      // Não atualizar dados do cliente - apenas criar mensalidades
+
+      // Gerar e salvar todas as mensalidades
+      const dataPrimeiroVencimentoParaCriacao = new Date(formDataPlano.dataPrimeiroVencimento);
+      
+      for (let i = 0; i < numeroParcelas; i++) {
+        // Calcular data de vencimento para esta parcela
+        const dataVencimentoParcela = new Date(dataPrimeiroVencimentoParaCriacao);
+        dataVencimentoParcela.setMonth(dataVencimentoParcela.getMonth() + (i * intervaloMeses));
         
-        // Recarregar dados do cliente
-        await loadCliente();
-        
-        setShowMensalidadeModal(false);
-        alert('Dados financeiros atualizados com sucesso!');
-      } else {
-        // Criar nova mensalidade
+        // Ajustar o dia para o mês correto (evitar problemas com meses que têm menos dias)
+        const diaVencimento = parseInt(dataVencimento);
+        const ultimoDiaMes = new Date(dataVencimentoParcela.getFullYear(), dataVencimentoParcela.getMonth() + 1, 0).getDate();
+        dataVencimentoParcela.setDate(Math.min(diaVencimento, ultimoDiaMes));
+
+        // Determinar status da mensalidade
         const hoje = new Date();
-        const dataVencimento = new Date(hoje.getFullYear(), hoje.getMonth(), dia);
+        hoje.setHours(0, 0, 0, 0);
+        const dataVencimentoComparacao = new Date(dataVencimentoParcela);
+        dataVencimentoComparacao.setHours(0, 0, 0, 0);
         
-        // Se o dia já passou no mês atual, usar o próximo mês
-        if (dataVencimento < hoje) {
-          dataVencimento.setMonth(dataVencimento.getMonth() + 1);
+        let status: 'pago' | 'vencido' | 'aberto' = 'aberto';
+        if (dataVencimentoComparacao < hoje) {
+          status = 'vencido';
         }
 
-        const novaMensalidade = {
+        // Criar mensalidade
+        const mensalidade = {
           clienteId: id as string,
           clienteNome: cliente.razaoSocial,
-          dataVencimento: dataVencimento,
+          dataVencimento: dataVencimentoParcela,
           valor: valorNumerico,
-          status: 'aberto' as const,
-          observacoes: `Serviço: ${formDataMensalidade.servico} - Mensalidade adicionada manualmente`
+          status: status,
+          observacoes: formDataPlano.descricaoServico,
+          numeroParcela: i + 1,
+          totalParcelas: numeroParcelas,
+          createdAt: new Date(),
+          updatedAt: new Date()
         };
 
-        await mensalidadesService.create(novaMensalidade);
-        
-        // Recarregar mensalidades
-        await loadMensalidades();
-        
-        setShowMensalidadeModal(false);
-        alert('Mensalidade adicionada com sucesso!');
+        // Salvar mensalidade no banco
+        await mensalidadesService.create(mensalidade);
       }
+      
+      // Recarregar dados do cliente e mensalidades
+      await loadCliente();
+      await loadMensalidades();
+      
+      setShowPlanoModal(false);
     } catch (error) {
-      console.error('Erro ao salvar mensalidade:', error);
-      alert('Erro ao salvar mensalidade. Tente novamente.');
+      console.error('Erro ao salvar plano:', error);
+      alert('Erro ao salvar plano de pagamento. Tente novamente.');
     } finally {
       setLoadingMensalidade(false);
     }
@@ -520,10 +650,11 @@ export default function ClienteDetalhes() {
     return idade;
   };
 
-  const formatarData = (data: string) => {
-    if (!data) return '-';
-    return new Date(data).toLocaleDateString('pt-BR');
-  };
+  // Função removida - não utilizada
+  // const formatarData = (data: string) => {
+  //   if (!data) return '-';
+  //   return new Date(data).toLocaleDateString('pt-BR');
+  // };
 
   const formatCurrency = (valor: number): string => {
     return new Intl.NumberFormat('pt-BR', {
@@ -558,6 +689,8 @@ export default function ClienteDetalhes() {
     }
   };
 
+  // Função removida - não utilizada
+  /*
   const getDiasVencimentoText = (dataVencimento: Date | string) => {
     // Converter string para Date se necessário
     let dataVencimentoDate: Date;
@@ -586,35 +719,206 @@ export default function ClienteDetalhes() {
       return `Vence em ${dias} dias`;
     }
   };
+  */
 
   const marcarComoPago = async (mensalidadeId: string) => {
     try {
-      // Se é uma mensalidade gerada automaticamente, criar no banco
-      if (mensalidadeId.startsWith('gerada_')) {
-        const mensalidade = mensalidades.find(m => m.id === mensalidadeId);
-        if (mensalidade) {
-          const novaMensalidade = {
-            clienteId: mensalidade.clienteId,
-            clienteNome: mensalidade.clienteNome,
-            dataVencimento: mensalidade.dataVencimento,
-            valor: mensalidade.valor,
-            multaPercentual: mensalidade.multaPercentual,
-            status: 'pago' as const,
-            dataPagamento: new Date(),
-            observacoes: 'Marcado como pago via sistema'
-          };
-          
-          await mensalidadesService.create(novaMensalidade);
-        }
-      } else {
-        // Se é uma mensalidade existente, apenas marcar como pago
-        await mensalidadesService.marcarComoPago(mensalidadeId);
-      }
+      // Marcar mensalidade como paga no banco
+      await mensalidadesService.marcarComoPago(mensalidadeId);
       
+      // Recarregar mensalidades para atualizar a interface
       await loadMensalidades();
     } catch (error) {
       console.error('Erro ao marcar mensalidade como paga:', error);
       alert('Erro ao marcar mensalidade como paga');
+    }
+  };
+
+  const marcarComoNaoPago = async (mensalidadeId: string) => {
+    try {
+      await mensalidadesService.marcarComoNaoPago(mensalidadeId);
+      await loadMensalidades();
+    } catch (error) {
+      console.error('Erro ao marcar mensalidade como não pago:', error);
+      alert('Erro ao marcar mensalidade como não pago');
+    }
+  };
+
+  const toggleMenu = (id: string, event: React.MouseEvent) => {
+    if (menuAberto === id) {
+      setMenuAberto(null);
+    } else {
+      // Capturar posição do mouse
+      const x = event.clientX;
+      const y = event.clientY;
+      
+      // Ajustar posição se o menu sair da tela
+      const menuWidth = 192; // w-48 = 192px
+      const menuHeight = 120; // Altura aproximada do menu
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      
+      let adjustedX = x;
+      let adjustedY = y;
+      
+      // Ajustar horizontalmente se sair da tela
+      if (x + menuWidth / 2 > viewportWidth) {
+        adjustedX = viewportWidth - menuWidth / 2 - 10; // 10px de margem
+      } else if (x - menuWidth / 2 < 0) {
+        adjustedX = menuWidth / 2 + 10; // 10px de margem
+      }
+      
+      // Ajustar verticalmente se sair da tela
+      if (y + menuHeight > viewportHeight) {
+        adjustedY = y - menuHeight - 10; // Mostrar acima do cursor
+      }
+      
+      setMenuPosition({
+        x: adjustedX,
+        y: adjustedY
+      });
+      setMenuAberto(id);
+    }
+  };
+
+  const fecharMenu = () => {
+    setMenuAberto(null);
+  };
+
+  const abrirModalMulta = (mensalidade: Mensalidade) => {
+    setMensalidadeParaMulta(mensalidade);
+    setMultaPercentual(mensalidade.multaPercentual ? mensalidade.multaPercentual.toString() : '');
+    setShowMultaModal(true);
+  };
+
+  const abrirModalVencimento = (mensalidade: Mensalidade) => {
+    setMensalidadeParaEditar(mensalidade);
+    // Extrair dia atual do vencimento
+    const data = mensalidade.dataVencimento instanceof Date 
+      ? mensalidade.dataVencimento 
+      : new Date(mensalidade.dataVencimento);
+    setNovoVencimento(data.getDate().toString());
+    setShowVencimentoModal(true);
+    fecharMenu();
+  };
+
+  const abrirModalValor = (mensalidade: Mensalidade) => {
+    setMensalidadeParaEditar(mensalidade);
+    setNovoValor(formatCurrency(mensalidade.valor));
+    setShowValorModal(true);
+    fecharMenu();
+  };
+
+  const fecharModalVencimento = () => {
+    setShowVencimentoModal(false);
+    setMensalidadeParaEditar(null);
+    setNovoVencimento('');
+  };
+
+  const fecharModalValor = () => {
+    setShowValorModal(false);
+    setMensalidadeParaEditar(null);
+    setNovoValor('');
+  };
+
+  const handleSalvarVencimento = async () => {
+    if (!mensalidadeParaEditar || !novoVencimento) {
+      return;
+    }
+
+    const dia = parseInt(novoVencimento);
+    if (dia < 1 || dia > 31) {
+      alert('Por favor, informe um dia válido (1 a 31).');
+      return;
+    }
+
+    try {
+      setLoadingMensalidade(true);
+      
+      const novaDataVencimento = new Date(mensalidadeParaEditar.dataVencimento);
+      novaDataVencimento.setDate(dia);
+      
+      await mensalidadesService.update(mensalidadeParaEditar.id, {
+        dataVencimento: novaDataVencimento
+      });
+      
+      await loadMensalidades();
+      fecharModalVencimento();
+      alert('Data de vencimento alterada com sucesso!');
+    } catch (error) {
+      console.error('Erro ao alterar vencimento:', error);
+      alert('Erro ao alterar data de vencimento');
+    } finally {
+      setLoadingMensalidade(false);
+    }
+  };
+
+  const handleSalvarValor = async () => {
+    if (!mensalidadeParaEditar || !novoValor) return;
+
+    const valorNumerico = parseFloat(novoValor.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    if (valorNumerico <= 0) {
+      alert('Por favor, informe um valor válido.');
+      return;
+    }
+
+    try {
+      setLoadingMensalidade(true);
+      
+      await mensalidadesService.update(mensalidadeParaEditar.id, {
+        valor: valorNumerico
+      });
+      
+      await loadMensalidades();
+      fecharModalValor();
+      alert('Valor alterado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao alterar valor:', error);
+      alert('Erro ao alterar valor');
+    } finally {
+      setLoadingMensalidade(false);
+    }
+  };
+
+  const handleValorChange = (value: string) => {
+    // Formatar valor monetário
+    const numberValue = parseFloat(value.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    const formattedValue = new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(numberValue);
+    
+    setNovoValor(formattedValue);
+  };
+
+  const aplicarMulta = async () => {
+    if (!mensalidadeParaMulta) return;
+    const perc = parseFloat(multaPercentual.replace(',', '.'));
+    if (isNaN(perc) || perc <= 0) {
+      alert('Informe um percentual válido (> 0).');
+      return;
+    }
+
+    try {
+      setLoadingMensalidade(true);
+      const novoValor = Math.round((mensalidadeParaMulta.valor * (1 + perc / 100)) * 100) / 100;
+      
+      await mensalidadesService.update(mensalidadeParaMulta.id, {
+        valor: novoValor,
+        multaPercentual: perc,
+        observacoes: `Multa de ${perc}% aplicada em ${new Date().toLocaleDateString('pt-BR')}`
+      });
+
+      await loadMensalidades();
+      
+      setShowMultaModal(false);
+      setMensalidadeParaMulta(null);
+      alert('Multa aplicada com sucesso!');
+    } catch (error) {
+      console.error('Erro ao aplicar multa:', error);
+      alert('Erro ao aplicar multa');
+    } finally {
+      setLoadingMensalidade(false);
     }
   };
 
@@ -810,7 +1114,7 @@ export default function ClienteDetalhes() {
                         </label>
                         <div className="bg-gray-50 dark:bg-slate-700 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
                           <p className="text-sm text-gray-900 dark:text-gray-100 italic">
-                            "{cliente.motivoStatus}"
+                            &ldquo;{cliente.motivoStatus}&rdquo;
                           </p>
                         </div>
                       </div>
@@ -1004,10 +1308,10 @@ export default function ClienteDetalhes() {
                   <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400">Financeiro</h2>
                     <button
-                      onClick={handleAdicionarMensalidade}
-                      className="bg-[#004085] dark:bg-blue-600 hover:bg-[#0056B3] dark:hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                      onClick={handleAdicionarPlano}
+                      className="bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
                     >
-                      {clienteTemDadosFinanceiros() ? 'Editar mensalidade' : 'Adicionar mensalidade'}
+                      Adicionar Plano de Pagamento
                     </button>
                   </div>
                   
@@ -1092,7 +1396,10 @@ export default function ClienteDetalhes() {
                           <thead className="bg-gray-50 dark:bg-slate-700">
                             <tr>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Mês/Ano
+                                Descrição (Observações)
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Parcela
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Data Vencimento
@@ -1102,9 +1409,6 @@ export default function ClienteDetalhes() {
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Status
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Situação
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Data Pagamento
@@ -1117,14 +1421,27 @@ export default function ClienteDetalhes() {
                           <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
                             {mensalidades.map((mensalidade) => (
                               <tr key={mensalidade.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
-                                <td className="px-6 py-4 whitespace-nowrap">
+                                <td className="px-6 py-4">
                                   <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {`${mensalidade.dataVencimento.getMonth() + 1}/${mensalidade.dataVencimento.getFullYear()}`}
+                                    {mensalidade.observacoes || '-'}
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {formatarData(mensalidade.dataVencimento.toISOString())}
+                                    {mensalidade.numeroParcela && mensalidade.totalParcelas ? 
+                                      `${mensalidade.numeroParcela}/${mensalidade.totalParcelas}` : 
+                                      '-'
+                                    }
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {(() => {
+                                      const data = mensalidade.dataVencimento instanceof Date 
+                                        ? mensalidade.dataVencimento 
+                                        : new Date(mensalidade.dataVencimento);
+                                      return data.toLocaleDateString('pt-BR');
+                                    })()}
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
@@ -1146,36 +1463,103 @@ export default function ClienteDetalhes() {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {getDiasVencimentoText(mensalidade.dataVencimento)}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {mensalidade.dataPagamento ? formatarData(mensalidade.dataPagamento.toISOString()) : '-'}
+                                    {mensalidade.dataPagamento ? 
+                                      (mensalidade.dataPagamento instanceof Date 
+                                        ? mensalidade.dataPagamento.toLocaleDateString('pt-BR')
+                                        : new Date(mensalidade.dataPagamento).toLocaleDateString('pt-BR')
+                                      ) : '-'
+                                    }
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                  <div className="flex flex-col space-y-2">
-                                    {mensalidade.status === 'vencido' && (
-                                      <button 
-                                        onClick={() => marcarComoPago(mensalidade.id)}
-                                        className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300 text-xs"
+                                  <div className="relative">
+                                    <button
+                                      onClick={(e) => toggleMenu(mensalidade.id, e)}
+                                      className="menu-button p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700"
+                                    >
+                                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                      </svg>
+                                    </button>
+
+                                    {/* Menu Dropdown */}
+                                    {menuAberto === mensalidade.id && (
+                                      <div 
+                                        className="menu-dropdown fixed w-48 bg-white dark:bg-slate-800 rounded-md shadow-lg z-50 border border-gray-200 dark:border-gray-700"
+                                        style={{
+                                          left: `${menuPosition.x}px`,
+                                          top: `${menuPosition.y}px`,
+                                          transform: 'translate(-50%, 10px)'
+                                        }}
                                       >
-                                        Marcar como Pago
-                                      </button>
-                                    )}
-                                    {mensalidade.status === 'aberto' && (
-                                      <button 
-                                        onClick={() => marcarComoPago(mensalidade.id)}
-                                        className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300 text-xs"
-                                      >
-                                        Marcar como Pago
-                                      </button>
-                                    )}
-                                    {mensalidade.id.startsWith('gerada_') && (
-                                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                                        (Gerada)
-                                      </span>
+                                        <div className="py-1">
+                                          {mensalidade.status === 'pago' ? (
+                                            <button 
+                                              className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                              onClick={() => {
+                                                marcarComoNaoPago(mensalidade.id);
+                                                fecharMenu();
+                                              }}
+                                              disabled={loadingMensalidade}
+                                            >
+                                              {loadingMensalidade ? (
+                                                <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
+                                              ) : null}
+                                              Marcar como Não Pago
+                                            </button>
+                                          ) : (
+                                            <button 
+                                              className="block w-full text-left px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                              onClick={() => {
+                                                marcarComoPago(mensalidade.id);
+                                                fecharMenu();
+                                              }}
+                                              disabled={loadingMensalidade}
+                                            >
+                                              {loadingMensalidade ? (
+                                                <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
+                                              ) : null}
+                                              Marcar como Pago
+                                            </button>
+                                          )}
+
+                                          {mensalidade.status === 'vencido' && (
+                                            <button
+                                              className="block w-full text-left px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                              onClick={() => {
+                                                abrirModalMulta(mensalidade);
+                                                fecharMenu();
+                                              }}
+                                            >
+                                              Aplicar Multa
+                                            </button>
+                                          )}
+
+                                          {mensalidade.status !== 'pago' && (
+                                            <>
+                                              <button
+                                                className="block w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                                onClick={() => abrirModalVencimento(mensalidade)}
+                                              >
+                                                Alterar Vencimento
+                                              </button>
+
+                                              <button
+                                                className="block w-full text-left px-4 py-2 text-sm text-purple-600 dark:text-purple-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                                onClick={() => abrirModalValor(mensalidade)}
+                                              >
+                                                Alterar Valor
+                                              </button>
+                                            </>
+                                          )}
+
+                                          {mensalidade.observacoes && mensalidade.observacoes.includes('Plano de pagamento') && (
+                                            <div className="px-4 py-2 text-xs text-blue-500 dark:text-blue-400 border-t border-gray-200 dark:border-gray-600">
+                                              (Plano)
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
                                     )}
                                   </div>
                                 </td>
@@ -1435,16 +1819,16 @@ export default function ClienteDetalhes() {
             </div>
           )}
 
-          {/* Modal para Adicionar Mensalidade */}
-          {showMensalidadeModal && (
+          {/* Modal para Plano de Pagamento */}
+          {showPlanoModal && (
             <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
-              <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+              <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-2xl mx-4 transition-colors">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
-                    {isEditandoMensalidade ? 'Editar Mensalidade' : 'Adicionar Mensalidade'}
+                    Plano de Pagamento
                   </h3>
                   <button
-                    onClick={() => setShowMensalidadeModal(false)}
+                    onClick={() => setShowPlanoModal(false)}
                     className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                   >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1453,79 +1837,389 @@ export default function ClienteDetalhes() {
                   </button>
                 </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Serviço {!isEditandoMensalidade ? '*' : ''}
-                    </label>
-                    <input
-                      type="text"
-                      value={formDataMensalidade.servico}
-                      onChange={(e) => setFormDataMensalidade({...formDataMensalidade, servico: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
-                      placeholder={isEditandoMensalidade ? "Ex: Consultoria, Desenvolvimento, Suporte (opcional)" : "Ex: Consultoria, Desenvolvimento, Suporte"}
-                    />
+                <div className="space-y-6">
+                  {/* Primeira linha */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Descrição do serviço prestado / Produto: *
+                      </label>
+                      <input
+                        type="text"
+                        value={formDataPlano.descricaoServico}
+                        onChange={(e) => setFormDataPlano({...formDataPlano, descricaoServico: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                        placeholder="Ex: Consultoria, Desenvolvimento, Suporte"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Data 1º Vencto: *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="date"
+                          value={formDataPlano.dataPrimeiroVencimento}
+                          onChange={(e) => setFormDataPlano({...formDataPlano, dataPrimeiroVencimento: e.target.value})}
+                          className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                        />
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                          <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Dia de Vencimento *
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="31"
-                      value={formDataMensalidade.diaVencimento}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (value === '' || (parseInt(value) >= 1 && parseInt(value) <= 31)) {
-                          setFormDataMensalidade({...formDataMensalidade, diaVencimento: value});
+                  {/* Segunda linha */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Período de pagamento: *
+                      </label>
+                      <select
+                        value={formDataPlano.periodoPagamento}
+                        onChange={(e) => setFormDataPlano({...formDataPlano, periodoPagamento: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                      >
+                        <option value="mensal">Mensal</option>
+                        <option value="bimestral">Bimestral</option>
+                        <option value="trimestral">Trimestral</option>
+                        <option value="semestral">Semestral</option>
+                        <option value="anual">Anual</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Nº de parcelas: *
+                      </label>
+                      <select
+                        value={formDataPlano.numeroParcelas}
+                        onChange={(e) => setFormDataPlano({...formDataPlano, numeroParcelas: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                      >
+                        <option value="a-vista">À vista</option>
+                        <option value="3-parcelas">3 parcelas</option>
+                        <option value="6-parcelas">6 parcelas</option>
+                        <option value="9-parcelas">9 parcelas</option>
+                        <option value="12-parcelas">12 parcelas</option>
+                        <option value="18-parcelas">18 parcelas</option>
+                        <option value="24-parcelas">24 parcelas</option>
+                        <option value="36-parcelas">36 parcelas</option>
+                        <option value="48-parcelas">48 parcelas</option>
+                        <option value="60-parcelas">60 parcelas</option>
+                        <option value="12-parcelas">1 ano</option>
+                        <option value="24-parcelas">2 anos</option>
+                        <option value="36-parcelas">3 anos</option>
+                        <option value="48-parcelas">4 anos</option>
+                        <option value="60-parcelas">5 anos</option>
+                        <option value="72-parcelas">6 anos</option>
+                        <option value="84-parcelas">7 anos</option>
+                        <option value="96-parcelas">8 anos</option>
+                        <option value="108-parcelas">9 anos</option>
+                        <option value="120-parcelas">10 anos</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Valor da Parcela: *
+                      </label>
+                      <input
+                        type="text"
+                        value={formDataPlano.valorParcela}
+                        onChange={(e) => handleValorParcelaChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                        placeholder="R$ 0,00"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Valor Total a Receber */}
+                  <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-green-800 dark:text-green-200 mb-2">
+                      Valor Total a Receber
+                    </h4>
+                    <div className="text-2xl font-bold text-green-900 dark:text-green-100">
+                      {(() => {
+                        if (!formDataPlano.valorParcela || !formDataPlano.numeroParcelas) {
+                          return 'R$ 0,00';
                         }
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
-                      placeholder="Ex: 5, 10, 15, 31"
-                    />
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Digite apenas o dia do mês (1 a 31)
+                        
+                        // Extrair número de parcelas do valor selecionado
+                        const numeroParcelas = (() => {
+                          switch (formDataPlano.numeroParcelas) {
+                            case 'a-vista': return 1;
+                            case '3-parcelas': return 3;
+                            case '6-parcelas': return 6;
+                            case '9-parcelas': return 9;
+                            case '12-parcelas': return 12;
+                            case '18-parcelas': return 18;
+                            case '24-parcelas': return 24;
+                            case '36-parcelas': return 36;
+                            case '48-parcelas': return 48;
+                            case '60-parcelas': return 60;
+                            case '72-parcelas': return 72;
+                            case '84-parcelas': return 84;
+                            case '96-parcelas': return 96;
+                            case '108-parcelas': return 108;
+                            case '120-parcelas': return 120;
+                            default: return 1;
+                          }
+                        })();
+                        
+                        // Converter valor da parcela para número
+                        const valorParcelaNumerico = parseFloat(formDataPlano.valorParcela.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+                        
+                        // Calcular valor total
+                        const valorTotal = valorParcelaNumerico * numeroParcelas;
+                        
+                        // Formatar como moeda
+                        return new Intl.NumberFormat('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL'
+                        }).format(valorTotal);
+                      })()}
+                    </div>
+                    <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                      {formDataPlano.numeroParcelas === 'a-vista' 
+                        ? 'Pagamento à vista' 
+                        : `${(() => {
+                            switch (formDataPlano.numeroParcelas) {
+                              case '3-parcelas': return '3';
+                              case '6-parcelas': return '6';
+                              case '9-parcelas': return '9';
+                              case '12-parcelas': return '12';
+                              case '18-parcelas': return '18';
+                              case '24-parcelas': return '24';
+                              case '36-parcelas': return '36';
+                              case '48-parcelas': return '48';
+                              case '60-parcelas': return '60';
+                              case '72-parcelas': return '72';
+                              case '84-parcelas': return '84';
+                              case '96-parcelas': return '96';
+                              case '108-parcelas': return '108';
+                              case '120-parcelas': return '120';
+                              default: return '1';
+                            }
+                          })()} parcelas de ${formDataPlano.valorParcela || 'R$ 0,00'}`
+                      }
                     </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Valor *
-                    </label>
-                    <input
-                      type="text"
-                      value={formDataMensalidade.valor}
-                      onChange={(e) => handleValorMensalidadeChange(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
-                      placeholder="R$ 0,00"
-                    />
                   </div>
                 </div>
 
                 <div className="flex justify-end space-x-3 mt-6">
                   <button
-                    onClick={() => setShowMensalidadeModal(false)}
+                    onClick={() => setShowPlanoModal(false)}
                     className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
                   >
                     Cancelar
                   </button>
                   <button
-                    onClick={handleSalvarMensalidade}
-                    disabled={loadingMensalidade || !formDataMensalidade.diaVencimento || !formDataMensalidade.valor || (!isEditandoMensalidade && !formDataMensalidade.servico.trim())}
+                    onClick={handleSalvarPlano}
+                    disabled={loadingMensalidade || !formDataPlano.descricaoServico || !formDataPlano.dataPrimeiroVencimento || !formDataPlano.valorParcela}
                     className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {loadingMensalidade ? (
                       <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                     ) : (
-                      isEditandoMensalidade ? 'Atualizar' : 'Adicionar'
+                      'Salvar Plano'
                     )}
                   </button>
                 </div>
               </div>
             </div>
           )}
+
+      {/* Modal de Aplicar Multa */}
+      {showMultaModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                {mensalidadeParaMulta?.multaPercentual ? 'Editar Multa' : 'Aplicar Multa'}
+              </h3>
+              <button
+                onClick={() => setShowMultaModal(false)}
+                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaMulta?.clienteNome}</span>
+            </p>
+
+            {mensalidadeParaMulta?.multaPercentual && (
+              <div className="mb-4 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                <p className="text-sm text-orange-800 dark:text-orange-200">
+                  <span className="font-medium">Multa atual:</span> {mensalidadeParaMulta.multaPercentual}%
+                </p>
+                <p className="text-sm text-orange-800 dark:text-orange-200">
+                  <span className="font-medium">Valor atual:</span> {formatCurrency(mensalidadeParaMulta.valor)}
+                </p>
+              </div>
+            )}
+
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              {mensalidadeParaMulta?.multaPercentual ? 'Novo Percentual de Multa (%)' : 'Percentual de Multa (%)'}
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={multaPercentual}
+              onChange={(e) => setMultaPercentual(e.target.value)}
+              placeholder="Ex: 2, 5, 10"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+            />
+
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowMultaModal(false)}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={aplicarMulta}
+                disabled={loadingMensalidade}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMensalidade ? 
+                  (mensalidadeParaMulta?.multaPercentual ? 'Atualizando...' : 'Aplicando...') : 
+                  (mensalidadeParaMulta?.multaPercentual ? 'Atualizar Multa' : 'Aplicar Multa')
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Alterar Vencimento */}
+      {showVencimentoModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                Alterar Data de Vencimento
+              </h3>
+              <button
+                onClick={fecharModalVencimento}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar?.clienteNome}</span>
+              </p>
+              
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Novo Dia de Vencimento *
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="31"
+                value={novoVencimento}
+                onChange={(e) => setNovoVencimento(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                placeholder="Ex: 15"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Digite apenas o dia do mês (1 a 31)
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={fecharModalVencimento}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSalvarVencimento}
+                disabled={loadingMensalidade || !novoVencimento}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMensalidade ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Salvar'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Alterar Valor */}
+      {showValorModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                Alterar Valor
+              </h3>
+              <button
+                onClick={fecharModalValor}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar?.clienteNome}</span>
+              </p>
+              
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Novo Valor *
+              </label>
+              <input
+                type="text"
+                value={novoValor}
+                onChange={(e) => handleValorChange(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                placeholder="Ex: R$ 1.200,00"
+              />
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={fecharModalValor}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSalvarValor}
+                disabled={loadingMensalidade || !novoValor}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMensalidade ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Salvar'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
         </main>
       </div>
     </ProtectedRoute>

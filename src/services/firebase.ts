@@ -295,7 +295,7 @@ export const clientesService = {
 
   async updateStatus(id: string, newStatus: 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo', motivo?: string) {
     const docRef = doc(db, 'clientes', id);
-    const updateData: any = {
+    const updateData: { status: string; updatedAt: Date; motivoStatus?: string } = {
       status: newStatus,
       updatedAt: new Date()
     };

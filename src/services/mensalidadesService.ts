@@ -12,6 +12,8 @@ export interface Mensalidade {
   dataPagamento?: Date;
   observacoes?: string;
   multaPercentual?: number; // percentual de multa aplicado (ex.: 10 para 10%)
+  numeroParcela?: number; // número da parcela (ex.: 1, 2, 3...)
+  totalParcelas?: number; // total de parcelas do plano
   createdAt: Date;
   updatedAt: Date;
 }
@@ -25,6 +27,8 @@ export const mensalidadesService = {
         dataVencimento: Timestamp.fromDate(mensalidade.dataVencimento),
         dataPagamento: mensalidade.dataPagamento ? Timestamp.fromDate(mensalidade.dataPagamento) : null,
         multaPercentual: mensalidade.multaPercentual ?? null,
+        numeroParcela: mensalidade.numeroParcela ?? null,
+        totalParcelas: mensalidade.totalParcelas ?? null,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });
@@ -52,6 +56,8 @@ export const mensalidadesService = {
           dataPagamento: data.dataPagamento ? data.dataPagamento.toDate() : undefined,
           observacoes: data.observacoes,
           multaPercentual: data.multaPercentual ?? undefined,
+          numeroParcela: data.numeroParcela ?? undefined,
+          totalParcelas: data.totalParcelas ?? undefined,
           createdAt: data.createdAt.toDate(),
           updatedAt: data.updatedAt.toDate(),
         };
@@ -60,9 +66,9 @@ export const mensalidadesService = {
       // Ordenar localmente por data de vencimento
       return mensalidades.sort((a, b) => {
         const dateA = a.dataVencimento instanceof Date ? a.dataVencimento : 
-                     (typeof a.dataVencimento === 'string' ? new Date(a.dataVencimento) : /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ (a.dataVencimento as any).toDate());
+                     (typeof a.dataVencimento === 'string' ? new Date(a.dataVencimento) :  (a.dataVencimento as any).toDate());
         const dateB = b.dataVencimento instanceof Date ? b.dataVencimento : 
-                     (typeof b.dataVencimento === 'string' ? new Date(b.dataVencimento) : /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ (b.dataVencimento as any).toDate());
+                     (typeof b.dataVencimento === 'string' ? new Date(b.dataVencimento) :  (b.dataVencimento as any).toDate());
         return dateA.getTime() - dateB.getTime();
       });
     } catch (error) {
@@ -93,6 +99,8 @@ export const mensalidadesService = {
           dataPagamento: data.dataPagamento ? data.dataPagamento.toDate() : undefined,
           observacoes: data.observacoes,
           multaPercentual: data.multaPercentual ?? undefined,
+          numeroParcela: data.numeroParcela ?? undefined,
+          totalParcelas: data.totalParcelas ?? undefined,
           createdAt: data.createdAt.toDate(),
           updatedAt: data.updatedAt.toDate(),
         };
@@ -101,9 +109,9 @@ export const mensalidadesService = {
       // Ordenar localmente por data de vencimento
       return mensalidades.sort((a, b) => {
         const dateA = a.dataVencimento instanceof Date ? a.dataVencimento : 
-                     (typeof a.dataVencimento === 'string' ? new Date(a.dataVencimento) : /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ (a.dataVencimento as any).toDate());
+                     (typeof a.dataVencimento === 'string' ? new Date(a.dataVencimento) :  (a.dataVencimento as any).toDate());
         const dateB = b.dataVencimento instanceof Date ? b.dataVencimento : 
-                     (typeof b.dataVencimento === 'string' ? new Date(b.dataVencimento) : /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ (b.dataVencimento as any).toDate());
+                     (typeof b.dataVencimento === 'string' ? new Date(b.dataVencimento) :  (b.dataVencimento as any).toDate());
         return dateA.getTime() - dateB.getTime();
       });
     } catch (error) {
@@ -134,6 +142,8 @@ export const mensalidadesService = {
           dataPagamento: data.dataPagamento ? data.dataPagamento.toDate() : undefined,
           observacoes: data.observacoes,
           multaPercentual: data.multaPercentual ?? undefined,
+          numeroParcela: data.numeroParcela ?? undefined,
+          totalParcelas: data.totalParcelas ?? undefined,
           createdAt: data.createdAt.toDate(),
           updatedAt: data.updatedAt.toDate(),
         };
@@ -142,9 +152,9 @@ export const mensalidadesService = {
       // Ordenar localmente por data de vencimento
       return mensalidades.sort((a, b) => {
         const dateA = a.dataVencimento instanceof Date ? a.dataVencimento : 
-                     (typeof a.dataVencimento === 'string' ? new Date(a.dataVencimento) : /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ (a.dataVencimento as any).toDate());
+                     (typeof a.dataVencimento === 'string' ? new Date(a.dataVencimento) :  (a.dataVencimento as any).toDate());
         const dateB = b.dataVencimento instanceof Date ? b.dataVencimento : 
-                     (typeof b.dataVencimento === 'string' ? new Date(b.dataVencimento) : /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ (b.dataVencimento as any).toDate());
+                     (typeof b.dataVencimento === 'string' ? new Date(b.dataVencimento) :  (b.dataVencimento as any).toDate());
         return dateA.getTime() - dateB.getTime();
       });
     } catch (error) {
@@ -159,17 +169,14 @@ export const mensalidadesService = {
       const mensalidadeRef = doc(db, 'mensalidades', id);
       const updateData: Partial<Mensalidade> = {
         ...updates,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         updatedAt: Timestamp.now() as any,
       };
 
       // Converter datas para Timestamp se necessário
       if (updates.dataVencimento) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         updateData.dataVencimento = Timestamp.fromDate(updates.dataVencimento) as any;
       }
       if (updates.dataPagamento) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         updateData.dataPagamento = Timestamp.fromDate(updates.dataPagamento) as any;
       }
 

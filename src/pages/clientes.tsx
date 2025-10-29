@@ -15,7 +15,6 @@ export default function Clientes() {
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -199,10 +198,18 @@ export default function Clientes() {
         setEditingCliente(null);
       } else {
         // Adicionar novo cliente
-        const id = await clientesService.add(formData);
+        const clienteData = {
+          ...formData,
+          dataVencimento: '',
+          valor: '',
+          servico: '',
+          motivoStatus: '',
+          estagiariosVinculados: []
+        };
+        const id = await clientesService.add(clienteData);
         const newCliente: Cliente = {
           id,
-          ...formData,
+          ...clienteData,
           createdAt: new Date(),
           updatedAt: new Date()
         };
