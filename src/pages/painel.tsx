@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import PainelHeader from '../components/PainelHeader';
 import ProtectedRoute from '../components/ProtectedRoute';
-import { estagiariosService } from '../services/firebase';
-import { Estagiario } from '../types/firebase';
+import { estagiariosService, clientesService } from '../services/firebase';
+import { Estagiario, Cliente } from '../types/firebase';
 
 export default function Painel() {
   const [filtroNome, setFiltroNome] = useState('');
@@ -16,8 +18,10 @@ export default function Painel() {
   const [filtroEspanhol, setFiltroEspanhol] = useState('');
   const [filtroInformatica, setFiltroInformatica] = useState('');
   const [filtroAperfeicoamento, setFiltroAperfeicoamento] = useState('');
+  const [filtroVinculados, setFiltroVinculados] = useState('');
 
   const [estagiarios, setEstagiarios] = useState<Estagiario[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -42,6 +46,7 @@ export default function Painel() {
 
   useEffect(() => {
     loadEstagiarios();
+    loadClientes();
   }, []);
 
   const loadEstagiarios = async () => {
@@ -53,6 +58,15 @@ export default function Painel() {
       console.error('Erro ao carregar estagiários:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadClientes = async () => {
+    try {
+      const data = await clientesService.getAll();
+      setClientes(data);
+    } catch (error) {
+      console.error('Erro ao carregar clientes:', error);
     }
   };
 
@@ -138,6 +152,224 @@ export default function Painel() {
   const handleCloseMotivoModal = () => {
     setShowMotivoModal(false);
     setEstagiarioMotivo(null);
+  };
+
+  const exportarPDF = () => {
+    try {
+      const doc = new jsPDF('l', 'mm', 'a4'); // Orientação landscape para melhor visualização da tabela
+      
+      // Configurações do PDF
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      const contentWidth = pageWidth - (margin * 2);
+      
+      // Cores do tema
+      const primaryColor = [0, 64, 133]; // Azul #004085
+      const secondaryColor = [245, 245, 245]; // Cinza claro
+      
+      // Cabeçalho principal
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(0, 0, pageWidth, 25, 'F');
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RELATÓRIO DE ESTAGIÁRIOS', pageWidth / 2, 15, { align: 'center' });
+      
+      // Informações do relatório
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      
+      const dataAtual = new Date();
+      const dataFormatada = dataAtual.toLocaleDateString('pt-BR');
+      const horaFormatada = dataAtual.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      
+      doc.text(`Gerado em: ${dataFormatada} às ${horaFormatada}`, margin, 35);
+      
+      // Filtros aplicados
+      let filtrosTexto = 'Filtros: Todos os estagiários';
+      const filtrosAplicados = [];
+      
+      if (filtroNome) filtrosAplicados.push(`Nome: "${filtroNome}"`);
+      if (filtroCidade) filtrosAplicados.push(`Cidade: "${filtroCidade}"`);
+      if (filtroBairro) filtrosAplicados.push(`Bairro: "${filtroBairro}"`);
+      if (filtroCurso) filtrosAplicados.push(`Curso: "${filtroCurso}"`);
+      if (filtroEscolaridade) {
+        const escolaridadeText = filtroEscolaridade === 'fundamental' ? 'Fundamental' :
+                                filtroEscolaridade === 'medio' ? 'Médio' :
+                                filtroEscolaridade === 'tecnico' ? 'Técnico' :
+                                filtroEscolaridade === 'superior' ? 'Superior' : 'Pós-graduação';
+        filtrosAplicados.push(`Escolaridade: "${escolaridadeText}"`);
+      }
+      if (filtroIdade) filtrosAplicados.push(`Idade: "${filtroIdade} anos"`);
+      if (filtroIngles) {
+        const inglesText = filtroIngles === 'nenhum' ? 'Nenhum' :
+                          filtroIngles === 'basico' ? 'Básico' :
+                          filtroIngles === 'intermediario' ? 'Intermediário' :
+                          filtroIngles === 'avancado' ? 'Avançado' : 'Fluente';
+        filtrosAplicados.push(`Inglês: "${inglesText}"`);
+      }
+      if (filtroFrances) {
+        const francesText = filtroFrances === 'nenhum' ? 'Nenhum' :
+                           filtroFrances === 'basico' ? 'Básico' :
+                           filtroFrances === 'intermediario' ? 'Intermediário' :
+                           filtroFrances === 'avancado' ? 'Avançado' : 'Fluente';
+        filtrosAplicados.push(`Francês: "${francesText}"`);
+      }
+      if (filtroEspanhol) {
+        const espanholText = filtroEspanhol === 'nenhum' ? 'Nenhum' :
+                            filtroEspanhol === 'basico' ? 'Básico' :
+                            filtroEspanhol === 'intermediario' ? 'Intermediário' :
+                            filtroEspanhol === 'avancado' ? 'Avançado' : 'Fluente';
+        filtrosAplicados.push(`Espanhol: "${espanholText}"`);
+      }
+      if (filtroInformatica) filtrosAplicados.push(`Informática: "${filtroInformatica}"`);
+      if (filtroAperfeicoamento) filtrosAplicados.push(`Aperfeiçoamento: "${filtroAperfeicoamento}"`);
+      if (filtroVinculados) {
+        const vinculadosText = filtroVinculados === 'vinculados' ? 'Vinculados a Empresas' : 'Não Vinculados';
+        filtrosAplicados.push(`Status: "${vinculadosText}"`);
+      }
+      
+      if (filtrosAplicados.length > 0) {
+        filtrosTexto = `Filtros: ${filtrosAplicados.join(', ')}`;
+      }
+      
+      doc.text(filtrosTexto, pageWidth - margin, 35, { align: 'right' });
+      
+      // Linha separadora
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, 45, pageWidth - margin, 45);
+      
+      // Resumo estatístico
+      let yPosition = 55;
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RESUMO EXECUTIVO', margin, yPosition);
+      
+      yPosition += 10;
+      
+      // Cards de resumo
+      const estagiariosVinculados = estagiariosFiltrados.filter(estagiario => 
+        clientes.some(cliente => 
+          cliente.estagiariosVinculados && 
+          cliente.estagiariosVinculados.includes(estagiario.id || '')
+        )
+      );
+
+      const resumoData = [
+        { label: 'Total de Estagiários', value: estagiariosFiltrados.length, color: [59, 130, 246] },
+        { label: 'Estagiários Ativos', value: estagiariosFiltrados.filter(e => e.status === 'ativo').length, color: [34, 197, 94] },
+        { label: 'Estagiários Inativos', value: estagiariosFiltrados.filter(e => e.status === 'inativo').length, color: [239, 68, 68] },
+        { label: 'Vinculados a Empresas', value: estagiariosVinculados.length, color: [16, 185, 129] },
+        { label: 'Com Inglês', value: estagiariosFiltrados.filter(e => e.ingles && e.ingles !== 'nenhum').length, color: [251, 191, 36] }
+      ];
+      
+      const cardWidth = (contentWidth - 20) / 5;
+      resumoData.forEach((item, index) => {
+        const x = margin + (index * (cardWidth + 5));
+        
+        // Fundo do card
+        doc.setFillColor(item.color[0], item.color[1], item.color[2]);
+        doc.roundedRect(x, yPosition, cardWidth, 20, 3, 3, 'F');
+        
+        // Texto do card
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text(item.value.toString(), x + cardWidth/2, yPosition + 8, { align: 'center' });
+        
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        doc.text(item.label, x + cardWidth/2, yPosition + 15, { align: 'center' });
+      });
+      
+      yPosition += 35;
+      
+      // Linha separadora
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += 10;
+      
+      // Tabela de detalhes
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DETALHAMENTO DOS ESTAGIÁRIOS', margin, yPosition);
+      
+      yPosition += 10;
+      
+      // Preparar dados da tabela
+      const tableData = estagiariosFiltrados.map((estagiario) => [
+        estagiario.nome,
+        estagiario.cpf || '-',
+        estagiario.dataNascimento ? new Date(estagiario.dataNascimento).toLocaleDateString('pt-BR') : '-',
+        estagiario.telefone1 || '-'
+      ]);
+      
+      // Configurações da tabela
+      const tableConfig = {
+        startY: yPosition,
+        head: [['Nome Completo', 'CPF', 'Data de Nascimento', 'Telefone']],
+        body: tableData,
+        styles: {
+          fontSize: 10,
+          cellPadding: 4,
+          overflow: 'linebreak' as const,
+          halign: 'left' as const,
+          valign: 'middle' as const
+        },
+        headStyles: {
+          fillColor: [primaryColor[0], primaryColor[1], primaryColor[2]] as [number, number, number],
+          textColor: 255,
+          fontStyle: 'bold' as const,
+          fontSize: 12
+        },
+        alternateRowStyles: {
+          fillColor: [secondaryColor[0], secondaryColor[1], secondaryColor[2]] as [number, number, number],
+        },
+        columnStyles: {
+          0: { cellWidth: 60, halign: 'left' as const }, // Nome Completo
+          1: { cellWidth: 40, halign: 'center' as const }, // CPF
+          2: { cellWidth: 40, halign: 'center' as const }, // Data de Nascimento
+          3: { cellWidth: 40, halign: 'center' as const } // Telefone
+        },
+        margin: { left: margin, right: margin },
+        showHead: 'everyPage' as const
+      };
+      
+      // Adicionar tabela
+      autoTable(doc, tableConfig);
+      
+      // Rodapé
+      const finalY = (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || yPosition;
+      
+      // Linha separadora do rodapé
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, finalY + 10, pageWidth - margin, finalY + 10);
+      
+      // Informações do rodapé
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      
+      const totalPaginas = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPaginas; i++) {
+        doc.setPage(i);
+        doc.text(`Página ${i} de ${totalPaginas}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
+        doc.text('Relatório gerado pelo sistema DF Estágios', margin, pageHeight - 10);
+        doc.text(`Total de estagiários: ${estagiariosFiltrados.length}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+      }
+      
+      // Salvar PDF
+      const nomeArquivo = `Relatorio_Estagiarios_${dataFormatada.replace(/\//g, '-')}_${horaFormatada.replace(/:/g, '-')}.pdf`;
+      doc.save(nomeArquivo);
+      
+    } catch (error) {
+      console.error('Erro ao gerar PDF:', error);
+      alert('Erro ao gerar PDF: ' + (error instanceof Error ? error.message : String(error)));
+    }
   };
 
   const handleEdit = (estagiario: Estagiario) => {
@@ -226,9 +458,27 @@ export default function Painel() {
         (estagiario.aperfeicoamento && estagiario.aperfeicoamento.some(skill => 
           skill.toLowerCase().includes(filtroAperfeicoamento.toLowerCase())
         ));
+
+      // Filtro de vinculação com empresas
+      const matchVinculados = filtroVinculados === '' || (() => {
+        if (filtroVinculados === 'vinculados') {
+          // Verificar se o estagiário está vinculado a alguma empresa
+          return clientes.some(cliente => 
+            cliente.estagiariosVinculados && 
+            cliente.estagiariosVinculados.includes(estagiario.id || '')
+          );
+        } else if (filtroVinculados === 'nao-vinculados') {
+          // Verificar se o estagiário NÃO está vinculado a nenhuma empresa
+          return !clientes.some(cliente => 
+            cliente.estagiariosVinculados && 
+            cliente.estagiariosVinculados.includes(estagiario.id || '')
+          );
+        }
+        return true;
+      })();
       
       return matchNome && matchCidade && matchBairro && matchCurso && matchEscolaridade && matchIdade && 
-             matchIngles && matchFrances && matchEspanhol && matchInformatica && matchAperfeicoamento;
+             matchIngles && matchFrances && matchEspanhol && matchInformatica && matchAperfeicoamento && matchVinculados;
     });
   };
 
@@ -430,6 +680,21 @@ export default function Painel() {
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
               />
             </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Status de Vinculação
+              </label>
+              <select
+                value={filtroVinculados}
+                onChange={(e) => setFiltroVinculados(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+              >
+                <option value="">Todos</option>
+                <option value="vinculados">Vinculados a Empresas</option>
+                <option value="nao-vinculados">Não Vinculados</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -439,6 +704,15 @@ export default function Painel() {
               <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400">
                 Estagiários ({estagiariosFiltrados.length})
               </h2>
+              <button
+                onClick={exportarPDF}
+                className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Exportar PDF
+              </button>
             </div>
           </div>
 

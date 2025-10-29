@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import PainelHeader from '../components/PainelHeader';
 import ProtectedRoute from '../components/ProtectedRoute';
 import { clientesService } from '../services/firebase';
@@ -292,6 +294,204 @@ export default function Clientes() {
     }
   };
 
+  const exportarPDF = () => {
+    try {
+      const doc = new jsPDF('l', 'mm', 'a4'); // Orientação landscape para melhor visualização da tabela
+      
+      // Configurações do PDF
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      const contentWidth = pageWidth - (margin * 2);
+      
+      // Cores do tema
+      const primaryColor = [0, 64, 133]; // Azul #004085
+      const secondaryColor = [245, 245, 245]; // Cinza claro
+      
+      // Cabeçalho principal
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(0, 0, pageWidth, 25, 'F');
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RELATÓRIO DE CLIENTES', pageWidth / 2, 15, { align: 'center' });
+      
+      // Informações do relatório
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      
+      const dataAtual = new Date();
+      const dataFormatada = dataAtual.toLocaleDateString('pt-BR');
+      const horaFormatada = dataAtual.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      
+      doc.text(`Gerado em: ${dataFormatada} às ${horaFormatada}`, margin, 35);
+      
+      // Filtros aplicados
+      let filtrosTexto = 'Filtros: Todos os clientes';
+      const filtrosAplicados = [];
+      
+      if (filtroRazaoSocial) filtrosAplicados.push(`Razão Social: "${filtroRazaoSocial}"`);
+      if (filtroNomeFantasia) filtrosAplicados.push(`Nome Fantasia: "${filtroNomeFantasia}"`);
+      if (filtroCidade) filtrosAplicados.push(`Cidade: "${filtroCidade}"`);
+      if (filtroBairro) filtrosAplicados.push(`Bairro: "${filtroBairro}"`);
+      if (filtroStatus) {
+        const statusText = filtroStatus === 'ativo' ? 'Ativo' : 
+                          filtroStatus === 'em-andamento' ? 'Em andamento' :
+                          filtroStatus === 'bloqueado' ? 'Bloqueado' : 'Inativo';
+        filtrosAplicados.push(`Status: "${statusText}"`);
+      }
+      
+      if (filtrosAplicados.length > 0) {
+        filtrosTexto = `Filtros: ${filtrosAplicados.join(', ')}`;
+      }
+      
+      doc.text(filtrosTexto, pageWidth - margin, 35, { align: 'right' });
+      
+      // Linha separadora
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, 45, pageWidth - margin, 45);
+      
+      // Resumo estatístico
+      let yPosition = 55;
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RESUMO EXECUTIVO', margin, yPosition);
+      
+      yPosition += 10;
+      
+      // Cards de resumo
+      const resumoData = [
+        { label: 'Total de Clientes', value: clientesFiltrados.length, color: [59, 130, 246] },
+        { label: 'Clientes Ativos', value: clientesFiltrados.filter(c => c.status === 'ativo').length, color: [34, 197, 94] },
+        { label: 'Em Andamento', value: clientesFiltrados.filter(c => c.status === 'em-andamento').length, color: [59, 130, 246] },
+        { label: 'Bloqueados', value: clientesFiltrados.filter(c => c.status === 'bloqueado').length, color: [251, 191, 36] },
+        { label: 'Inativos', value: clientesFiltrados.filter(c => c.status === 'inativo').length, color: [239, 68, 68] }
+      ];
+      
+      const cardWidth = (contentWidth - 20) / 5;
+      resumoData.forEach((item, index) => {
+        const x = margin + (index * (cardWidth + 5));
+        
+        // Fundo do card
+        doc.setFillColor(item.color[0], item.color[1], item.color[2]);
+        doc.roundedRect(x, yPosition, cardWidth, 20, 3, 3, 'F');
+        
+        // Texto do card
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text(item.value.toString(), x + cardWidth/2, yPosition + 8, { align: 'center' });
+        
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        doc.text(item.label, x + cardWidth/2, yPosition + 15, { align: 'center' });
+      });
+      
+      yPosition += 35;
+      
+      // Linha separadora
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += 10;
+      
+      // Tabela de detalhes
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DETALHAMENTO DOS CLIENTES', margin, yPosition);
+      
+      yPosition += 10;
+      
+      // Preparar dados da tabela
+      const tableData = clientesFiltrados.map((cliente, index) => [
+        index + 1, // Número sequencial
+        cliente.cnpj,
+        cliente.razaoSocial,
+        cliente.nomeFantasia,
+        cliente.telefone,
+        cliente.email,
+        cliente.cidade,
+        cliente.bairro,
+        cliente.cep,
+        cliente.responsavel,
+        cliente.status === 'ativo' ? 'Ativo' : 
+        cliente.status === 'em-andamento' ? 'Em andamento' :
+        cliente.status === 'bloqueado' ? 'Bloqueado' : 'Inativo'
+      ]);
+      
+      // Configurações da tabela
+      const tableConfig = {
+        startY: yPosition,
+        head: [['#', 'CNPJ', 'Razão Social', 'Nome Fantasia', 'Telefone', 'Email', 'Cidade', 'Bairro', 'CEP', 'Responsável', 'Status']],
+        body: tableData,
+        styles: {
+          fontSize: 7,
+          cellPadding: 2,
+          overflow: 'linebreak' as const,
+          halign: 'left' as const,
+          valign: 'middle' as const
+        },
+        headStyles: {
+          fillColor: [primaryColor[0], primaryColor[1], primaryColor[2]] as [number, number, number],
+          textColor: 255,
+          fontStyle: 'bold' as const,
+          fontSize: 8
+        },
+        alternateRowStyles: {
+          fillColor: [secondaryColor[0], secondaryColor[1], secondaryColor[2]] as [number, number, number],
+        },
+        columnStyles: {
+          0: { cellWidth: 8, halign: 'center' as const }, // #
+          1: { cellWidth: 25, halign: 'center' as const }, // CNPJ
+          2: { cellWidth: 35, halign: 'left' as const }, // Razão Social
+          3: { cellWidth: 30, halign: 'left' as const }, // Nome Fantasia
+          4: { cellWidth: 20, halign: 'center' as const }, // Telefone
+          5: { cellWidth: 30, halign: 'left' as const }, // Email
+          6: { cellWidth: 20, halign: 'left' as const }, // Cidade
+          7: { cellWidth: 20, halign: 'left' as const }, // Bairro
+          8: { cellWidth: 15, halign: 'center' as const }, // CEP
+          9: { cellWidth: 25, halign: 'left' as const }, // Responsável
+          10: { cellWidth: 15, halign: 'center' as const } // Status
+        },
+        margin: { left: margin, right: margin },
+        showHead: 'everyPage' as const
+      };
+      
+      // Adicionar tabela
+      autoTable(doc, tableConfig);
+      
+      // Rodapé
+      const finalY = (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || yPosition;
+      
+      // Linha separadora do rodapé
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, finalY + 10, pageWidth - margin, finalY + 10);
+      
+      // Informações do rodapé
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      
+      const totalPaginas = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPaginas; i++) {
+        doc.setPage(i);
+        doc.text(`Página ${i} de ${totalPaginas}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
+        doc.text('Relatório gerado pelo sistema DF Estágios', margin, pageHeight - 10);
+        doc.text(`Total de clientes: ${clientesFiltrados.length}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+      }
+      
+      // Salvar PDF
+      const nomeArquivo = `Relatorio_Clientes_${dataFormatada.replace(/\//g, '-')}_${horaFormatada.replace(/:/g, '-')}.pdf`;
+      doc.save(nomeArquivo);
+      
+    } catch (error) {
+      console.error('Erro ao gerar PDF:', error);
+      alert('Erro ao gerar PDF: ' + (error instanceof Error ? error.message : String(error)));
+    }
+  };
+
   const filtrarClientes = () => {
     return clientes.filter(cliente => {
       const matchRazaoSocial = cliente.razaoSocial.toLowerCase().includes(filtroRazaoSocial.toLowerCase());
@@ -323,12 +523,23 @@ export default function Clientes() {
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 mb-6 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg sm:text-xl font-bold text-[#004085] dark:text-blue-400">Filtros</h2>
-              <button
-                onClick={handleAdd}
-                className="bg-[#004085] hover:bg-[#0056B3] text-white font-medium py-2 px-4 rounded-lg transition-colors"
-              >
-                Adicionar Cliente
-              </button>
+              <div className="flex space-x-3">
+                <button
+                  onClick={exportarPDF}
+                  className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Exportar PDF
+                </button>
+                <button
+                  onClick={handleAdd}
+                  className="bg-[#004085] hover:bg-[#0056B3] text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                >
+                  Adicionar Cliente
+                </button>
+              </div>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">

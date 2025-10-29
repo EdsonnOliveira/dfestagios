@@ -40,6 +40,7 @@ export default function ClienteDetalhes() {
   
   const [formDataEstagiario, setFormDataEstagiario] = useState({
     nome: '',
+    cpf: '',
     telefone: '',
     email: '',
     dataNascimento: ''
@@ -50,7 +51,8 @@ export default function ClienteDetalhes() {
     dataPrimeiroVencimento: '',
     periodoPagamento: 'mensal',
     numeroParcelas: '12-parcelas',
-    valorParcela: ''
+    valorParcela: '',
+    formaPagamento: 'pix' as 'pix' | 'boleto'
   });
 
   // Função removida - não utilizada
@@ -283,6 +285,7 @@ export default function ClienteDetalhes() {
   const handleCadastrar = () => {
     setFormDataEstagiario({
       nome: '',
+      cpf: '',
       telefone: '',
       email: '',
       dataNascimento: ''
@@ -298,7 +301,8 @@ export default function ClienteDetalhes() {
       dataPrimeiroVencimento: '',
       periodoPagamento: 'mensal',
       numeroParcelas: '12-parcelas',
-      valorParcela: ''
+      valorParcela: '',
+      formaPagamento: 'pix'
     });
     setShowPlanoModal(true);
   };
@@ -501,6 +505,7 @@ export default function ClienteDetalhes() {
           observacoes: formDataPlano.descricaoServico,
           numeroParcela: i + 1,
           totalParcelas: numeroParcelas,
+          formaPagamento: formDataPlano.formaPagamento,
           createdAt: new Date(),
           updatedAt: new Date()
         };
@@ -541,8 +546,29 @@ export default function ClienteDetalhes() {
     setFormDataEstagiario({...formDataEstagiario, telefone: formatted});
   };
 
+  const handleCpfChange = (value: string) => {
+    // Remove tudo que não é dígito
+    const numbers = value.replace(/\D/g, '');
+    
+    // Aplica a máscara 000.000.000-00
+    let formatted = numbers;
+    if (numbers.length > 0) {
+      if (numbers.length <= 3) {
+        formatted = numbers;
+      } else if (numbers.length <= 6) {
+        formatted = `${numbers.slice(0, 3)}.${numbers.slice(3)}`;
+      } else if (numbers.length <= 9) {
+        formatted = `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6)}`;
+      } else {
+        formatted = `${numbers.slice(0, 3)}.${numbers.slice(3, 6)}.${numbers.slice(6, 9)}-${numbers.slice(9, 11)}`;
+      }
+    }
+    
+    setFormDataEstagiario({...formDataEstagiario, cpf: formatted});
+  };
+
   const handleCadastrarEstagiario = async () => {
-    if (!formDataEstagiario.nome.trim() || !formDataEstagiario.telefone.trim() || !formDataEstagiario.email.trim()) {
+    if (!formDataEstagiario.nome.trim() || !formDataEstagiario.cpf.trim() || !formDataEstagiario.telefone.trim() || !formDataEstagiario.email.trim()) {
       alert('Por favor, preencha todos os campos obrigatórios.');
       return;
     }
@@ -553,6 +579,7 @@ export default function ClienteDetalhes() {
       // Criar estagiário
       const novoEstagiario = {
         nome: formDataEstagiario.nome,
+        cpf: formDataEstagiario.cpf,
         telefone1: formDataEstagiario.telefone,
         email: formDataEstagiario.email,
         dataNascimento: formDataEstagiario.dataNascimento || undefined,
@@ -635,20 +662,6 @@ export default function ClienteDetalhes() {
     }
   };
 
-  const calcularIdade = (dataNascimento: string): number => {
-    if (!dataNascimento) return 0;
-    const hoje = new Date();
-    const nascimento = new Date(dataNascimento);
-    let idade = hoje.getFullYear() - nascimento.getFullYear();
-    const mesAtual = hoje.getMonth();
-    const mesNascimento = nascimento.getMonth();
-    
-    if (mesAtual < mesNascimento || (mesAtual === mesNascimento && hoje.getDate() < nascimento.getDate())) {
-      idade--;
-    }
-    
-    return idade;
-  };
 
   // Função removida - não utilizada
   // const formatarData = (data: string) => {
@@ -721,16 +734,24 @@ export default function ClienteDetalhes() {
   };
   */
 
-  const marcarComoPago = async (mensalidadeId: string) => {
+
+  const marcarComoPago = async (mensalidade: Mensalidade) => {
     try {
-      // Marcar mensalidade como paga no banco
-      await mensalidadesService.marcarComoPago(mensalidadeId);
+      setLoadingMensalidade(true);
+      
+      // Usar a forma de pagamento já cadastrada no plano
+      const formaPagamentoPlano = mensalidade.formaPagamento || 'pix'; // Fallback para PIX se não tiver
+      
+      // Marcar mensalidade como paga no banco com a forma de pagamento do plano
+      await mensalidadesService.marcarComoPago(mensalidade.id, new Date(), formaPagamentoPlano as 'pix' | 'boleto');
       
       // Recarregar mensalidades para atualizar a interface
       await loadMensalidades();
     } catch (error) {
       console.error('Erro ao marcar mensalidade como paga:', error);
       alert('Erro ao marcar mensalidade como paga');
+    } finally {
+      setLoadingMensalidade(false);
     }
   };
 
@@ -1210,28 +1231,16 @@ export default function ClienteDetalhes() {
                           <thead className="bg-gray-50 dark:bg-slate-700">
                             <tr>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Nome
+                                Nome Completo
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Email
+                                CPF
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Data de Nascimento
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Telefone
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Idade
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Cidade
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Bairro
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Grau de Instrução
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Status
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Ações
@@ -1245,35 +1254,15 @@ export default function ClienteDetalhes() {
                                   <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.email}</div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.telefone1}</div>
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.cpf || '-'}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {estagiario.dataNascimento ? `${calcularIdade(estagiario.dataNascimento)} anos` : '-'}
+                                    {estagiario.dataNascimento ? new Date(estagiario.dataNascimento).toLocaleDateString('pt-BR') : '-'}
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.cidade}</div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.bairro || '-'}</div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.grauInstrucao}</div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <span 
-                                    className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                                      estagiario.status === 'ativo' 
-                                        ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' 
-                                        : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
-                                    }`}
-                                  >
-                                    {estagiario.status === 'ativo' ? 'Ativo' : 'Inativo'}
-                                  </span>
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.telefone1 || '-'}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                   <button 
@@ -1396,13 +1385,13 @@ export default function ClienteDetalhes() {
                           <thead className="bg-gray-50 dark:bg-slate-700">
                             <tr>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Descrição (Observações)
+                                Descrição
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Parcela
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Data Vencimento
+                                Vencimento
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Valor
@@ -1411,7 +1400,10 @@ export default function ClienteDetalhes() {
                                 Status
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Data Pagamento
+                                DT. Pagamento
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Pagamento
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Ações
@@ -1471,6 +1463,19 @@ export default function ClienteDetalhes() {
                                     }
                                   </div>
                                 </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {mensalidade.formaPagamento ? (
+                                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                        mensalidade.formaPagamento === 'pix' 
+                                          ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
+                                          : 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'
+                                      }`}>
+                                        {mensalidade.formaPagamento.toUpperCase()}
+                                      </span>
+                                    ) : '-'}
+                                  </div>
+                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                   <div className="relative">
                                     <button
@@ -1511,7 +1516,7 @@ export default function ClienteDetalhes() {
                                             <button 
                                               className="block w-full text-left px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                               onClick={() => {
-                                                marcarComoPago(mensalidade.id);
+                                                marcarComoPago(mensalidade);
                                                 fecharMenu();
                                               }}
                                               disabled={loadingMensalidade}
@@ -1758,6 +1763,20 @@ export default function ClienteDetalhes() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      CPF *
+                    </label>
+                    <input
+                      type="text"
+                      value={formDataEstagiario.cpf}
+                      onChange={(e) => handleCpfChange(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                      placeholder="000.000.000-00"
+                      maxLength={14}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Telefone *
                     </label>
                     <input
@@ -1805,7 +1824,7 @@ export default function ClienteDetalhes() {
                   </button>
                   <button
                     onClick={handleCadastrarEstagiario}
-                    disabled={loadingCadastrar || !formDataEstagiario.nome.trim() || !formDataEstagiario.telefone.trim() || !formDataEstagiario.email.trim()}
+                    disabled={loadingCadastrar || !formDataEstagiario.nome.trim() || !formDataEstagiario.cpf.trim() || !formDataEstagiario.telefone.trim() || !formDataEstagiario.email.trim()}
                     className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {loadingCadastrar ? (
@@ -1935,6 +1954,54 @@ export default function ClienteDetalhes() {
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
                         placeholder="R$ 0,00"
                       />
+                    </div>
+                  </div>
+
+                  {/* Terceira linha - Forma de Pagamento */}
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Forma de Pagamento: *
+                      </label>
+                      <div className="space-y-3">
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="formaPagamento"
+                            value="pix"
+                            checked={formDataPlano.formaPagamento === 'pix'}
+                            onChange={(e) => setFormDataPlano({...formDataPlano, formaPagamento: e.target.value as 'pix' | 'boleto'})}
+                            className="mr-3 text-[#004085] dark:text-blue-400 focus:ring-[#004085] dark:focus:ring-blue-400"
+                          />
+                          <div className="flex items-center">
+                            <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mr-3">
+                              <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd"/>
+                              </svg>
+                            </div>
+                            <span className="text-gray-900 dark:text-gray-100">PIX</span>
+                          </div>
+                        </label>
+                        
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="formaPagamento"
+                            value="boleto"
+                            checked={formDataPlano.formaPagamento === 'boleto'}
+                            onChange={(e) => setFormDataPlano({...formDataPlano, formaPagamento: e.target.value as 'pix' | 'boleto'})}
+                            className="mr-3 text-[#004085] dark:text-blue-400 focus:ring-[#004085] dark:focus:ring-blue-400"
+                          />
+                          <div className="flex items-center">
+                            <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mr-3">
+                              <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h4a2 2 0 012 2v2a2 2 0 01-2 2H8a2 2 0 01-2-2v-2z" clipRule="evenodd"/>
+                              </svg>
+                            </div>
+                            <span className="text-gray-900 dark:text-gray-100">Boleto</span>
+                          </div>
+                        </label>
+                      </div>
                     </div>
                   </div>
 
@@ -2220,6 +2287,7 @@ export default function ClienteDetalhes() {
           </div>
         </div>
       )}
+
         </main>
       </div>
     </ProtectedRoute>

@@ -10,6 +10,7 @@ export interface Mensalidade {
   valor: number;
   status: 'pago' | 'vencido' | 'aberto';
   dataPagamento?: Date;
+  formaPagamento?: 'pix' | 'boleto'; // forma de pagamento utilizada
   observacoes?: string;
   multaPercentual?: number; // percentual de multa aplicado (ex.: 10 para 10%)
   numeroParcela?: number; // número da parcela (ex.: 1, 2, 3...)
@@ -54,6 +55,7 @@ export const mensalidadesService = {
           valor: data.valor,
           status: data.status,
           dataPagamento: data.dataPagamento ? data.dataPagamento.toDate() : undefined,
+          formaPagamento: data.formaPagamento ?? undefined,
           observacoes: data.observacoes,
           multaPercentual: data.multaPercentual ?? undefined,
           numeroParcela: data.numeroParcela ?? undefined,
@@ -97,6 +99,7 @@ export const mensalidadesService = {
           valor: data.valor,
           status: data.status,
           dataPagamento: data.dataPagamento ? data.dataPagamento.toDate() : undefined,
+          formaPagamento: data.formaPagamento ?? undefined,
           observacoes: data.observacoes,
           multaPercentual: data.multaPercentual ?? undefined,
           numeroParcela: data.numeroParcela ?? undefined,
@@ -140,6 +143,7 @@ export const mensalidadesService = {
           valor: data.valor,
           status: data.status,
           dataPagamento: data.dataPagamento ? data.dataPagamento.toDate() : undefined,
+          formaPagamento: data.formaPagamento ?? undefined,
           observacoes: data.observacoes,
           multaPercentual: data.multaPercentual ?? undefined,
           numeroParcela: data.numeroParcela ?? undefined,
@@ -188,14 +192,20 @@ export const mensalidadesService = {
   },
 
   // Marcar como pago
-  async marcarComoPago(id: string, dataPagamento?: Date): Promise<void> {
+  async marcarComoPago(id: string, dataPagamento?: Date, formaPagamento?: 'pix' | 'boleto'): Promise<void> {
     try {
       const mensalidadeRef = doc(db, 'mensalidades', id);
-      await updateDoc(mensalidadeRef, {
+      const updateData: any = {
         status: 'pago',
         dataPagamento: dataPagamento ? Timestamp.fromDate(dataPagamento) : Timestamp.now(),
         updatedAt: Timestamp.now(),
-      });
+      };
+
+      if (formaPagamento) {
+        updateData.formaPagamento = formaPagamento;
+      }
+
+      await updateDoc(mensalidadeRef, updateData);
     } catch (error) {
       console.error('Erro ao marcar mensalidade como paga:', error);
       throw error;

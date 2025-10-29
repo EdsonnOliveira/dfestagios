@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 // import { useRouter } from 'next/router'; // Removido - não utilizado
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import PainelHeader from '../components/PainelHeader';
 import ProtectedRoute from '../components/ProtectedRoute';
 import { clientesService } from '../services/firebase';
@@ -63,6 +63,95 @@ export default function Mensalidades() {
     return null;
   };
   */
+
+  const processarClientesComStatus = () => {
+    // Processar diretamente as mensalidades do banco de dados
+    const mensalidadesProcessadas = mensalidades.map(mensalidade => {
+      // Buscar dados do cliente para informações adicionais
+      const cliente = clientes.find(c => c.id === mensalidade.clienteId);
+      
+      // Calcular mês/ano de referência
+      const dataVencimento = mensalidade.dataVencimento instanceof Date 
+        ? mensalidade.dataVencimento 
+        : new Date(mensalidade.dataVencimento);
+      
+      return {
+        // Dados da mensalidade (principais)
+        id: mensalidade.id,
+        mensalidadeId: mensalidade.id,
+        statusMensalidade: mensalidade.status,
+        valorMensalidade: mensalidade.valor,
+        dataVencimento: dataVencimento.toISOString(),
+               dataPagamento: mensalidade.dataPagamento ? 
+                 (mensalidade.dataPagamento instanceof Date 
+                   ? mensalidade.dataPagamento.toISOString() 
+                   : mensalidade.dataPagamento) : null,
+               formaPagamento: mensalidade.formaPagamento,
+               multaPercentual: mensalidade.multaPercentual,
+        numeroParcela: mensalidade.numeroParcela,
+        totalParcelas: mensalidade.totalParcelas,
+        observacoes: mensalidade.observacoes,
+        mesReferencia: `${getMesAbreviado(dataVencimento.getMonth())}/${dataVencimento.getFullYear()}`,
+        mensalidadeUnicaId: mensalidade.id,
+        
+        // Dados do cliente (para exibição)
+        razaoSocial: cliente?.razaoSocial || mensalidade.clienteNome,
+        nomeFantasia: cliente?.nomeFantasia || '',
+        telefone: cliente?.telefone || '',
+        email: cliente?.email || '',
+        cidade: cliente?.cidade || '',
+        bairro: cliente?.bairro || '',
+        cep: cliente?.cep || '',
+        responsavel: cliente?.responsavel || '',
+        servico: cliente?.servico || '',
+        status: cliente?.status || 'ativo',
+        motivoStatus: cliente?.motivoStatus || '',
+        estagiariosVinculados: cliente?.estagiariosVinculados || [],
+        createdAt: cliente?.createdAt || new Date(),
+        updatedAt: cliente?.updatedAt || new Date()
+      };
+    });
+
+    // Aplicar filtros
+    let mensalidadesFiltradas = mensalidadesProcessadas;
+
+    // Filtro por data
+    if (filtroDataInicio || filtroDataFim) {
+      mensalidadesFiltradas = mensalidadesFiltradas.filter(mensalidade => {
+        const dataVencimento = new Date(mensalidade.dataVencimento);
+        
+        if (filtroDataInicio) {
+          const dataInicio = new Date(filtroDataInicio);
+          if (dataVencimento < dataInicio) return false;
+        }
+        
+        if (filtroDataFim) {
+          const dataFim = new Date(filtroDataFim);
+          dataFim.setHours(23, 59, 59, 999); // Incluir todo o dia
+          if (dataVencimento > dataFim) return false;
+        }
+        
+        return true;
+      });
+    }
+
+    // Filtro por cliente
+    if (filtroCliente) {
+      mensalidadesFiltradas = mensalidadesFiltradas.filter(mensalidade =>
+        mensalidade.razaoSocial.toLowerCase().includes(filtroCliente.toLowerCase()) ||
+        mensalidade.nomeFantasia.toLowerCase().includes(filtroCliente.toLowerCase())
+      );
+    }
+
+    // Filtro por status
+    if (filtroStatus) {
+      mensalidadesFiltradas = mensalidadesFiltradas.filter(mensalidade =>
+        mensalidade.statusMensalidade === filtroStatus
+      );
+    }
+
+    setClientesComStatus(mensalidadesFiltradas);
+  };
 
   useEffect(() => {
     loadMensalidades();
@@ -349,100 +438,16 @@ export default function Mensalidades() {
     setNovoValor(formattedValue);
   };
 
-  const processarClientesComStatus = () => {
-    // Processar diretamente as mensalidades do banco de dados
-    const mensalidadesProcessadas = mensalidades.map(mensalidade => {
-      // Buscar dados do cliente para informações adicionais
-      const cliente = clientes.find(c => c.id === mensalidade.clienteId);
-      
-      // Calcular mês/ano de referência
-      const dataVencimento = mensalidade.dataVencimento instanceof Date 
-        ? mensalidade.dataVencimento 
-        : new Date(mensalidade.dataVencimento);
-      
-      return {
-        // Dados da mensalidade (principais)
-        id: mensalidade.id,
-        mensalidadeId: mensalidade.id,
-        statusMensalidade: mensalidade.status,
-        valorMensalidade: mensalidade.valor,
-        dataVencimento: dataVencimento.toISOString(),
-        dataPagamento: mensalidade.dataPagamento ? 
-          (mensalidade.dataPagamento instanceof Date 
-            ? mensalidade.dataPagamento.toISOString() 
-            : mensalidade.dataPagamento) : null,
-        multaPercentual: mensalidade.multaPercentual,
-        numeroParcela: mensalidade.numeroParcela,
-        totalParcelas: mensalidade.totalParcelas,
-        observacoes: mensalidade.observacoes,
-        mesReferencia: `${getMesAbreviado(dataVencimento.getMonth())}/${dataVencimento.getFullYear()}`,
-        mensalidadeUnicaId: mensalidade.id,
-        
-        // Dados do cliente (para exibição)
-        razaoSocial: cliente?.razaoSocial || mensalidade.clienteNome,
-        nomeFantasia: cliente?.nomeFantasia || '',
-        telefone: cliente?.telefone || '',
-        email: cliente?.email || '',
-        cidade: cliente?.cidade || '',
-        bairro: cliente?.bairro || '',
-        cep: cliente?.cep || '',
-        responsavel: cliente?.responsavel || '',
-        servico: cliente?.servico || '',
-        status: cliente?.status || 'ativo',
-        motivoStatus: cliente?.motivoStatus || '',
-        estagiariosVinculados: cliente?.estagiariosVinculados || [],
-        createdAt: cliente?.createdAt || new Date(),
-        updatedAt: cliente?.updatedAt || new Date()
-      };
-    });
 
-    // Aplicar filtros
-    let filtrados = mensalidadesProcessadas;
 
-    // Filtro por data (se especificado)
-    if (filtroDataInicio || filtroDataFim) {
-      filtrados = filtrados.filter(item => {
-        const dataVencimento = new Date(item.dataVencimento);
-        
-        if (filtroDataInicio && filtroDataFim) {
-          const dataInicio = new Date(filtroDataInicio + 'T00:00:00');
-          const dataFim = new Date(filtroDataFim + 'T23:59:59');
-          return dataVencimento >= dataInicio && dataVencimento <= dataFim;
-        } else if (filtroDataInicio) {
-          const dataInicio = new Date(filtroDataInicio + 'T00:00:00');
-          return dataVencimento >= dataInicio;
-        } else if (filtroDataFim) {
-          const dataFim = new Date(filtroDataFim + 'T23:59:59');
-          return dataVencimento <= dataFim;
-        }
-        
-        return true;
-      });
-    }
-
-    // Filtro por cliente (nome)
-    if (filtroCliente) {
-      filtrados = filtrados.filter(c => 
-        c.razaoSocial.toLowerCase().includes(filtroCliente.toLowerCase())
-      );
-    }
-
-    // Filtro por status
-    if (filtroStatus) {
-      filtrados = filtrados.filter(c => c.statusMensalidade === filtroStatus);
-    }
-
-    setClientesComStatus(filtrados);
-  };
-
-  const marcarComoPago = async (id: string) => {
+  const marcarComoPago = async (cliente: any) => {
     try {
       setLoadingAction(true);
       
-      // Marcar mensalidade existente como paga
-      await mensalidadesService.marcarComoPago(id, new Date());
+      // Usar a forma de pagamento já cadastrada no plano
+      const formaPagamentoPlano = cliente.formaPagamento || 'pix'; // Fallback para PIX se não tiver
       
-      // Recarregar mensalidades
+      await mensalidadesService.marcarComoPago(cliente.mensalidadeId, new Date(), formaPagamentoPlano as 'pix' | 'boleto');
       await loadMensalidades();
     } catch (error) {
       console.error('Erro ao marcar mensalidade como paga:', error);
@@ -469,106 +474,227 @@ export default function Mensalidades() {
 
   const exportarPDF = () => {
     try {
-      const doc = new jsPDF();
+      const doc = new jsPDF('l', 'mm', 'a4'); // Orientação landscape para melhor visualização da tabela
       
       // Configurações do PDF
       const pageWidth = doc.internal.pageSize.getWidth();
-      // const pageHeight = doc.internal.pageSize.getHeight();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      const contentWidth = pageWidth - (margin * 2);
       
-      // Cabeçalho
-      doc.setFontSize(20);
+      // Cores do tema
+      const primaryColor = [0, 64, 133]; // Azul #004085
+      const secondaryColor = [245, 245, 245]; // Cinza claro
+      
+      // Cabeçalho principal
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(0, 0, pageWidth, 25, 'F');
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(18);
       doc.setFont('helvetica', 'bold');
-      doc.text('Relatório de Mensalidades', pageWidth / 2, 20, { align: 'center' });
+      doc.text('RELATÓRIO DE MENSALIDADES', pageWidth / 2, 15, { align: 'center' });
       
-      // Data de geração
+      // Informações do relatório
+      doc.setTextColor(0, 0, 0);
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
-      const dataAtual = new Date().toLocaleDateString('pt-BR');
-      doc.text(`Gerado em: ${dataAtual}`, pageWidth / 2, 30, { align: 'center' });
       
-      // Mês de referência
-      if (clientesComStatus.length > 0) {
-        doc.text(`Período: ${clientesComStatus[0].mesReferencia}`, pageWidth / 2, 35, { align: 'center' });
+      const dataAtual = new Date();
+      const dataFormatada = dataAtual.toLocaleDateString('pt-BR');
+      const horaFormatada = dataAtual.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      
+      doc.text(`Gerado em: ${dataFormatada} às ${horaFormatada}`, margin, 35);
+      
+      // Período do relatório
+      let periodoTexto = 'Período: Todos os registros';
+      if (filtroDataInicio && filtroDataFim) {
+        const dataInicio = new Date(filtroDataInicio).toLocaleDateString('pt-BR');
+        const dataFim = new Date(filtroDataFim).toLocaleDateString('pt-BR');
+        periodoTexto = `Período: ${dataInicio} a ${dataFim}`;
+      } else if (filtroDataInicio) {
+        const dataInicio = new Date(filtroDataInicio).toLocaleDateString('pt-BR');
+        periodoTexto = `A partir de: ${dataInicio}`;
+      } else if (filtroDataFim) {
+        const dataFim = new Date(filtroDataFim).toLocaleDateString('pt-BR');
+        periodoTexto = `Até: ${dataFim}`;
       }
       
-      // Resumo
+      doc.text(periodoTexto, pageWidth - margin, 35, { align: 'right' });
+      
+      // Linha separadora
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, 45, pageWidth - margin, 45);
+      
+      // Resumo estatístico
+      let yPosition = 55;
+      
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.text('Resumo', 14, 50);
+      doc.text('RESUMO EXECUTIVO', margin, yPosition);
       
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Total de Clientes: ${clientesComStatus.length}`, 14, 60);
-      doc.text(`Pagas: ${clientesComStatus.filter(c => c.statusMensalidade === 'pago').length}`, 14, 65);
-      doc.text(`Abertas: ${clientesComStatus.filter(c => c.statusMensalidade === 'aberto').length}`, 14, 70);
-      doc.text(`Vencidas: ${clientesComStatus.filter(c => c.statusMensalidade === 'vencido').length}`, 14, 75);
-      doc.text(`Sem Mensalidade: ${clientesComStatus.filter(c => c.statusMensalidade === 'sem_mensalidade').length}`, 14, 80);
+      yPosition += 10;
       
-      // Valores
-      doc.text(`Valor Total: ${formatCurrency(valoresCalculados.total)}`, 14, 90);
-      doc.text(`Valor Recebido: ${formatCurrency(valoresCalculados.recebido)}`, 14, 95);
-      doc.text(`Valor a Receber: ${formatCurrency(valoresCalculados.aReceber)}`, 14, 100);
-      doc.text(`Valor Vencido: ${formatCurrency(valoresCalculados.vencido)}`, 14, 105);
+      // Cards de resumo
+      const resumoData = [
+        { label: 'Total de Clientes', value: clientesComStatus.length, color: [59, 130, 246] },
+        { label: 'Mensalidades Pagas', value: clientesComStatus.filter(c => c.statusMensalidade === 'pago').length, color: [34, 197, 94] },
+        { label: 'Mensalidades Abertas', value: clientesComStatus.filter(c => c.statusMensalidade === 'aberto').length, color: [251, 191, 36] },
+        { label: 'Mensalidades Vencidas', value: clientesComStatus.filter(c => c.statusMensalidade === 'vencido').length, color: [239, 68, 68] },
+        { label: 'Sem Mensalidade', value: clientesComStatus.filter(c => c.statusMensalidade === 'sem_mensalidade').length, color: [107, 114, 128] }
+      ];
       
-      // Preparar dados da tabela
-      const tableData = clientesComStatus.map(cliente => [
-        cliente.razaoSocial,
+      const cardWidth = (contentWidth - 20) / 5;
+      resumoData.forEach((item, index) => {
+        const x = margin + (index * (cardWidth + 5));
+        
+        // Fundo do card
+        doc.setFillColor(item.color[0], item.color[1], item.color[2]);
+        doc.roundedRect(x, yPosition, cardWidth, 20, 3, 3, 'F');
+        
+        // Texto do card
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text(item.value.toString(), x + cardWidth/2, yPosition + 8, { align: 'center' });
+        
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        doc.text(item.label, x + cardWidth/2, yPosition + 15, { align: 'center' });
+      });
+      
+      yPosition += 35;
+      
+      // Resumo financeiro
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RESUMO FINANCEIRO', margin, yPosition);
+      
+      yPosition += 10;
+      
+      const financeiroData = [
+        { label: 'Valor Total', value: formatCurrency(valoresCalculados.total), color: [59, 130, 246] },
+        { label: 'Valor Recebido', value: formatCurrency(valoresCalculados.recebido), color: [34, 197, 94] },
+        { label: 'Valor a Receber', value: formatCurrency(valoresCalculados.aReceber), color: [251, 191, 36] },
+        { label: 'Valor Vencido', value: formatCurrency(valoresCalculados.vencido), color: [239, 68, 68] }
+      ];
+      
+      const financeiroWidth = (contentWidth - 15) / 4;
+      financeiroData.forEach((item, index) => {
+        const x = margin + (index * (financeiroWidth + 5));
+        
+        // Fundo do card
+        doc.setFillColor(item.color[0], item.color[1], item.color[2]);
+        doc.roundedRect(x, yPosition, financeiroWidth, 20, 3, 3, 'F');
+        
+        // Texto do card
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text(item.value, x + financeiroWidth/2, yPosition + 8, { align: 'center' });
+        
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        doc.text(item.label, x + financeiroWidth/2, yPosition + 15, { align: 'center' });
+      });
+      
+      yPosition += 35;
+      
+      // Linha separadora
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, yPosition, pageWidth - margin, yPosition);
+      yPosition += 10;
+      
+      // Tabela de detalhes
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DETALHAMENTO DAS MENSALIDADES', margin, yPosition);
+      
+      yPosition += 10;
+      
+      // Preparar dados da tabela com mais informações
+      const tableData = clientesComStatus.map((cliente, index) => [
+        index + 1, // Número sequencial
+        cliente.nomeFantasia || cliente.razaoSocial,
+        cliente.telefone || '-',
         cliente.observacoes || '-',
         cliente.numeroParcela && cliente.totalParcelas ? 
           `${cliente.numeroParcela}/${cliente.totalParcelas}` : '-',
-        cliente.mesReferencia || '-',
         cliente.dataVencimento ? formatarData(cliente.dataVencimento) : '-',
         cliente.valorMensalidade > 0 ? formatCurrency(cliente.valorMensalidade) : '-',
         getStatusText(cliente.statusMensalidade),
-        cliente.dataPagamento ? formatarData(cliente.dataPagamento) : '-'
+        cliente.dataPagamento ? formatarData(cliente.dataPagamento) : '-',
+        cliente.formaPagamento ? cliente.formaPagamento.toUpperCase() : '-'
       ]);
       
       // Configurações da tabela
       const tableConfig = {
-        startY: 115,
-        head: [['Cliente', 'Descrição (Observações)', 'Parcela', 'Mês/Ano', 'Data Vencimento', 'Valor', 'Status', 'Data Pagamento']],
+        startY: yPosition,
+        head: [['#', 'Cliente', 'Telefone', 'Descrição', 'Parcela', 'Vencimento', 'Valor', 'Status', 'Pagamento', 'Forma']],
         body: tableData,
         styles: {
-          fontSize: 8,
-          cellPadding: 3,
+          fontSize: 7,
+          cellPadding: 2,
+          overflow: 'linebreak' as const,
+          halign: 'left' as const,
+          valign: 'middle' as const
         },
         headStyles: {
-          fillColor: [0, 64, 133], // Cor azul do tema
+          fillColor: [primaryColor[0], primaryColor[1], primaryColor[2]] as [number, number, number],
           textColor: 255,
-          fontStyle: 'bold',
+          fontStyle: 'bold' as const,
+          fontSize: 8
         },
         alternateRowStyles: {
-          fillColor: [245, 245, 245],
+          fillColor: [secondaryColor[0], secondaryColor[1], secondaryColor[2]] as [number, number, number],
         },
         columnStyles: {
-          0: { cellWidth: 30 }, // Cliente
-          1: { cellWidth: 25 }, // Descrição (Observações)
-          2: { cellWidth: 12 }, // Parcela
-          3: { cellWidth: 15 }, // Mês/Ano
-          4: { cellWidth: 20 }, // Data Vencimento
-          5: { cellWidth: 20 }, // Valor
-          6: { cellWidth: 15 }, // Status
-          7: { cellWidth: 20 }, // Data Pagamento
+          0: { cellWidth: 8, halign: 'center' as const }, // #
+          1: { cellWidth: 35, halign: 'left' as const }, // Cliente
+          2: { cellWidth: 20, halign: 'center' as const }, // Telefone
+          3: { cellWidth: 25, halign: 'left' as const }, // Descrição
+          4: { cellWidth: 12, halign: 'center' as const }, // Parcela
+          5: { cellWidth: 18, halign: 'center' as const }, // Vencimento
+          6: { cellWidth: 20, halign: 'right' as const }, // Valor
+          7: { cellWidth: 15, halign: 'center' as const }, // Status
+          8: { cellWidth: 18, halign: 'center' as const }, // Pagamento
+          9: { cellWidth: 12, halign: 'center' as const } // Forma
         },
-        margin: { left: 14, right: 14 },
+        margin: { left: margin, right: margin },
+        showHead: 'everyPage' as const
       };
       
       // Adicionar tabela
-      (doc as unknown as { autoTable: (config: unknown) => void }).autoTable(tableConfig);
+      autoTable(doc, tableConfig);
       
       // Rodapé
-      const finalY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY || 115;
+      const finalY = (doc as any).lastAutoTable?.finalY || yPosition;
+      
+      // Linha separadora do rodapé
+      doc.setDrawColor(200, 200, 200);
+      doc.line(margin, finalY + 10, pageWidth - margin, finalY + 10);
+      
+      // Informações do rodapé
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'italic');
-      doc.text('Relatório gerado pelo sistema DF Estágios', pageWidth / 2, finalY + 20, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      
+      const totalPaginas = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPaginas; i++) {
+        doc.setPage(i);
+        doc.text(`Página ${i} de ${totalPaginas}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
+        doc.text('Relatório gerado pelo sistema DF Estágios', margin, pageHeight - 10);
+        doc.text(`Total de registros: ${clientesComStatus.length}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+      }
       
       // Salvar PDF
-      const nomeArquivo = `mensalidades_${dataAtual.replace(/\//g, '-')}.pdf`;
+      const nomeArquivo = `Relatorio_Mensalidades_${dataFormatada.replace(/\//g, '-')}_${horaFormatada.replace(/:/g, '-')}.pdf`;
       doc.save(nomeArquivo);
       
     } catch (error) {
       console.error('Erro ao gerar PDF:', error);
-      alert('Erro ao gerar PDF');
+      alert('Erro ao gerar PDF: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
@@ -901,19 +1027,6 @@ export default function Mensalidades() {
 
           {/* Resumo - Quantidades */}
           <div className="mb-6">
-            <h2 className="text-lg font-bold text-[#004085] dark:text-blue-400 mb-4">
-              {(() => {
-                const hoje = new Date();
-                const mesReferencia = filtroDataInicio ? new Date(filtroDataInicio) : 
-                                    filtroDataFim ? new Date(filtroDataFim) : hoje;
-                const isDataFutura = mesReferencia > hoje;
-                const mesReferenciaText = clientesComStatus.length > 0 ? clientesComStatus[0].mesReferencia : 'Mês Atual';
-                
-                return isDataFutura ? 
-                  `Previsão por Quantidade - ${mesReferenciaText} (Futuro)` : 
-                  `Resumo por Quantidade - ${mesReferenciaText}`;
-              })()}
-            </h2>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-4 transition-colors">
               <div className="flex items-center">
@@ -997,16 +1110,6 @@ export default function Mensalidades() {
 
           {/* Resumo - Valores Monetários */}
           <div className="mb-6">
-            <h2 className="text-lg font-bold text-[#004085] dark:text-blue-400 mb-4">
-              {(() => {
-                const hoje = new Date();
-                const mesReferencia = filtroDataInicio ? new Date(filtroDataInicio) : 
-                                    filtroDataFim ? new Date(filtroDataFim) : hoje;
-                const isDataFutura = mesReferencia > hoje;
-                
-                return isDataFutura ? 'Previsão por Valores (Futuro)' : 'Resumo por Valores';
-              })()}
-            </h2>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-4 transition-colors">
               <div className="flex items-center">
@@ -1117,16 +1220,13 @@ export default function Mensalidades() {
                         Cliente
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Descrição (Observações)
+                        Descrição
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Parcela
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Mês/Ano
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Data Vencimento
+                        Vencimento
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Valor
@@ -1134,12 +1234,15 @@ export default function Mensalidades() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Status
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Data Pagamento
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Ações
-                      </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          DT. Pagamento
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Forma
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Ações
+                        </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -1148,10 +1251,7 @@ export default function Mensalidades() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div>
                             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                              {cliente.razaoSocial}
-                            </div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                              {cliente.nomeFantasia}
+                              {cliente.nomeFantasia || cliente.razaoSocial}
                             </div>
                             <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                               <a
@@ -1176,11 +1276,6 @@ export default function Mensalidades() {
                               `${cliente.numeroParcela}/${cliente.totalParcelas}` : 
                               '-'
                             }
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 dark:text-gray-100">
-                            {cliente.mesReferencia}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1252,6 +1347,19 @@ export default function Mensalidades() {
                             }
                           </div>
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900 dark:text-gray-100">
+                            {cliente.formaPagamento ? (
+                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                cliente.formaPagamento === 'pix' 
+                                  ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
+                                  : 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'
+                              }`}>
+                                {cliente.formaPagamento.toUpperCase()}
+                              </span>
+                            ) : '-'}
+                          </div>
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="relative">
                             <button
@@ -1299,7 +1407,7 @@ export default function Mensalidades() {
                                     <button 
                                       className="block w-full text-left px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                       onClick={() => {
-                                        marcarComoPago(cliente.mensalidadeId);
+                                        marcarComoPago(cliente);
                                         fecharMenu();
                                       }}
                                       disabled={loadingAction}
@@ -1754,6 +1862,7 @@ export default function Mensalidades() {
           </div>
         </div>
       )}
+
     </ProtectedRoute>
   );
 }

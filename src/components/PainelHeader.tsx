@@ -1,12 +1,10 @@
 import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { useState, useEffect } from 'react';
-import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { authService } from '../services/firebase';
 
 export default function PainelHeader() {
-  const { user } = useAuth();
   const { isDark, toggleTheme } = useTheme();
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -99,9 +97,6 @@ export default function PainelHeader() {
               </svg>
             )}
           </button>
-          <span className="text-gray-600 dark:text-gray-300 text-sm">
-            Bem-vindo, {user?.email || 'Administrador'}
-          </span>
           <button 
             onClick={handleLogout}
             className="bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
@@ -148,10 +143,6 @@ export default function PainelHeader() {
           </div>
           
           <div className="flex flex-col space-y-4">
-            <span className="text-gray-600 dark:text-gray-300 text-sm font-medium">
-              Bem-vindo, {user?.email || 'Administrador'}
-            </span>
-            
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tema:</span>
               <button
