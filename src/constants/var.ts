@@ -1,0 +1,1 @@
+export const whatsapp = '5561999629819';

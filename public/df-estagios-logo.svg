@@ -1,0 +1,43 @@
+<svg width="300" height="80" viewBox="0 0 300 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Emblem Circle -->
+  <circle cx="40" cy="40" r="35" fill="url(#goldGradient)" stroke="#FFC107" stroke-width="2"/>
+  
+  <!-- Top Star -->
+  <path d="M40 8L42.5 15L50 15L44.5 20L47 27L40 22.5L33 27L35.5 20L30 15L37.5 15L40 8Z" fill="#FFC107"/>
+  
+  <!-- Book -->
+  <path d="M25 30L55 30L55 50L25 50L25 30Z" fill="url(#blueGradient)"/>
+  <path d="M25 30L55 30L55 35L25 35L25 30Z" fill="#FFC107"/>
+  
+  <!-- Human Figure -->
+  <circle cx="45" cy="35" r="3" fill="#FFC107"/>
+  <path d="M45 38L45 45L42 48L48 48L45 45Z" fill="#FFC107"/>
+  <path d="M42 42L45 40L48 42" fill="#FFC107"/>
+  
+  <!-- DF Letters -->
+  <text x="40" y="65" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="url(#blueGradient)">DF</text>
+  
+  <!-- Bottom Star -->
+  <path d="M40 72L42.5 65L50 65L44.5 60L47 53L40 57.5L33 53L35.5 60L30 65L37.5 65L40 72Z" fill="#FFC107"/>
+  
+  <!-- ESTÁGIOS Text -->
+  <text x="90" y="35" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="url(#blueGradient)">ESTÁGIOS</text>
+  
+  <!-- Decorative Lines -->
+  <line x1="90" y1="45" x2="200" y2="45" stroke="#FFC107" stroke-width="1"/>
+  
+  <!-- AGÊNCIA DE INTEGRAÇÃO -->
+  <text x="90" y="55" font-family="Arial, sans-serif" font-size="12" fill="#FFC107">AGÊNCIA DE INTEGRAÇÃO</text>
+  
+  <!-- Gradients -->
+  <defs>
+    <linearGradient id="blueGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#007BFF"/>
+      <stop offset="100%" style="stop-color:#004085"/>
+    </linearGradient>
+    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFD700"/>
+      <stop offset="100%" style="stop-color:#FFC107"/>
+    </linearGradient>
+  </defs>
+</svg>

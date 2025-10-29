@@ -1,0 +1,5 @@
+<svg width="120" height="40" viewBox="0 0 120 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M10 8L15 12L10 16L5 12L10 8Z" fill="#28A745"/>
+  <path d="M12 6L18 10L12 14L6 10L12 6Z" fill="#FFC107"/>
+  <text x="25" y="25" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#007BFF">BRED</text>
+</svg>
