@@ -2,10 +2,12 @@ import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { useState, useEffect } from 'react';
 import { useTheme } from '../hooks/useTheme';
+import { useAuth } from '../hooks/useAuth';
 import { authService } from '../services/firebase';
 
 export default function PainelHeader() {
   const { isDark, toggleTheme } = useTheme();
+  const { user } = useAuth();
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -58,18 +60,22 @@ export default function PainelHeader() {
           >
             Estagiários
           </button>
-          <button
-            onClick={() => handleNavigation('/clientes')}
-            className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
-          >
-            Clientes
-          </button>
-          <button
-            onClick={() => handleNavigation('/mensalidades')}
-            className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
-          >
-            Mensalidades
-          </button>
+          {user?.email === 'contato.estagiosdf@gmail.com' && (
+            <>
+              <button
+                onClick={() => handleNavigation('/clientes')}
+                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+              >
+                Clientes
+              </button>
+              <button
+                onClick={() => handleNavigation('/mensalidades')}
+                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+              >
+                Mensalidades
+              </button>
+            </>
+          )}
           <button
             onClick={() => handleNavigation('/painel-grupos')}
             className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
@@ -172,24 +178,28 @@ export default function PainelHeader() {
               >
                 Estagiários
               </button>
-              <button
-                onClick={() => {
-                  handleNavigation('/clientes');
-                  closeMobileMenu();
-                }}
-                className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
-              >
-                Clientes
-              </button>
-              <button
-                onClick={() => {
-                  handleNavigation('/mensalidades');
-                  closeMobileMenu();
-                }}
-                className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
-              >
-                Mensalidades
-              </button>
+              {user?.email === 'contato.estagiosdf@gmail.com' && (
+                <>
+                  <button
+                    onClick={() => {
+                      handleNavigation('/clientes');
+                      closeMobileMenu();
+                    }}
+                    className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
+                  >
+                    Clientes
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleNavigation('/mensalidades');
+                      closeMobileMenu();
+                    }}
+                    className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
+                  >
+                    Mensalidades
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => {
                   handleNavigation('/painel-grupos');

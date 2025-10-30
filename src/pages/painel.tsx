@@ -34,7 +34,8 @@ export default function Painel() {
     cidade: '',
     uf: '',
     complemento: '',
-    grauInstrucao: ''
+    grauInstrucao: '',
+    curso: ''
   });
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [showInativarModal, setShowInativarModal] = useState(false);
@@ -382,7 +383,8 @@ export default function Painel() {
       cidade: estagiario.cidade || '',
       uf: estagiario.uf || '',
       complemento: estagiario.complemento || '',
-      grauInstrucao: estagiario.grauInstrucao || ''
+      grauInstrucao: estagiario.grauInstrucao || '',
+      curso: estagiario.curso || ''
     });
     setShowEditModal(true);
   };
@@ -400,7 +402,8 @@ export default function Painel() {
         cidade: editForm.cidade,
         uf: editForm.uf,
         complemento: editForm.complemento,
-        grauInstrucao: editForm.grauInstrucao
+        grauInstrucao: editForm.grauInstrucao,
+        curso: editForm.curso
       });
 
       setEstagiarios(prev => prev.map(estagiario => 
@@ -429,7 +432,8 @@ export default function Painel() {
       cidade: '',
       uf: '',
       complemento: '',
-      grauInstrucao: ''
+      grauInstrucao: '',
+      curso: ''
     });
   };
 
@@ -439,7 +443,7 @@ export default function Painel() {
       const matchCidade = filtroCidade === '' || estagiario.cidade === filtroCidade;
       const matchBairro = filtroBairro === '' || estagiario.bairro === filtroBairro;
       const matchCurso = filtroCurso === '' || 
-        (estagiario.outrosCursos && estagiario.outrosCursos.toLowerCase().includes(filtroCurso.toLowerCase()));
+        (estagiario.curso && estagiario.curso.toLowerCase().includes(filtroCurso.toLowerCase()));
       const matchEscolaridade = filtroEscolaridade === '' || estagiario.grauInstrucao === filtroEscolaridade;
       
       const idade = calcularIdade(estagiario.dataNascimento || '');
@@ -730,9 +734,6 @@ export default function Painel() {
                     Nome
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Email
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Telefone
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -743,6 +744,9 @@ export default function Painel() {
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Bairro
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Curso
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Grau de Instrução
@@ -760,9 +764,6 @@ export default function Painel() {
                   <tr key={estagiario.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.email}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
@@ -787,6 +788,9 @@ export default function Painel() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.bairro || '-'}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.curso || '-'}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.grauInstrucao}</div>
@@ -958,6 +962,19 @@ export default function Painel() {
                   <option value="superior">Superior</option>
                   <option value="pos-graduacao">Pós-graduação</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Curso
+                </label>
+                <input
+                  type="text"
+                  value={editForm.curso}
+                  onChange={(e) => setEditForm({...editForm, curso: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                  placeholder="Digite o nome do curso"
+                />
               </div>
             </div>
 

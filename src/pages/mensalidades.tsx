@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 // import { useRouter } from 'next/router'; // Removido - não utilizado
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import PainelHeader from '../components/PainelHeader';
 import ProtectedRoute from '../components/ProtectedRoute';
+import AdminRoute from '../components/AdminRoute';
 import { clientesService } from '../services/firebase';
 import { mensalidadesService, Mensalidade } from '../services/mensalidadesService';
 import { Cliente } from '../types/firebase';
@@ -46,7 +47,9 @@ export default function Mensalidades() {
   const [loadingCliente, setLoadingCliente] = useState(false);
   const [showVencimentoModal, setShowVencimentoModal] = useState(false);
   const [showValorModal, setShowValorModal] = useState(false);
+  const [showExcluirModal, setShowExcluirModal] = useState(false);
   const [mensalidadeParaEditar, setMensalidadeParaEditar] = useState<any>(null);
+  const [mensalidadeParaExcluir, setMensalidadeParaExcluir] = useState<any>(null);
   const [novoVencimento, setNovoVencimento] = useState('');
   const [novoValor, setNovoValor] = useState('');
   const [loadingMensalidade, setLoadingMensalidade] = useState(false);
@@ -64,7 +67,7 @@ export default function Mensalidades() {
   };
   */
 
-  const processarClientesComStatus = () => {
+  const processarClientesComStatus = useCallback(() => {
     // Processar diretamente as mensalidades do banco de dados
     const mensalidadesProcessadas = mensalidades.map(mensalidade => {
       // Buscar dados do cliente para informações adicionais
@@ -151,7 +154,7 @@ export default function Mensalidades() {
     }
 
     setClientesComStatus(mensalidadesFiltradas);
-  };
+  }, [mensalidades, clientes, filtroDataInicio, filtroDataFim, filtroCliente, filtroStatus]);
 
   useEffect(() => {
     loadMensalidades();
@@ -160,7 +163,7 @@ export default function Mensalidades() {
 
   useEffect(() => {
     processarClientesComStatus();
-  }, [clientes, mensalidades, filtroDataInicio, filtroDataFim, filtroCliente, filtroStatus]);
+  }, [processarClientesComStatus]);
 
   // Fechar menu quando clicar fora
   useEffect(() => {
@@ -347,6 +350,35 @@ export default function Mensalidades() {
     setNovoValor('');
   };
 
+  const abrirModalExcluir = (cliente: any) => {
+    setMensalidadeParaExcluir(cliente);
+    setShowExcluirModal(true);
+    fecharMenu();
+  };
+
+  const fecharModalExcluir = () => {
+    setShowExcluirModal(false);
+    setMensalidadeParaExcluir(null);
+  };
+
+  const excluirMensalidade = async () => {
+    if (!mensalidadeParaExcluir) return;
+
+    try {
+      setLoadingAction(true);
+      
+      await mensalidadesService.delete(mensalidadeParaExcluir.mensalidadeId);
+      await loadMensalidades();
+      
+      fecharModalExcluir();
+    } catch (error) {
+      console.error('Erro ao excluir mensalidade:', error);
+      alert('Erro ao excluir mensalidade');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
   const handleSalvarVencimento = async () => {
     if (!mensalidadeParaEditar || !novoVencimento) {
       return;
@@ -402,7 +434,11 @@ export default function Mensalidades() {
       return;
     }
 
-    const valorNumerico = parseFloat(novoValor.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    const valorNumerico = (() => {
+      const digits = novoValor.replace(/\D/g, '');
+      if (digits === '') return 0;
+      return parseInt(digits, 10) / 100;
+    })();
     if (valorNumerico <= 0) {
       alert('Por favor, informe um valor válido.');
       return;
@@ -418,7 +454,6 @@ export default function Mensalidades() {
       
       await loadMensalidades();
       fecharModalValor();
-      alert('Valor alterado com sucesso!');
     } catch (error) {
       console.error('Erro ao alterar valor:', error);
       alert('Erro ao alterar valor');
@@ -428,14 +463,25 @@ export default function Mensalidades() {
   };
 
   const handleValorChange = (value: string) => {
-    // Formatar valor monetário
-    const numberValue = parseFloat(value.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    // Máscara baseada apenas em dígitos: últimos 2 como centavos
+    const digits = value.replace(/\D/g, '');
+    if (digits === '') {
+      setNovoValor('');
+      return;
+    }
+    const centsValue = parseInt(digits, 10) / 100;
     const formattedValue = new Intl.NumberFormat('pt-BR', {
       style: 'currency',
       currency: 'BRL'
-    }).format(numberValue);
-    
+    }).format(isNaN(centsValue) ? 0 : centsValue);
     setNovoValor(formattedValue);
+  };
+
+  const handleValorKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      e.preventDefault();
+      setNovoValor('');
+    }
   };
 
 
@@ -844,7 +890,8 @@ export default function Mensalidades() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors">
+      <AdminRoute>
+        <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors">
         <PainelHeader />
 
         <main className="max-w-7xl mx-auto px-4 py-8 sm:py-12 pt-20 sm:pt-24">
@@ -1448,6 +1495,17 @@ export default function Mensalidades() {
                                       </button>
                                     </>
                                   )}
+
+                                  <button
+                                    className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    onClick={() => abrirModalExcluir(cliente)}
+                                    disabled={loadingAction}
+                                  >
+                                    {loadingAction ? (
+                                      <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
+                                    ) : null}
+                                    Excluir Parcela
+                                  </button>
                                 </div>
                               </div>
                             )}
@@ -1770,6 +1828,7 @@ export default function Mensalidades() {
                 type="text"
                 value={novoValor}
                 onChange={(e) => handleValorChange(e.target.value)}
+                onKeyDown={handleValorKeyDown}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
                 placeholder="Ex: R$ 1.200,00"
               />
@@ -1863,6 +1922,90 @@ export default function Mensalidades() {
         </div>
       )}
 
+      {/* Modal de Excluir Parcela */}
+      {showExcluirModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-red-600 dark:text-red-400">
+                Excluir Parcela
+              </h3>
+              <button
+                onClick={fecharModalExcluir}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-6">
+              <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 dark:bg-red-900 rounded-full">
+                <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              
+              <p className="text-sm text-gray-600 dark:text-gray-300 text-center mb-4">
+                Tem certeza que deseja excluir esta parcela?
+              </p>
+              
+              <div className="bg-gray-50 dark:bg-slate-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Cliente:</span>
+                    <p className="text-gray-900 dark:text-gray-100">{mensalidadeParaExcluir?.razaoSocial}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Valor:</span>
+                    <p className="text-gray-900 dark:text-gray-100 font-semibold">
+                      {mensalidadeParaExcluir ? formatCurrency(mensalidadeParaExcluir.valorMensalidade) : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Vencimento:</span>
+                    <p className="text-gray-900 dark:text-gray-100">
+                      {mensalidadeParaExcluir ? formatarData(mensalidadeParaExcluir.dataVencimento) : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Status:</span>
+                    <p className="text-gray-900 dark:text-gray-100">
+                      {mensalidadeParaExcluir ? getStatusText(mensalidadeParaExcluir.statusMensalidade) : ''}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <p className="text-xs text-red-600 dark:text-red-400 text-center mt-4">
+                ⚠️ Esta ação não pode ser desfeita.
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={fecharModalExcluir}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={excluirMensalidade}
+                disabled={loadingAction}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingAction ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Excluir Parcela'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </AdminRoute>
     </ProtectedRoute>
   );
 }

@@ -18,6 +18,7 @@ import {
 } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
 import { Estagiario, Grupo, Cliente } from '../types/firebase';
+import { mensalidadesService } from './mensalidadesService';
 
 export const estagiariosService = {
   async add(estagiario: Omit<Estagiario, 'id' | 'createdAt' | 'updatedAt'>) {
@@ -290,6 +291,17 @@ export const clientesService = {
       status: newStatus,
       updatedAt: new Date()
     });
+
+    // Se o cliente foi inativado ou bloqueado, excluir mensalidades abertas
+    if (newStatus === 'inativo' || newStatus === 'bloqueado') {
+      try {
+        await mensalidadesService.deleteMensalidadesAbertasByCliente(id);
+      } catch (error) {
+        console.error('Erro ao excluir mensalidades abertas:', error);
+        // Não falhar a operação principal se houver erro na exclusão das mensalidades
+      }
+    }
+
     return newStatus;
   },
 
@@ -299,17 +311,37 @@ export const clientesService = {
       status: newStatus,
       updatedAt: new Date()
     };
-    
+
     if (motivo) {
       updateData.motivoStatus = motivo;
     }
-    
+
     await updateDoc(docRef, updateData);
+
+    // Se o cliente foi inativado ou bloqueado, excluir mensalidades abertas
+    if (newStatus === 'inativo' || newStatus === 'bloqueado') {
+      try {
+        await mensalidadesService.deleteMensalidadesAbertasByCliente(id);
+      } catch (error) {
+        console.error('Erro ao excluir mensalidades abertas:', error);
+        // Não falhar a operação principal se houver erro na exclusão das mensalidades
+      }
+    }
+
     return newStatus;
   },
 
   async delete(id: string) {
     const docRef = doc(db, 'clientes', id);
+    
+    // Excluir mensalidades abertas antes de excluir o cliente
+    try {
+      await mensalidadesService.deleteMensalidadesAbertasByCliente(id);
+    } catch (error) {
+      console.error('Erro ao excluir mensalidades abertas:', error);
+      // Não falhar a operação principal se houver erro na exclusão das mensalidades
+    }
+    
     await deleteDoc(docRef);
   }
 };

@@ -4,6 +4,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import PainelHeader from '../components/PainelHeader';
 import ProtectedRoute from '../components/ProtectedRoute';
+import AdminRoute from '../components/AdminRoute';
 import { clientesService } from '../services/firebase';
 import { Cliente } from '../types/firebase';
 
@@ -511,7 +512,8 @@ export default function Clientes() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors">
+      <AdminRoute>
+        <div className="min-h-screen bg-gray-50 dark:bg-slate-900 transition-colors">
         <PainelHeader />
 
         <main className="max-w-7xl mx-auto px-4 py-8 sm:py-12 pt-20 sm:pt-24">
@@ -1067,7 +1069,8 @@ export default function Clientes() {
             </div>
           </div>
         )}
-      </div>
+        </div>
+      </AdminRoute>
     </ProtectedRoute>
   );
 }

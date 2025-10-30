@@ -16,6 +16,7 @@ export interface Estagiario {
   endereco: string;
   complemento?: string;
   grauInstrucao: string;
+  curso?: string;
   matricula?: string;
   horarioDisponivel?: string[];
   horarioEstudo?: string[];

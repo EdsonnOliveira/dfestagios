@@ -24,6 +24,7 @@ export default function Formulario() {
     endereco: '',
     complemento: '',
     grauInstrucao: '',
+    curso: '',
     matricula: '',
     horarioDisponivel: [] as string[],
     horarioEstudo: [] as string[],
@@ -227,6 +228,7 @@ export default function Formulario() {
         endereco: formData.endereco,
         complemento: formData.complemento,
         grauInstrucao: formData.grauInstrucao,
+        curso: formData.curso,
         matricula: formData.matricula,
         horarioDisponivel: formData.horarioDisponivel,
         horarioEstudo: formData.horarioEstudo,
@@ -695,6 +697,19 @@ export default function Formulario() {
                 {fieldErrors.grauInstrucao && (
                   <p className="text-red-500 text-sm mt-1">{fieldErrors.grauInstrucao}</p>
                 )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Curso
+                </label>
+                <input
+                  type="text"
+                  placeholder="Digite o nome do curso"
+                  value={formData.curso}
+                  onChange={(e) => handleInputChange('curso', e.target.value)}
+                  className="w-full px-3 sm:px-4 py-2 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#004085] focus:border-transparent text-sm sm:text-base"
+                />
               </div>
 
               <div>

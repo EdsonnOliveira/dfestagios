@@ -250,6 +250,29 @@ export const mensalidadesService = {
     }
   },
 
+  // Excluir todas as mensalidades abertas de um cliente
+  async deleteMensalidadesAbertasByCliente(clienteId: string): Promise<void> {
+    try {
+      // Buscar todas as mensalidades abertas do cliente
+      const q = query(
+        collection(db, 'mensalidades'),
+        where('clienteId', '==', clienteId),
+        where('status', '==', 'aberto')
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      // Excluir cada mensalidade aberta
+      const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      
+      console.log(`Excluídas ${querySnapshot.docs.length} mensalidades abertas do cliente ${clienteId}`);
+    } catch (error) {
+      console.error('Erro ao excluir mensalidades abertas do cliente:', error);
+      throw error;
+    }
+  },
+
   // Gerar mensalidades para um cliente (útil para criar mensalidades futuras)
   async gerarMensalidadesParaCliente(
     clienteId: string, 

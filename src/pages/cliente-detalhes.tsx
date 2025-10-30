@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import PainelHeader from '../components/PainelHeader';
 import ProtectedRoute from '../components/ProtectedRoute';
@@ -34,7 +34,9 @@ export default function ClienteDetalhes() {
   const [mensalidadeParaMulta, setMensalidadeParaMulta] = useState<Mensalidade | null>(null);
   const [showVencimentoModal, setShowVencimentoModal] = useState(false);
   const [showValorModal, setShowValorModal] = useState(false);
+  const [showExcluirModal, setShowExcluirModal] = useState(false);
   const [mensalidadeParaEditar, setMensalidadeParaEditar] = useState<Mensalidade | null>(null);
+  const [mensalidadeParaExcluir, setMensalidadeParaExcluir] = useState<Mensalidade | null>(null);
   const [novoVencimento, setNovoVencimento] = useState('');
   const [novoValor, setNovoValor] = useState('');
   
@@ -68,18 +70,6 @@ export default function ClienteDetalhes() {
   };
   */
 
-  useEffect(() => {
-    if (id) {
-      loadCliente();
-      loadEstagiarios();
-    }
-  }, [id]);
-
-  useEffect(() => {
-    if (cliente) {
-      loadMensalidades();
-    }
-  }, [cliente]);
 
   useEffect(() => {
     if (filtroEstagiario) {
@@ -115,7 +105,7 @@ export default function ClienteDetalhes() {
     };
   }, [menuAberto]);
 
-  const loadCliente = async () => {
+  const loadCliente = useCallback(async () => {
     try {
       setLoading(true);
       const clientes = await clientesService.getAll();
@@ -132,9 +122,9 @@ export default function ClienteDetalhes() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, router]);
 
-  const loadEstagiarios = async () => {
+  const loadEstagiarios = useCallback(async () => {
     try {
       setLoadingEstagiarios(true);
       const estagiariosData = await estagiariosService.getAll();
@@ -150,9 +140,9 @@ export default function ClienteDetalhes() {
     } finally {
       setLoadingEstagiarios(false);
     }
-  };
+  }, [id]);
 
-  const loadMensalidades = async () => {
+  const loadMensalidades = useCallback(async () => {
     try {
       setLoadingMensalidades(true);
       
@@ -166,7 +156,20 @@ export default function ClienteDetalhes() {
     } finally {
       setLoadingMensalidades(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    if (id) {
+      loadCliente();
+      loadEstagiarios();
+    }
+  }, [id, loadCliente, loadEstagiarios]);
+
+  useEffect(() => {
+    if (cliente) {
+      loadMensalidades();
+    }
+  }, [cliente, loadMensalidades]);
 
   // Função removida - não utilizada
   /*
@@ -376,6 +379,7 @@ export default function ClienteDetalhes() {
   };
 
   const handleSalvarPlano = async () => {
+    console.log('formDataPlano', formDataPlano.dataPrimeiroVencimento);
     if (!formDataPlano.descricaoServico || !formDataPlano.dataPrimeiroVencimento || !formDataPlano.valorParcela) {
       alert('Por favor, preencha todos os campos obrigatórios.');
       return;
@@ -464,7 +468,7 @@ export default function ClienteDetalhes() {
       }
 
       // Converter data para formato do banco (apenas o dia)
-      const dataVencimento = new Date(formDataPlano.dataPrimeiroVencimento).getDate().toString();
+      const dataVencimento = new Date(formDataPlano.dataPrimeiroVencimento).getDate() + 1
       
       // Converter valor para number
       const valorNumerico = parseFloat(formDataPlano.valorParcela.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
@@ -480,7 +484,7 @@ export default function ClienteDetalhes() {
         dataVencimentoParcela.setMonth(dataVencimentoParcela.getMonth() + (i * intervaloMeses));
         
         // Ajustar o dia para o mês correto (evitar problemas com meses que têm menos dias)
-        const diaVencimento = parseInt(dataVencimento);
+        const diaVencimento = parseInt(dataVencimento.toString());
         const ultimoDiaMes = new Date(dataVencimentoParcela.getFullYear(), dataVencimentoParcela.getMonth() + 1, 0).getDate();
         dataVencimentoParcela.setDate(Math.min(diaVencimento, ultimoDiaMes));
 
@@ -842,6 +846,35 @@ export default function ClienteDetalhes() {
     setNovoValor('');
   };
 
+  const abrirModalExcluir = (mensalidade: Mensalidade) => {
+    setMensalidadeParaExcluir(mensalidade);
+    setShowExcluirModal(true);
+    fecharMenu();
+  };
+
+  const fecharModalExcluir = () => {
+    setShowExcluirModal(false);
+    setMensalidadeParaExcluir(null);
+  };
+
+  const excluirMensalidade = async () => {
+    if (!mensalidadeParaExcluir) return;
+
+    try {
+      setLoadingMensalidade(true);
+      
+      await mensalidadesService.delete(mensalidadeParaExcluir.id);
+      await loadMensalidades();
+      
+      fecharModalExcluir();
+    } catch (error) {
+      console.error('Erro ao excluir mensalidade:', error);
+      alert('Erro ao excluir mensalidade');
+    } finally {
+      setLoadingMensalidade(false);
+    }
+  };
+
   const handleSalvarVencimento = async () => {
     if (!mensalidadeParaEditar || !novoVencimento) {
       return;
@@ -877,7 +910,11 @@ export default function ClienteDetalhes() {
   const handleSalvarValor = async () => {
     if (!mensalidadeParaEditar || !novoValor) return;
 
-    const valorNumerico = parseFloat(novoValor.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    const valorNumerico = (() => {
+      const digits = novoValor.replace(/\D/g, '');
+      if (digits === '') return 0;
+      return parseInt(digits, 10) / 100;
+    })();
     if (valorNumerico <= 0) {
       alert('Por favor, informe um valor válido.');
       return;
@@ -892,7 +929,6 @@ export default function ClienteDetalhes() {
       
       await loadMensalidades();
       fecharModalValor();
-      alert('Valor alterado com sucesso!');
     } catch (error) {
       console.error('Erro ao alterar valor:', error);
       alert('Erro ao alterar valor');
@@ -902,14 +938,26 @@ export default function ClienteDetalhes() {
   };
 
   const handleValorChange = (value: string) => {
-    // Formatar valor monetário
-    const numberValue = parseFloat(value.replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    // Máscara por dígitos: últimos 2 como centavos
+    const digits = value.replace(/\D/g, '');
+    if (digits === '') {
+      setNovoValor('');
+      return;
+    }
+    const centsValue = parseInt(digits, 10) / 100;
     const formattedValue = new Intl.NumberFormat('pt-BR', {
       style: 'currency',
       currency: 'BRL'
-    }).format(numberValue);
+    }).format(isNaN(centsValue) ? 0 : centsValue);
     
     setNovoValor(formattedValue);
+  };
+
+  const handleValorKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      e.preventDefault();
+      setNovoValor('');
+    }
   };
 
   const aplicarMulta = async () => {
@@ -1557,6 +1605,17 @@ export default function ClienteDetalhes() {
                                               </button>
                                             </>
                                           )}
+
+                                          <button
+                                            className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            onClick={() => abrirModalExcluir(mensalidade)}
+                                            disabled={loadingMensalidade}
+                                          >
+                                            {loadingMensalidade ? (
+                                              <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
+                                            ) : null}
+                                            Excluir Parcela
+                                          </button>
 
                                           {mensalidade.observacoes && mensalidade.observacoes.includes('Plano de pagamento') && (
                                             <div className="px-4 py-2 text-xs text-blue-500 dark:text-blue-400 border-t border-gray-200 dark:border-gray-600">
@@ -2260,6 +2319,7 @@ export default function ClienteDetalhes() {
                 type="text"
                 value={novoValor}
                 onChange={(e) => handleValorChange(e.target.value)}
+                onKeyDown={handleValorKeyDown}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
                 placeholder="Ex: R$ 1.200,00"
               />
@@ -2281,6 +2341,95 @@ export default function ClienteDetalhes() {
                   <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                 ) : (
                   'Salvar'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Excluir Parcela */}
+      {showExcluirModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-red-600 dark:text-red-400">
+                Excluir Parcela
+              </h3>
+              <button
+                onClick={fecharModalExcluir}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-6">
+              <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 dark:bg-red-900 rounded-full">
+                <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              
+              <p className="text-sm text-gray-600 dark:text-gray-300 text-center mb-4">
+                Tem certeza que deseja excluir esta parcela?
+              </p>
+              
+              <div className="bg-gray-50 dark:bg-slate-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Cliente:</span>
+                    <p className="text-gray-900 dark:text-gray-100">{mensalidadeParaExcluir?.clienteNome}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Valor:</span>
+                    <p className="text-gray-900 dark:text-gray-100 font-semibold">
+                      {mensalidadeParaExcluir ? formatCurrency(mensalidadeParaExcluir.valor) : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Vencimento:</span>
+                    <p className="text-gray-900 dark:text-gray-100">
+                      {mensalidadeParaExcluir ? (() => {
+                        const data = mensalidadeParaExcluir.dataVencimento instanceof Date 
+                          ? mensalidadeParaExcluir.dataVencimento 
+                          : new Date(mensalidadeParaExcluir.dataVencimento);
+                        return data.toLocaleDateString('pt-BR');
+                      })() : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Status:</span>
+                    <p className="text-gray-900 dark:text-gray-100">
+                      {mensalidadeParaExcluir ? getStatusText(mensalidadeParaExcluir.status) : ''}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <p className="text-xs text-red-600 dark:text-red-400 text-center mt-4">
+                ⚠️ Esta ação não pode ser desfeita.
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={fecharModalExcluir}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={excluirMensalidade}
+                disabled={loadingMensalidade}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMensalidade ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Excluir Parcela'
                 )}
               </button>
             </div>
