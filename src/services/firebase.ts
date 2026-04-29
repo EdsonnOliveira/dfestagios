@@ -17,7 +17,22 @@ import {
   User as FirebaseUser
 } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
-import { Estagiario, Grupo, Cliente } from '../types/firebase';
+import { Estagiario, EstagiarioWithCompanyEntry, Grupo, Cliente } from '../types/firebase';
+
+function parseFirestoreDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') return new Date(value);
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'toDate' in value &&
+    typeof (value as { toDate: () => Date }).toDate === 'function'
+  ) {
+    return (value as { toDate: () => Date }).toDate();
+  }
+  return null;
+}
 import { mensalidadesService } from './mensalidadesService';
 
 export const estagiariosService = {
@@ -100,6 +115,13 @@ export const estagiariosService = {
       ...data,
       updatedAt: new Date()
     });
+  },
+
+  async getById(id: string): Promise<Estagiario | null> {
+    const docRef = doc(db, 'estagiarios', id);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    return { id: snap.id, ...snap.data() } as Estagiario;
   },
 
   async toggleStatus(id: string, currentStatus: 'ativo' | 'inativo', motivoInativacao?: string) {
@@ -221,6 +243,13 @@ export const clientesService = {
       id: doc.id,
       ...doc.data()
     })) as Cliente[];
+  },
+
+  async getById(id: string): Promise<Cliente | null> {
+    const docRef = doc(db, 'clientes', id);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    return { id: snap.id, ...snap.data() } as Cliente;
   },
 
   async getByFilters(filters: {
@@ -417,7 +446,7 @@ export const vinculacoesService = {
     }
   },
 
-  async getEstagiariosVinculados(clienteId: string) {
+  async getEstagiariosVinculados(clienteId: string): Promise<EstagiarioWithCompanyEntry[]> {
     try {
       const q = query(
         collection(db, 'vinculacoes'),
@@ -425,14 +454,25 @@ export const vinculacoesService = {
         where('status', '==', 'ativo')
       );
       const querySnapshot = await getDocs(q);
-      
-      const estagiarioIds = querySnapshot.docs.map(doc => doc.data().estagiarioId);
-      
-      if (estagiarioIds.length === 0) return [];
-      
-      // Buscar os dados dos estagiários
+
+      if (querySnapshot.empty) return [];
+
       const estagiarios = await estagiariosService.getAll();
-      return estagiarios.filter(estagiario => estagiarioIds.includes(estagiario.id!));
+      const byId = new Map(estagiarios.map((e) => [e.id!, e]));
+
+      const result: EstagiarioWithCompanyEntry[] = [];
+      for (const docSnap of querySnapshot.docs) {
+        const row = docSnap.data();
+        const estId = row.estagiarioId as string;
+        const est = byId.get(estId);
+        if (est) {
+          result.push({
+            ...est,
+            companyEntryDate: parseFirestoreDate(row.dataVinculacao)
+          });
+        }
+      }
+      return result;
     } catch (error) {
       console.error('Erro ao buscar estagiários vinculados:', error);
       throw error;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef, type FocusEvent } from 'react';
 import { useRouter } from 'next/router';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -6,6 +6,7 @@ import PainelHeader from '../components/PainelHeader';
 import ProtectedRoute from '../components/ProtectedRoute';
 import AdminRoute from '../components/AdminRoute';
 import { clientesService } from '../services/firebase';
+import { fetchCnpjLookup } from '../services/brasilApiCnpj';
 import { Cliente } from '../types/firebase';
 
 export default function Clientes() {
@@ -26,6 +27,8 @@ export default function Clientes() {
   const [deletingCliente, setDeletingCliente] = useState<Cliente | null>(null);
   const [statusCliente, setStatusCliente] = useState<Cliente | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
+  const [loadingCnpjLookup, setLoadingCnpjLookup] = useState(false);
+  const formCnpjRef = useRef('');
   const [novoStatus, setNovoStatus] = useState<'ativo' | 'em-andamento' | 'bloqueado' | 'inativo'>('ativo');
   const [motivoStatus, setMotivoStatus] = useState('');
 
@@ -35,6 +38,7 @@ export default function Clientes() {
     nomeFantasia: '',
     telefone: '',
     email: '',
+    endereco: '',
     cidade: '',
     bairro: '',
     cep: '',
@@ -43,7 +47,30 @@ export default function Clientes() {
   });
 
   useEffect(() => {
+    formCnpjRef.current = formData.cnpj;
+  }, [formData.cnpj]);
+
+  useEffect(() => {
     loadClientes();
+  }, []);
+
+  const handleCnpjBlur = useCallback(async (e: FocusEvent<HTMLInputElement>) => {
+    const digits = e.currentTarget.value.replace(/\D/g, '');
+    if (digits.length !== 14) return;
+    setLoadingCnpjLookup(true);
+    try {
+      const mapped = await fetchCnpjLookup(digits);
+      if (!mapped) return;
+      setFormData((prev) => ({
+        ...prev,
+        ...mapped,
+        cnpj: prev.cnpj,
+      }));
+    } catch (err) {
+      console.error('Erro ao consultar CNPJ:', err);
+    } finally {
+      setLoadingCnpjLookup(false);
+    }
   }, []);
 
   // Função para formatar valor monetário
@@ -92,7 +119,8 @@ export default function Clientes() {
     if (numericValue.length > 12) {
       formattedValue = formattedValue.substring(0, 15) + '-' + formattedValue.substring(15, 17);
     }
-    
+
+    formCnpjRef.current = formattedValue;
     setFormData({...formData, cnpj: formattedValue});
   };
 
@@ -152,6 +180,7 @@ export default function Clientes() {
       nomeFantasia: '',
       telefone: '',
       email: '',
+      endereco: '',
       cidade: '',
       bairro: '',
       cep: '',
@@ -169,6 +198,7 @@ export default function Clientes() {
       nomeFantasia: cliente.nomeFantasia,
       telefone: cliente.telefone,
       email: cliente.email,
+      endereco: cliente.endereco ?? '',
       cidade: cliente.cidade,
       bairro: cliente.bairro,
       cep: cliente.cep,
@@ -258,6 +288,7 @@ export default function Clientes() {
       nomeFantasia: '',
       telefone: '',
       email: '',
+      endereco: '',
       cidade: '',
       bairro: '',
       cep: '',
@@ -547,19 +578,6 @@ export default function Clientes() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Razão Social
-                </label>
-                <input
-                  type="text"
-                  placeholder="Buscar por razão social..."
-                  value={filtroRazaoSocial}
-                  onChange={(e) => setFiltroRazaoSocial(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Nome Fantasia
                 </label>
                 <input
@@ -567,6 +585,19 @@ export default function Clientes() {
                   placeholder="Buscar por nome fantasia..."
                   value={filtroNomeFantasia}
                   onChange={(e) => setFiltroNomeFantasia(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Razão Social
+                </label>
+                <input
+                  type="text"
+                  placeholder="Buscar por razão social..."
+                  value={filtroRazaoSocial}
+                  onChange={(e) => setFiltroRazaoSocial(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
                 />
               </div>
@@ -651,9 +682,6 @@ export default function Clientes() {
                         Telefone
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Email
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Status
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -672,9 +700,6 @@ export default function Clientes() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900 dark:text-gray-100">{cliente.telefone}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 dark:text-gray-100">{cliente.email}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span 
@@ -761,7 +786,9 @@ export default function Clientes() {
                     type="text"
                     value={formData.cnpj}
                     onChange={(e) => handleCnpjChange(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    onBlur={(ev) => void handleCnpjBlur(ev)}
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                     placeholder="00.000.000/0000-00"
                     maxLength={18}
                   />
@@ -775,7 +802,8 @@ export default function Clientes() {
                     type="text"
                     value={formData.razaoSocial}
                     onChange={(e) => setFormData({...formData, razaoSocial: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                     placeholder="Razão Social da Empresa"
                   />
                 </div>
@@ -788,7 +816,8 @@ export default function Clientes() {
                     type="text"
                     value={formData.nomeFantasia}
                     onChange={(e) => setFormData({...formData, nomeFantasia: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                     placeholder="Nome Fantasia da Empresa"
                   />
                 </div>
@@ -801,7 +830,8 @@ export default function Clientes() {
                     type="text"
                     value={formData.telefone}
                     onChange={(e) => handleTelefoneChange(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                     placeholder="(61) 99999-9999"
                     maxLength={15}
                   />
@@ -815,8 +845,23 @@ export default function Clientes() {
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({...formData, email: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                     placeholder="email@empresa.com"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Endereço *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.endereco}
+                    onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                    placeholder="Logradouro, quadra, número, complemento"
                   />
                 </div>
 
@@ -828,7 +873,8 @@ export default function Clientes() {
                     type="text"
                     value={formData.cidade}
                     onChange={(e) => setFormData({...formData, cidade: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                     placeholder="Brasília"
                   />
                 </div>
@@ -841,7 +887,8 @@ export default function Clientes() {
                     type="text"
                     value={formData.bairro}
                     onChange={(e) => setFormData({...formData, bairro: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                     placeholder="Asa Sul"
                   />
                 </div>
@@ -854,7 +901,8 @@ export default function Clientes() {
                     type="text"
                     value={formData.cep}
                     onChange={(e) => handleCepChange(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                     placeholder="70000-000"
                     maxLength={9}
                   />
@@ -868,7 +916,8 @@ export default function Clientes() {
                     type="text"
                     value={formData.responsavel}
                     onChange={(e) => setFormData({...formData, responsavel: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                     placeholder="Nome do Responsável"
                   />
                 </div>
@@ -881,7 +930,8 @@ export default function Clientes() {
                   <select
                     value={formData.status}
                     onChange={(e) => setFormData({...formData, status: e.target.value as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo'})}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                   >
                     <option value="ativo">Ativo</option>
                     <option value="em-andamento">Em andamento</option>
@@ -900,10 +950,10 @@ export default function Clientes() {
                 </button>
                 <button
                   onClick={handleSave}
-                  disabled={loadingAction || !formData.cnpj || !formData.razaoSocial || !formData.nomeFantasia || !formData.telefone || !formData.email || !formData.cidade || !formData.bairro || !formData.cep || !formData.responsavel}
+                  disabled={loadingAction || loadingCnpjLookup || !formData.cnpj || !formData.razaoSocial || !formData.nomeFantasia || !formData.telefone || !formData.email || !formData.endereco || !formData.cidade || !formData.bairro || !formData.cep || !formData.responsavel}
                   className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {loadingAction ? (
+                  {loadingAction || loadingCnpjLookup ? (
                     <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                   ) : (
                     editingCliente ? 'Atualizar' : 'Adicionar'

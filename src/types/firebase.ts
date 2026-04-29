@@ -13,6 +13,7 @@ export interface Estagiario {
   uf: string;
   cidade: string;
   bairro: string;
+  cep?: string;
   endereco: string;
   complemento?: string;
   grauInstrucao: string;
@@ -34,6 +35,20 @@ export interface Estagiario {
   }>;
   status: 'ativo' | 'inativo';
   motivoInativacao?: string;
+  contratoPdfDrivePath?: string;
+  estagioDataInicio?: string;
+  estagioValorBolsa?: string;
+  estagioHorarioEntrada?: string;
+  estagioHorarioSaida?: string;
+  instituicaoEnsinoNome?: string;
+  instituicaoEnsinoCnpj?: string;
+  instituicaoCep?: string;
+  instituicaoEndereco?: string;
+  instituicaoTelefone?: string;
+  instituicaoReitor?: string;
+  respLegalNome?: string;
+  respLegalCpf?: string;
+  respLegalTelefone?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -63,6 +78,9 @@ export interface Cliente {
   bairro: string;
   cep: string;
   responsavel: string;
+  endereco?: string;
+  uf?: string;
+  responsavelCargo?: string;
   dataVencimento: string; // Dia do mês (1-31) ou formato antigo (YYYY-MM-DD) para compatibilidade
   valor: string;
   servico?: string; // Serviço prestado ao cliente
@@ -82,3 +100,7 @@ export interface VinculacaoEstagiario {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type EstagiarioWithCompanyEntry = Estagiario & {
+  companyEntryDate: Date | null;
+};

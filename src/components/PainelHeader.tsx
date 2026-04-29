@@ -1,15 +1,36 @@
 import Image from 'next/image';
 import { useRouter } from 'next/router';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
-import { authService } from '../services/firebase';
+import {
+  authService,
+  clientesService,
+  estagiariosService
+} from '../services/firebase';
+import {
+  formatContractEndDatePtBr,
+  hasCompletedOneYearContractTerm
+} from '../lib/contractTerm';
+
+const PANEL_ADMIN_EMAIL = 'contato.estagiosdf@gmail.com';
+
+type ContractYearAlert = {
+  key: string;
+  clienteId: string;
+  nomeEstagiario: string;
+  nomeEmpresa: string;
+  dataFimLabel: string;
+};
 
 export default function PainelHeader() {
   const { isDark, toggleTheme } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [contractAlerts, setContractAlerts] = useState<ContractYearAlert[]>(
+    []
+  );
 
   const handleToggleTheme = () => {
     toggleTheme();
@@ -18,6 +39,78 @@ export default function PainelHeader() {
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [router.pathname]);
+
+  useEffect(() => {
+    if (user?.email !== PANEL_ADMIN_EMAIL) {
+      setContractAlerts([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [clientes, estagiarios] = await Promise.all([
+          clientesService.getAll(),
+          estagiariosService.getAll()
+        ]);
+        if (cancelled) return;
+        const estagToCliente = new Map<
+          string,
+          { clienteId: string; empresa: string }
+        >();
+        for (const c of clientes) {
+          if (!c.id) continue;
+          const empresa = c.nomeFantasia?.trim() || c.razaoSocial || '—';
+          for (const eid of c.estagiariosVinculados || []) {
+            if (!estagToCliente.has(eid)) {
+              estagToCliente.set(eid, { clienteId: c.id, empresa });
+            }
+          }
+        }
+        const list: ContractYearAlert[] = [];
+        for (const est of estagiarios) {
+          if (!est.id) continue;
+          if (est.status !== 'ativo') continue;
+          const inicio = est.estagioDataInicio?.trim();
+          if (!inicio) continue;
+          if (!hasCompletedOneYearContractTerm(inicio)) continue;
+          const link = estagToCliente.get(est.id);
+          if (!link) continue;
+          list.push({
+            key: est.id,
+            clienteId: link.clienteId,
+            nomeEstagiario: est.nome?.trim() || '—',
+            nomeEmpresa: link.empresa,
+            dataFimLabel: formatContractEndDatePtBr(inicio)
+          });
+        }
+        list.sort((a, b) =>
+          a.nomeEstagiario.localeCompare(b.nomeEstagiario, 'pt-BR')
+        );
+        setContractAlerts(list);
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setContractAlerts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.email]);
+
+  const visibleContractAlerts = useMemo(() => {
+    if (!router.isReady) return contractAlerts;
+    const path = router.pathname.replace(/\/$/, '');
+    if (path !== '/cliente-detalhes') return contractAlerts;
+    const raw = router.query.id;
+    const pageClienteId =
+      typeof raw === 'string'
+        ? raw
+        : Array.isArray(raw)
+          ? raw[0]
+          : '';
+    if (!pageClienteId) return contractAlerts;
+    return contractAlerts.filter((a) => a.clienteId !== pageClienteId);
+  }, [contractAlerts, router.isReady, router.pathname, router.query.id]);
 
   const handleLogout = async () => {
     try {
@@ -60,7 +153,7 @@ export default function PainelHeader() {
           >
             Estagiários
           </button>
-          {user?.email === 'contato.estagiosdf@gmail.com' && (
+          {user?.email === PANEL_ADMIN_EMAIL && (
             <>
               <button
                 onClick={() => handleNavigation('/clientes')}
@@ -73,6 +166,12 @@ export default function PainelHeader() {
                 className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
               >
                 Mensalidades
+              </button>
+              <button
+                onClick={() => handleNavigation('/drive')}
+                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+              >
+                Drive
               </button>
             </>
           )}
@@ -128,6 +227,37 @@ export default function PainelHeader() {
         </button>
       </div>
 
+      {user?.email === PANEL_ADMIN_EMAIL && visibleContractAlerts.length > 0 && (
+        <div className="border-t border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 max-h-52 overflow-y-auto">
+          <div className="max-w-7xl mx-auto px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+              Contratos — 1 ano de vigência concluído
+            </p>
+            <ul className="mt-2 space-y-2 text-sm text-amber-950 dark:text-amber-100">
+              {visibleContractAlerts.map((a) => (
+                <li key={a.key}>
+                  O contrato do estagiário{' '}
+                  <span className="font-semibold">{a.nomeEstagiario}</span> da
+                  empresa <span className="font-semibold">{a.nomeEmpresa}</span>{' '}
+                  completou 1 ano (vigência até {a.dataFimLabel}).{' '}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void router.push(
+                        `/cliente-detalhes?id=${encodeURIComponent(a.clienteId)}`
+                      )
+                    }
+                    className="text-[#004085] dark:text-blue-400 underline font-medium"
+                  >
+                    Ver ficha do cliente
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
       <div className={`md:hidden fixed top-0 left-0 w-full h-screen bg-[#00408580] dark:bg-slate-900/80 z-[9999] transition-opacity duration-300 ${
         isMobileMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`} onClick={closeMobileMenu}></div>
@@ -178,7 +308,7 @@ export default function PainelHeader() {
               >
                 Estagiários
               </button>
-              {user?.email === 'contato.estagiosdf@gmail.com' && (
+              {user?.email === PANEL_ADMIN_EMAIL && (
                 <>
                   <button
                     onClick={() => {
@@ -197,6 +327,15 @@ export default function PainelHeader() {
                     className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
                   >
                     Mensalidades
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleNavigation('/drive');
+                      closeMobileMenu();
+                    }}
+                    className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
+                  >
+                    Drive
                   </button>
                 </>
               )}

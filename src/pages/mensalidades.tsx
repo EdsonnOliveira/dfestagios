@@ -48,11 +48,19 @@ export default function Mensalidades() {
   const [showVencimentoModal, setShowVencimentoModal] = useState(false);
   const [showValorModal, setShowValorModal] = useState(false);
   const [showExcluirModal, setShowExcluirModal] = useState(false);
+  const [showFormaPagamentoModal, setShowFormaPagamentoModal] = useState(false);
   const [mensalidadeParaEditar, setMensalidadeParaEditar] = useState<any>(null);
   const [mensalidadeParaExcluir, setMensalidadeParaExcluir] = useState<any>(null);
+  const [mensalidadeParaEditarFormaPagamento, setMensalidadeParaEditarFormaPagamento] = useState<any>(null);
   const [novoVencimento, setNovoVencimento] = useState('');
   const [novoValor, setNovoValor] = useState('');
+  const [novaFormaPagamento, setNovaFormaPagamento] = useState<'pix' | 'boleto'>('pix');
   const [loadingMensalidade, setLoadingMensalidade] = useState(false);
+  const [showGerarParcelasModal, setShowGerarParcelasModal] = useState(false);
+  const [mensalidadeParaGerarParcelas, setMensalidadeParaGerarParcelas] = useState<Mensalidade | null>(null);
+  const [selectedParcelasIds, setSelectedParcelasIds] = useState<Set<string>>(new Set());
+  const [editingBulkIds, setEditingBulkIds] = useState<string[] | null>(null);
+  const [excluirBulkIds, setExcluirBulkIds] = useState<string[] | null>(null);
 
   // Função removida - não utilizada
   /*
@@ -78,11 +86,29 @@ export default function Mensalidades() {
         ? mensalidade.dataVencimento 
         : new Date(mensalidade.dataVencimento);
       
+      // Recalcular status baseado na data de vencimento
+      // Se a mensalidade não estiver paga e a data de vencimento já passou, deve ser "vencido"
+      let statusCalculado = mensalidade.status;
+      if (mensalidade.status !== 'pago') {
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        const venc = new Date(dataVencimento);
+        venc.setHours(0, 0, 0, 0);
+        
+        // Se a data de vencimento já passou, atualizar para "vencido"
+        if (venc < hoje) {
+          statusCalculado = 'vencido';
+        } else {
+          // Se ainda não venceu, manter como "aberto"
+          statusCalculado = 'aberto';
+        }
+      }
+      
       return {
         // Dados da mensalidade (principais)
         id: mensalidade.id,
         mensalidadeId: mensalidade.id,
-        statusMensalidade: mensalidade.status,
+        statusMensalidade: statusCalculado,
         valorMensalidade: mensalidade.valor,
         dataVencimento: dataVencimento.toISOString(),
                dataPagamento: mensalidade.dataPagamento ? 
@@ -122,16 +148,27 @@ export default function Mensalidades() {
     if (filtroDataInicio || filtroDataFim) {
       mensalidadesFiltradas = mensalidadesFiltradas.filter(mensalidade => {
         const dataVencimento = new Date(mensalidade.dataVencimento);
+        // Normalizar data de vencimento para comparar apenas dia/mês/ano (timezone local)
+        const dataVencimentoNormalizada = new Date(
+          dataVencimento.getFullYear(),
+          dataVencimento.getMonth(),
+          dataVencimento.getDate()
+        );
         
         if (filtroDataInicio) {
-          const dataInicio = new Date(filtroDataInicio);
-          if (dataVencimento < dataInicio) return false;
+          // Parsear string YYYY-MM-DD manualmente para evitar problemas de timezone
+          const [anoInicio, mesInicio, diaInicio] = filtroDataInicio.split('-').map(Number);
+          const dataInicioNormalizada = new Date(anoInicio, mesInicio - 1, diaInicio);
+          
+          if (dataVencimentoNormalizada < dataInicioNormalizada) return false;
         }
         
         if (filtroDataFim) {
-          const dataFim = new Date(filtroDataFim);
-          dataFim.setHours(23, 59, 59, 999); // Incluir todo o dia
-          if (dataVencimento > dataFim) return false;
+          // Parsear string YYYY-MM-DD manualmente para evitar problemas de timezone
+          const [anoFim, mesFim, diaFim] = filtroDataFim.split('-').map(Number);
+          const dataFimNormalizada = new Date(anoFim, mesFim - 1, diaFim);
+          
+          if (dataVencimentoNormalizada > dataFimNormalizada) return false;
         }
         
         return true;
@@ -153,7 +190,76 @@ export default function Mensalidades() {
       );
     }
 
-    setClientesComStatus(mensalidadesFiltradas);
+    // Adicionar clientes que não têm nenhuma mensalidade
+    const clientesIdsComMensalidade = new Set(mensalidades.map(m => m.clienteId));
+    const clientesSemMensalidade = clientes
+      .filter((cliente): cliente is Cliente & { id: string } => 
+        !!cliente.id && !clientesIdsComMensalidade.has(cliente.id)
+      )
+      .map(cliente => ({
+        // Dados da mensalidade (vazios, pois não há mensalidade)
+        id: `sem_mensalidade_${cliente.id}`,
+        mensalidadeId: '',
+        statusMensalidade: 'sem_mensalidade' as const,
+        valorMensalidade: 0,
+        dataVencimento: '',
+        dataPagamento: null,
+        formaPagamento: undefined,
+        multaPercentual: undefined,
+        numeroParcela: undefined,
+        totalParcelas: undefined,
+        observacoes: '-',
+        mesReferencia: '-',
+        mensalidadeUnicaId: `sem_mensalidade_${cliente.id}`,
+        
+        // Dados do cliente (para exibição)
+        razaoSocial: cliente.razaoSocial || '',
+        nomeFantasia: cliente.nomeFantasia || '',
+        telefone: cliente.telefone || '',
+        email: cliente.email || '',
+        cidade: cliente.cidade || '',
+        bairro: cliente.bairro || '',
+        cep: cliente.cep || '',
+        responsavel: cliente.responsavel || '',
+        servico: cliente.servico || '',
+        status: cliente.status || 'ativo',
+        motivoStatus: cliente.motivoStatus || '',
+        estagiariosVinculados: cliente.estagiariosVinculados || [],
+        createdAt: cliente.createdAt || new Date(),
+        updatedAt: cliente.updatedAt || new Date()
+      }));
+
+    // Aplicar filtros aos clientes sem mensalidade
+    let clientesSemMensalidadeFiltrados = clientesSemMensalidade;
+
+    // Filtro por cliente
+    if (filtroCliente) {
+      clientesSemMensalidadeFiltrados = clientesSemMensalidadeFiltrados.filter(cliente =>
+        cliente.razaoSocial.toLowerCase().includes(filtroCliente.toLowerCase()) ||
+        cliente.nomeFantasia.toLowerCase().includes(filtroCliente.toLowerCase())
+      );
+    }
+
+    // Filtro por status - se estiver filtrando por "sem_mensalidade", incluir esses clientes
+    if (filtroStatus) {
+      if (filtroStatus === 'sem_mensalidade') {
+        // Manter apenas clientes sem mensalidade
+      } else {
+        // Se estiver filtrando por outro status, não incluir clientes sem mensalidade
+        clientesSemMensalidadeFiltrados = [];
+      }
+    }
+
+    // Filtro por data - clientes sem mensalidade não têm data de vencimento, então só incluir se não houver filtro de data
+    if (filtroDataInicio || filtroDataFim) {
+      // Se houver filtro de data, não incluir clientes sem mensalidade
+      clientesSemMensalidadeFiltrados = [];
+    }
+
+    // Combinar mensalidades filtradas com clientes sem mensalidade
+    const todosClientes = [...mensalidadesFiltradas, ...clientesSemMensalidadeFiltrados];
+
+    setClientesComStatus(todosClientes);
   }, [mensalidades, clientes, filtroDataInicio, filtroDataFim, filtroCliente, filtroStatus]);
 
   useEffect(() => {
@@ -191,6 +297,44 @@ export default function Mensalidades() {
       setLoading(true);
       const data = await mensalidadesService.getAll();
       setMensalidades(data);
+      
+      // Atualizar status de mensalidades vencidas no banco de dados
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+      
+      const atualizacoesPromises = data
+        .filter(mensalidade => {
+          // Apenas atualizar se não estiver paga
+          if (mensalidade.status === 'pago') return false;
+          
+          // Verificar se está vencida
+          const dataVencimento = mensalidade.dataVencimento instanceof Date 
+            ? mensalidade.dataVencimento 
+            : new Date(mensalidade.dataVencimento);
+          const venc = new Date(dataVencimento);
+          venc.setHours(0, 0, 0, 0);
+          
+          // Se está vencida e o status no banco não está como "vencido", precisa atualizar
+          return venc < hoje && mensalidade.status !== 'vencido';
+        })
+        .map(mensalidade => 
+          mensalidadesService.update(mensalidade.id, { status: 'vencido' })
+            .catch(error => {
+              console.error(`Erro ao atualizar status da mensalidade ${mensalidade.id}:`, error);
+            })
+        );
+      
+      // Executar atualizações em paralelo (sem bloquear a UI)
+      if (atualizacoesPromises.length > 0) {
+        Promise.all(atualizacoesPromises).then(() => {
+          // Recarregar mensalidades após atualizar os status
+          mensalidadesService.getAll().then(updatedData => {
+            setMensalidades(updatedData);
+          }).catch(error => {
+            console.error('Erro ao recarregar mensalidades após atualização:', error);
+          });
+        });
+      }
     } catch (error) {
       console.error('Erro ao carregar mensalidades:', error);
     } finally {
@@ -342,12 +486,14 @@ export default function Mensalidades() {
     setShowVencimentoModal(false);
     setMensalidadeParaEditar(null);
     setNovoVencimento('');
+    setEditingBulkIds(null);
   };
 
   const fecharModalValor = () => {
     setShowValorModal(false);
     setMensalidadeParaEditar(null);
     setNovoValor('');
+    setEditingBulkIds(null);
   };
 
   const abrirModalExcluir = (cliente: any) => {
@@ -359,18 +505,146 @@ export default function Mensalidades() {
   const fecharModalExcluir = () => {
     setShowExcluirModal(false);
     setMensalidadeParaExcluir(null);
+    setExcluirBulkIds(null);
   };
 
+  const abrirBarraExcluir = useCallback(() => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    setMensalidadeParaExcluir(null);
+    setExcluirBulkIds(ids);
+    setShowExcluirModal(true);
+  }, [selectedParcelasIds]);
+
+  const abrirModalFormaPagamento = (cliente: any) => {
+    setMensalidadeParaEditarFormaPagamento(cliente);
+    // Usar a forma de pagamento atual ou padrão PIX
+    const formaAtual = cliente.formaPagamento || 'pix';
+    setNovaFormaPagamento(formaAtual as 'pix' | 'boleto');
+    setShowFormaPagamentoModal(true);
+    fecharMenu();
+  };
+
+  const fecharModalFormaPagamento = () => {
+    setShowFormaPagamentoModal(false);
+    setMensalidadeParaEditarFormaPagamento(null);
+    setNovaFormaPagamento('pix');
+    setEditingBulkIds(null);
+  };
+
+  const parcelasSelecionaveis = clientesComStatus.filter(c => c.statusMensalidade !== 'sem_mensalidade' && c.mensalidadeId);
+
+  const toggleParcelaSelection = useCallback((mensalidadeId: string) => {
+    setSelectedParcelasIds(prev => {
+      const next = new Set(prev);
+      if (next.has(mensalidadeId)) next.delete(mensalidadeId);
+      else next.add(mensalidadeId);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllMensalidades = useCallback(() => {
+    const ids = parcelasSelecionaveis.map(c => c.mensalidadeId).filter(Boolean) as string[];
+    if (selectedParcelasIds.size === ids.length) {
+      setSelectedParcelasIds(new Set());
+    } else {
+      setSelectedParcelasIds(new Set(ids));
+    }
+  }, [parcelasSelecionaveis, selectedParcelasIds.size]);
+
+  const abrirBarraVencimento = useCallback(() => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    const first = clientesComStatus.find(c => c.mensalidadeId === ids[0]);
+    setMensalidadeParaEditar(null);
+    setEditingBulkIds(ids);
+    if (first?.dataVencimento) {
+      try {
+        const data = new Date(first.dataVencimento);
+        setNovoVencimento(data.getDate().toString());
+      } catch {
+        setNovoVencimento('');
+      }
+    } else {
+      setNovoVencimento('');
+    }
+    setShowVencimentoModal(true);
+  }, [selectedParcelasIds, clientesComStatus]);
+
+  const abrirBarraValor = useCallback(() => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    const first = clientesComStatus.find(c => c.mensalidadeId === ids[0]);
+    setMensalidadeParaEditar(null);
+    setEditingBulkIds(ids);
+    setNovoValor(first?.valorMensalidade ? formatCurrency(first.valorMensalidade) : '');
+    setShowValorModal(true);
+  }, [selectedParcelasIds, clientesComStatus]);
+
+  const abrirBarraFormaPagamento = useCallback(() => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    const first = clientesComStatus.find(c => c.mensalidadeId === ids[0]);
+    setMensalidadeParaEditarFormaPagamento(null);
+    setEditingBulkIds(ids);
+    setNovaFormaPagamento((first?.formaPagamento as 'pix' | 'boleto') || 'pix');
+    setShowFormaPagamentoModal(true);
+  }, [selectedParcelasIds, clientesComStatus]);
+
+  const marcarSelecionadasComoPago = useCallback(async () => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    try {
+      setLoadingAction(true);
+      for (const id of ids) {
+        const item = clientesComStatus.find(c => c.mensalidadeId === id);
+        if (item) await mensalidadesService.marcarComoPago(id, new Date(), (item.formaPagamento || 'pix') as 'pix' | 'boleto');
+      }
+      await loadMensalidades();
+      setSelectedParcelasIds(new Set());
+    } catch (error) {
+      console.error('Erro ao marcar mensalidades como pagas:', error);
+      alert('Erro ao marcar mensalidades como pagas');
+    } finally {
+      setLoadingAction(false);
+    }
+  }, [selectedParcelasIds, clientesComStatus]);
+
+  const marcarSelecionadasComoNaoPago = useCallback(async () => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    try {
+      setLoadingAction(true);
+      for (const id of ids) {
+        await mensalidadesService.marcarComoNaoPago(id);
+      }
+      await loadMensalidades();
+      setSelectedParcelasIds(new Set());
+    } catch (error) {
+      console.error('Erro ao marcar mensalidades como não pagas:', error);
+      alert('Erro ao marcar mensalidades como não pagas');
+    } finally {
+      setLoadingAction(false);
+    }
+  }, [selectedParcelasIds]);
+
   const excluirMensalidade = async () => {
-    if (!mensalidadeParaExcluir) return;
+    const ids = excluirBulkIds && excluirBulkIds.length > 0 ? excluirBulkIds : (mensalidadeParaExcluir?.mensalidadeId ? [mensalidadeParaExcluir.mensalidadeId] : null);
+    if (!ids || ids.length === 0) return;
 
     try {
       setLoadingAction(true);
-      
-      await mensalidadesService.delete(mensalidadeParaExcluir.mensalidadeId);
+      if (excluirBulkIds && excluirBulkIds.length > 0) {
+        for (const id of ids) {
+          await mensalidadesService.delete(id);
+        }
+        setSelectedParcelasIds(new Set());
+      } else {
+        await mensalidadesService.delete(ids[0]);
+      }
       await loadMensalidades();
-      
       fecharModalExcluir();
+      alert(ids.length > 1 ? 'Parcelas excluídas com sucesso!' : 'Parcela excluída com sucesso!');
     } catch (error) {
       console.error('Erro ao excluir mensalidade:', error);
       alert('Erro ao excluir mensalidade');
@@ -380,42 +654,37 @@ export default function Mensalidades() {
   };
 
   const handleSalvarVencimento = async () => {
-    if (!mensalidadeParaEditar || !novoVencimento) {
-      return;
-    }
-
-    const mensalidadeId = mensalidadeParaEditar.mensalidadeId;
-    
-    if (!mensalidadeId) {
-      alert('Erro: ID da mensalidade não encontrado');
-      return;
-    }
-
+    if (!novoVencimento) return;
     const dia = parseInt(novoVencimento);
-    
     if (dia < 1 || dia > 31) {
       alert('Por favor, informe um dia válido (1 a 31).');
       return;
     }
-
+    const ids = editingBulkIds && editingBulkIds.length > 0 ? editingBulkIds : (mensalidadeParaEditar?.mensalidadeId ? [mensalidadeParaEditar.mensalidadeId] : null);
+    if (!ids || ids.length === 0) return;
     try {
       setLoadingMensalidade(true);
-      
-      // Atualizar mensalidade existente
-      const mensalidade = mensalidades.find(m => m.id === mensalidadeId);
-      
-      if (mensalidade) {
-        const novaDataVencimento = new Date(mensalidade.dataVencimento);
-        novaDataVencimento.setDate(dia);
-        
-        await mensalidadesService.update(mensalidadeId, {
-          dataVencimento: novaDataVencimento
-        });
+      if (editingBulkIds && editingBulkIds.length > 0) {
+        for (const mensalidadeId of ids) {
+          const mensalidade = mensalidades.find(m => m.id === mensalidadeId);
+          if (mensalidade) {
+            const novaDataVencimento = new Date(mensalidade.dataVencimento);
+            novaDataVencimento.setDate(dia);
+            await mensalidadesService.update(mensalidadeId, { dataVencimento: novaDataVencimento });
+          }
+        }
+        setSelectedParcelasIds(new Set());
+      } else {
+        const mensalidade = mensalidades.find(m => m.id === ids[0]);
+        if (mensalidade) {
+          const novaDataVencimento = new Date(mensalidade.dataVencimento);
+          novaDataVencimento.setDate(dia);
+          await mensalidadesService.update(ids[0], { dataVencimento: novaDataVencimento });
+        }
       }
-      
       await loadMensalidades();
       fecharModalVencimento();
-      alert('Data de vencimento alterada com sucesso!');
+      alert(ids.length > 1 ? 'Datas de vencimento alteradas com sucesso!' : 'Data de vencimento alterada com sucesso!');
     } catch (error) {
       console.error('Erro ao alterar vencimento:', error);
       alert('Erro ao alterar data de vencimento: ' + (error instanceof Error ? error.message : String(error)));
@@ -425,15 +694,7 @@ export default function Mensalidades() {
   };
 
   const handleSalvarValor = async () => {
-    if (!mensalidadeParaEditar || !novoValor) return;
-
-    const mensalidadeId = mensalidadeParaEditar.mensalidadeId;
-    
-    if (!mensalidadeId) {
-      alert('Erro: ID da mensalidade não encontrado');
-      return;
-    }
-
+    if (!novoValor) return;
     const valorNumerico = (() => {
       const digits = novoValor.replace(/\D/g, '');
       if (digits === '') return 0;
@@ -443,20 +704,44 @@ export default function Mensalidades() {
       alert('Por favor, informe um valor válido.');
       return;
     }
-
+    const ids = editingBulkIds && editingBulkIds.length > 0 ? editingBulkIds : (mensalidadeParaEditar?.mensalidadeId ? [mensalidadeParaEditar.mensalidadeId] : null);
+    if (!ids || ids.length === 0) return;
     try {
       setLoadingMensalidade(true);
-      
-      // Atualizar mensalidade existente
-      await mensalidadesService.update(mensalidadeId, {
-        valor: valorNumerico
-      });
-      
+      if (editingBulkIds && editingBulkIds.length > 0) {
+        for (const id of ids) {
+          await mensalidadesService.update(id, { valor: valorNumerico });
+        }
+        setSelectedParcelasIds(new Set());
+      } else {
+        await mensalidadesService.update(ids[0], { valor: valorNumerico });
+      }
       await loadMensalidades();
       fecharModalValor();
+      alert(ids.length > 1 ? 'Valores alterados com sucesso!' : 'Valor alterado com sucesso!');
     } catch (error) {
       console.error('Erro ao alterar valor:', error);
       alert('Erro ao alterar valor');
+    } finally {
+      setLoadingMensalidade(false);
+    }
+  };
+
+  const handleSalvarFormaPagamento = async () => {
+    const ids = editingBulkIds && editingBulkIds.length > 0 ? editingBulkIds : (mensalidadeParaEditarFormaPagamento?.mensalidadeId ? [mensalidadeParaEditarFormaPagamento.mensalidadeId] : null);
+    if (!ids || ids.length === 0) return;
+    try {
+      setLoadingMensalidade(true);
+      for (const id of ids) {
+        await mensalidadesService.update(id, { formaPagamento: novaFormaPagamento });
+      }
+      await loadMensalidades();
+      if (editingBulkIds?.length) setSelectedParcelasIds(new Set());
+      fecharModalFormaPagamento();
+      alert(ids.length > 1 ? 'Formas de pagamento alteradas com sucesso!' : 'Forma de pagamento alterada com sucesso!');
+    } catch (error) {
+      console.error('Erro ao alterar forma de pagamento:', error);
+      alert('Erro ao alterar forma de pagamento');
     } finally {
       setLoadingMensalidade(false);
     }
@@ -487,17 +772,66 @@ export default function Mensalidades() {
 
 
   const marcarComoPago = async (cliente: any) => {
+    const mensalidadeRef = mensalidades.find(m => m.id === cliente.mensalidadeId);
+    const abertasDoCliente = mensalidadeRef
+      ? mensalidades.filter(m => m.clienteId === mensalidadeRef.clienteId && m.status !== 'pago')
+      : [];
+    const ehUltimaParcelaAberta = abertasDoCliente.length === 1 && abertasDoCliente[0].id === cliente.mensalidadeId;
     try {
       setLoadingAction(true);
-      
-      // Usar a forma de pagamento já cadastrada no plano
-      const formaPagamentoPlano = cliente.formaPagamento || 'pix'; // Fallback para PIX se não tiver
-      
+      const formaPagamentoPlano = cliente.formaPagamento || 'pix';
       await mensalidadesService.marcarComoPago(cliente.mensalidadeId, new Date(), formaPagamentoPlano as 'pix' | 'boleto');
       await loadMensalidades();
+      if (ehUltimaParcelaAberta && mensalidadeRef) {
+        setMensalidadeParaGerarParcelas(mensalidadeRef);
+        setShowGerarParcelasModal(true);
+      }
     } catch (error) {
       console.error('Erro ao marcar mensalidade como paga:', error);
       alert('Erro ao marcar mensalidade como paga: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const fecharModalGerarParcelas = () => {
+    setShowGerarParcelasModal(false);
+    setMensalidadeParaGerarParcelas(null);
+  };
+
+  const gerarDozeParcelas = async () => {
+    const base = mensalidadeParaGerarParcelas;
+    if (!base) return;
+    try {
+      setLoadingAction(true);
+      const dataBase = base.dataVencimento instanceof Date ? base.dataVencimento : new Date(base.dataVencimento);
+      const diaVencimento = dataBase.getDate();
+      for (let i = 0; i < 12; i++) {
+        const dataVencimentoParcela = new Date(dataBase.getFullYear(), dataBase.getMonth() + 1 + i, 1);
+        const ultimoDiaMes = new Date(dataVencimentoParcela.getFullYear(), dataVencimentoParcela.getMonth() + 1, 0).getDate();
+        dataVencimentoParcela.setDate(Math.min(diaVencimento, ultimoDiaMes));
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        const dataComp = new Date(dataVencimentoParcela);
+        dataComp.setHours(0, 0, 0, 0);
+        const status: 'pago' | 'vencido' | 'aberto' = dataComp < hoje ? 'vencido' : 'aberto';
+        await mensalidadesService.create({
+          clienteId: base.clienteId,
+          clienteNome: base.clienteNome,
+          dataVencimento: dataVencimentoParcela,
+          valor: base.valor,
+          status,
+          observacoes: base.observacoes ?? '',
+          numeroParcela: i + 1,
+          totalParcelas: 12,
+          formaPagamento: base.formaPagamento ?? 'pix'
+        });
+      }
+      fecharModalGerarParcelas();
+      await loadMensalidades();
+    } catch (error) {
+      console.error('Erro ao gerar parcelas:', error);
+      alert('Erro ao gerar parcelas. Tente novamente.');
     } finally {
       setLoadingAction(false);
     }
@@ -1020,7 +1354,11 @@ export default function Mensalidades() {
                 <button
                   onClick={() => {
                     const hoje = new Date();
-                    const dataHoje = hoje.toISOString().split('T')[0];
+                    // Formatar data no formato YYYY-MM-DD usando timezone local
+                    const ano = hoje.getFullYear();
+                    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+                    const dia = String(hoje.getDate()).padStart(2, '0');
+                    const dataHoje = `${ano}-${mes}-${dia}`;
                     setFiltroDataInicio(dataHoje);
                     setFiltroDataFim(dataHoje);
                   }}
@@ -1259,10 +1597,71 @@ export default function Mensalidades() {
                 <p className="mt-2 text-gray-600 dark:text-gray-300">Carregando clientes...</p>
               </div>
             ) : (
+              <>
+                {selectedParcelasIds.size > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 mb-4 p-3 bg-gray-100 dark:bg-slate-700 rounded-lg">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">
+                      {selectedParcelasIds.size} parcela(s) selecionada(s)
+                    </span>
+                    <button
+                      onClick={marcarSelecionadasComoPago}
+                      disabled={loadingAction}
+                      className="px-3 py-1.5 text-sm bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      Marcar como Pago
+                    </button>
+                    <button
+                      onClick={marcarSelecionadasComoNaoPago}
+                      disabled={loadingAction}
+                      className="px-3 py-1.5 text-sm bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-600 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      Marcar como Não Pago
+                    </button>
+                    <button
+                      onClick={abrirBarraVencimento}
+                      className="px-3 py-1.5 text-sm bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600 text-white font-medium rounded-lg transition-colors"
+                    >
+                      Alterar vencimento
+                    </button>
+                    <button
+                      onClick={abrirBarraFormaPagamento}
+                      className="px-3 py-1.5 text-sm bg-indigo-600 dark:bg-indigo-700 hover:bg-indigo-700 dark:hover:bg-indigo-600 text-white font-medium rounded-lg transition-colors"
+                    >
+                      Alterar forma de pagamento
+                    </button>
+                    <button
+                      onClick={abrirBarraValor}
+                      className="px-3 py-1.5 text-sm bg-purple-600 dark:bg-purple-700 hover:bg-purple-700 dark:hover:bg-purple-600 text-white font-medium rounded-lg transition-colors"
+                    >
+                      Alterar valor
+                    </button>
+                    <button
+                      onClick={abrirBarraExcluir}
+                      className="px-3 py-1.5 text-sm bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-600 text-white font-medium rounded-lg transition-colors"
+                    >
+                      Excluir parcela
+                    </button>
+                    <button
+                      onClick={() => setSelectedParcelasIds(new Set())}
+                      className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-600"
+                    >
+                      Limpar seleção
+                    </button>
+                  </div>
+                )}
+
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 dark:bg-slate-700">
                     <tr>
+                      <th className="px-4 py-3 text-left">
+                        <input
+                          type="checkbox"
+                          checked={parcelasSelecionaveis.length > 0 && selectedParcelasIds.size === parcelasSelecionaveis.length}
+                          onChange={toggleSelectAllMensalidades}
+                          className="h-4 w-4 text-[#004085] focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded"
+                        />
+                      </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Cliente
                       </th>
@@ -1295,20 +1694,36 @@ export default function Mensalidades() {
                   <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {clientesComStatus.map((cliente) => (
                       <tr key={cliente.mensalidadeUnicaId || cliente.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
+                        <td className="px-4 py-4">
+                          {cliente.statusMensalidade !== 'sem_mensalidade' && cliente.mensalidadeId ? (
+                            <input
+                              type="checkbox"
+                              checked={selectedParcelasIds.has(cliente.mensalidadeId)}
+                              onChange={() => toggleParcelaSelection(cliente.mensalidadeId)}
+                              className="h-4 w-4 text-[#004085] focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded"
+                            />
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div>
                             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                               {cliente.nomeFantasia || cliente.razaoSocial}
                             </div>
                             <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                              <a
-                                href={`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 hover:underline cursor-pointer"
-                              >
-                                📱 {cliente.telefone}
-                              </a>
+                              {cliente.telefone ? (
+                                <a
+                                  href={`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 hover:underline cursor-pointer"
+                                >
+                                  📱 {cliente.telefone}
+                                </a>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -1436,76 +1851,88 @@ export default function Mensalidades() {
                                     Editar Cliente
                                   </button>
                                   
-                                  {cliente.statusMensalidade === 'pago' ? (
-                                    <button 
-                                      className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                      onClick={() => {
-                                        marcarComoNaoPago(cliente.mensalidadeId);
-                                        fecharMenu();
-                                      }}
-                                      disabled={loadingAction}
-                                    >
-                                      {loadingAction ? (
-                                        <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
-                                      ) : null}
-                                      Marcar como Não Pago
-                                    </button>
-                                  ) : (
-                                    <button 
-                                      className="block w-full text-left px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                      onClick={() => {
-                                        marcarComoPago(cliente);
-                                        fecharMenu();
-                                      }}
-                                      disabled={loadingAction}
-                                    >
-                                      {loadingAction ? (
-                                        <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
-                                      ) : null}
-                                      Marcar como Pago
-                                    </button>
-                                  )}
-
-                                  {cliente.statusMensalidade === 'vencido' && (
-                                    <button
-                                      className="block w-full text-left px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-gray-100 dark:hover:bg-slate-700"
-                                      onClick={() => {
-                                        abrirModalMulta(cliente);
-                                        fecharMenu();
-                                      }}
-                                    >
-                                      Aplicar Multa
-                                    </button>
-                                  )}
-
-                                  {cliente.statusMensalidade !== 'pago' && (
+                                  {/* Mostrar opções de mensalidade apenas se o cliente tiver mensalidade */}
+                                  {cliente.statusMensalidade !== 'sem_mensalidade' && (
                                     <>
+                                      {cliente.statusMensalidade === 'pago' ? (
+                                        <button 
+                                          className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                          onClick={() => {
+                                            marcarComoNaoPago(cliente.mensalidadeId);
+                                            fecharMenu();
+                                          }}
+                                          disabled={loadingAction}
+                                        >
+                                          {loadingAction ? (
+                                            <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
+                                          ) : null}
+                                          Marcar como Não Pago
+                                        </button>
+                                      ) : (
+                                        <button 
+                                          className="block w-full text-left px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                          onClick={() => {
+                                            marcarComoPago(cliente);
+                                            fecharMenu();
+                                          }}
+                                          disabled={loadingAction}
+                                        >
+                                          {loadingAction ? (
+                                            <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
+                                          ) : null}
+                                          Marcar como Pago
+                                        </button>
+                                      )}
+
+                                      {cliente.statusMensalidade === 'vencido' && (
+                                        <button
+                                          className="block w-full text-left px-4 py-2 text-sm text-orange-600 dark:text-orange-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                          onClick={() => {
+                                            abrirModalMulta(cliente);
+                                            fecharMenu();
+                                          }}
+                                        >
+                                          Aplicar Multa
+                                        </button>
+                                      )}
+
+                                      {cliente.statusMensalidade !== 'pago' && (
+                                        <>
+                                          <button
+                                            className="block w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                            onClick={() => abrirModalVencimento(cliente)}
+                                          >
+                                            Alterar Vencimento
+                                          </button>
+
+                                          <button
+                                            className="block w-full text-left px-4 py-2 text-sm text-purple-600 dark:text-purple-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                            onClick={() => abrirModalValor(cliente)}
+                                          >
+                                            Alterar Valor
+                                          </button>
+                                        </>
+                                      )}
+
                                       <button
-                                        className="block w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-100 dark:hover:bg-slate-700"
-                                        onClick={() => abrirModalVencimento(cliente)}
+                                        className="block w-full text-left px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                        onClick={() => abrirModalFormaPagamento(cliente)}
                                       >
-                                        Alterar Vencimento
+                                        Editar Parcela
                                       </button>
 
                                       <button
-                                        className="block w-full text-left px-4 py-2 text-sm text-purple-600 dark:text-purple-400 hover:bg-gray-100 dark:hover:bg-slate-700"
-                                        onClick={() => abrirModalValor(cliente)}
+                                        className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        onClick={() => abrirModalExcluir(cliente)}
+                                        disabled={loadingAction}
                                       >
-                                        Alterar Valor
+                                        {loadingAction ? (
+                                          <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
+                                        ) : null}
+                                        Excluir Parcela
                                       </button>
                                     </>
                                   )}
-
-                                  <button
-                                    className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    onClick={() => abrirModalExcluir(cliente)}
-                                    disabled={loadingAction}
-                                  >
-                                    {loadingAction ? (
-                                      <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-current mr-2"></div>
-                                    ) : null}
-                                    Excluir Parcela
-                                  </button>
                                 </div>
                               </div>
                             )}
@@ -1522,6 +1949,7 @@ export default function Mensalidades() {
                   </div>
                 )}
               </div>
+              </>
             )}
           </div>
         </main>
@@ -1741,7 +2169,7 @@ export default function Mensalidades() {
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
-                Alterar Data de Vencimento
+                {editingBulkIds?.length ? `Alterar vencimento (${editingBulkIds.length} parcelas)` : 'Alterar Data de Vencimento'}
               </h3>
               <button
                 onClick={fecharModalVencimento}
@@ -1754,10 +2182,17 @@ export default function Mensalidades() {
             </div>
 
             <div className="mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar?.razaoSocial}</span>
-              </p>
-              
+              {!editingBulkIds?.length && mensalidadeParaEditar && (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar.razaoSocial}</span>
+                </p>
+              )}
+              {editingBulkIds?.length ? (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  {editingBulkIds.length} parcela(s) selecionada(s)
+                </p>
+              ) : null}
+
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Novo Dia de Vencimento *
               </label>
@@ -1804,7 +2239,7 @@ export default function Mensalidades() {
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
-                Alterar Valor
+                {editingBulkIds?.length ? `Alterar valor (${editingBulkIds.length} parcelas)` : 'Alterar Valor'}
               </h3>
               <button
                 onClick={fecharModalValor}
@@ -1817,10 +2252,17 @@ export default function Mensalidades() {
             </div>
 
             <div className="mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar?.razaoSocial}</span>
-              </p>
-              
+              {!editingBulkIds?.length && mensalidadeParaEditar && (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar.razaoSocial}</span>
+                </p>
+              )}
+              {editingBulkIds?.length ? (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  {editingBulkIds.length} parcela(s) selecionada(s)
+                </p>
+              ) : null}
+
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Novo Valor *
               </label>
@@ -1928,7 +2370,7 @@ export default function Mensalidades() {
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-red-600 dark:text-red-400">
-                Excluir Parcela
+                {excluirBulkIds?.length ? `Excluir ${excluirBulkIds.length} parcela(s)` : 'Excluir Parcela'}
               </h3>
               <button
                 onClick={fecharModalExcluir}
@@ -1946,38 +2388,42 @@ export default function Mensalidades() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
               </div>
-              
+
               <p className="text-sm text-gray-600 dark:text-gray-300 text-center mb-4">
-                Tem certeza que deseja excluir esta parcela?
+                {excluirBulkIds?.length
+                  ? `Tem certeza que deseja excluir ${excluirBulkIds.length} parcela(s)?`
+                  : 'Tem certeza que deseja excluir esta parcela?'}
               </p>
-              
-              <div className="bg-gray-50 dark:bg-slate-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">Cliente:</span>
-                    <p className="text-gray-900 dark:text-gray-100">{mensalidadeParaExcluir?.razaoSocial}</p>
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">Valor:</span>
-                    <p className="text-gray-900 dark:text-gray-100 font-semibold">
-                      {mensalidadeParaExcluir ? formatCurrency(mensalidadeParaExcluir.valorMensalidade) : ''}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">Vencimento:</span>
-                    <p className="text-gray-900 dark:text-gray-100">
-                      {mensalidadeParaExcluir ? formatarData(mensalidadeParaExcluir.dataVencimento) : ''}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">Status:</span>
-                    <p className="text-gray-900 dark:text-gray-100">
-                      {mensalidadeParaExcluir ? getStatusText(mensalidadeParaExcluir.statusMensalidade) : ''}
-                    </p>
+
+              {!excluirBulkIds?.length && mensalidadeParaExcluir && (
+                <div className="bg-gray-50 dark:bg-slate-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Cliente:</span>
+                      <p className="text-gray-900 dark:text-gray-100">{mensalidadeParaExcluir.razaoSocial}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Valor:</span>
+                      <p className="text-gray-900 dark:text-gray-100 font-semibold">
+                        {formatCurrency(mensalidadeParaExcluir.valorMensalidade)}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Vencimento:</span>
+                      <p className="text-gray-900 dark:text-gray-100">
+                        {formatarData(mensalidadeParaExcluir.dataVencimento)}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Status:</span>
+                      <p className="text-gray-900 dark:text-gray-100">
+                        {getStatusText(mensalidadeParaExcluir.statusMensalidade)}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-              
+              )}
+
               <p className="text-xs text-red-600 dark:text-red-400 text-center mt-4">
                 ⚠️ Esta ação não pode ser desfeita.
               </p>
@@ -1997,8 +2443,141 @@ export default function Mensalidades() {
               >
                 {loadingAction ? (
                   <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : excluirBulkIds?.length ? (
+                  `Excluir ${excluirBulkIds.length} parcela(s)`
                 ) : (
                   'Excluir Parcela'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Gerar mais 12 parcelas */}
+      {showGerarParcelasModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                Gerar mais parcelas
+              </h3>
+              <button
+                onClick={fecharModalGerarParcelas}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-300 text-center mb-6">
+              Todas as parcelas foram quitadas. Deseja gerar mais 12 meses de parcelas?
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={fecharModalGerarParcelas}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Não
+              </button>
+              <button
+                onClick={gerarDozeParcelas}
+                disabled={loadingAction}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingAction ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Sim, gerar 12 meses'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Editar Forma de Pagamento */}
+      {showFormaPagamentoModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                {editingBulkIds?.length ? `Alterar forma de pagamento (${editingBulkIds.length} parcelas)` : 'Editar Parcela'}
+              </h3>
+              <button
+                onClick={fecharModalFormaPagamento}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-4">
+              {!editingBulkIds?.length && mensalidadeParaEditarFormaPagamento && (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditarFormaPagamento.razaoSocial}</span>
+                </p>
+              )}
+              {editingBulkIds?.length ? (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  {editingBulkIds.length} parcela(s) selecionada(s)
+                </p>
+              ) : null}
+
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Forma de Pagamento *
+              </label>
+              
+              <div className="space-y-3">
+                <label className="flex items-center p-3 border border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
+                  <input
+                    type="radio"
+                    name="formaPagamento"
+                    value="pix"
+                    checked={novaFormaPagamento === 'pix'}
+                    onChange={(e) => setNovaFormaPagamento(e.target.value as 'pix' | 'boleto')}
+                    className="w-4 h-4 text-[#004085] dark:text-blue-400 focus:ring-[#004085] dark:focus:ring-blue-400 border-gray-300 dark:border-gray-600"
+                  />
+                  <span className="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+                    PIX
+                  </span>
+                </label>
+                
+                <label className="flex items-center p-3 border border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
+                  <input
+                    type="radio"
+                    name="formaPagamento"
+                    value="boleto"
+                    checked={novaFormaPagamento === 'boleto'}
+                    onChange={(e) => setNovaFormaPagamento(e.target.value as 'pix' | 'boleto')}
+                    className="w-4 h-4 text-[#004085] dark:text-blue-400 focus:ring-[#004085] dark:focus:ring-blue-400 border-gray-300 dark:border-gray-600"
+                  />
+                  <span className="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Boleto
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={fecharModalFormaPagamento}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSalvarFormaPagamento}
+                disabled={loadingMensalidade}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMensalidade ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Salvar'
                 )}
               </button>
             </div>

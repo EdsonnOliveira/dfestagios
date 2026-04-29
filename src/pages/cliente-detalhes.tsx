@@ -1,17 +1,51 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, type FocusEvent } from 'react';
 import { useRouter } from 'next/router';
 import PainelHeader from '../components/PainelHeader';
 import ProtectedRoute from '../components/ProtectedRoute';
 import { clientesService, estagiariosService, vinculacoesService } from '../services/firebase';
 import { mensalidadesService, Mensalidade } from '../services/mensalidadesService';
-import { Cliente, Estagiario } from '../types/firebase';
+import { fetchCnpjLookup } from '../services/brasilApiCnpj';
+import {
+  driveStorageService,
+  displayNameFromStorageName
+} from '../services/driveStorageService';
+import { getSupabaseBrowserClient } from '../lib/supabaseClient';
+import { Cliente, Estagiario, EstagiarioWithCompanyEntry } from '../types/firebase';
+
+function contractPreviewIframeSrc(drivePath: string, signedUrl: string): string {
+  if (drivePath.toLowerCase().endsWith('.docx')) {
+    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(
+      signedUrl
+    )}`;
+  }
+  return signedUrl;
+}
+
+function formatCpfDisplay(value: string | undefined): string {
+  if (!value?.trim()) return '-';
+  const n = value.replace(/\D/g, '').slice(0, 11);
+  if (n.length <= 3) return n;
+  if (n.length <= 6) return `${n.slice(0, 3)}.${n.slice(3)}`;
+  if (n.length <= 9) return `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6)}`;
+  return `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6, 9)}-${n.slice(9)}`;
+}
+
+function formatPhoneDisplay(value: string | undefined): string {
+  if (!value?.trim()) return '-';
+  const n = value.replace(/\D/g, '').slice(0, 11);
+  if (n.length === 0) return '-';
+  if (n.length <= 2) return `(${n}`;
+  if (n.length <= 6) return `(${n.slice(0, 2)}) ${n.slice(2)}`;
+  if (n.length <= 10) return `(${n.slice(0, 2)}) ${n.slice(2, 6)}-${n.slice(6)}`;
+  return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
+}
 
 export default function ClienteDetalhes() {
   const router = useRouter();
   const { id } = router.query;
   
   const [cliente, setCliente] = useState<Cliente | null>(null);
-  const [estagiarios, setEstagiarios] = useState<Estagiario[]>([]);
+  const [estagiarios, setEstagiarios] = useState<EstagiarioWithCompanyEntry[]>([]);
   const [todosEstagiarios, setTodosEstagiarios] = useState<Estagiario[]>([]);
   const [mensalidades, setMensalidades] = useState<Mensalidade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +63,15 @@ export default function ClienteDetalhes() {
   const [showPlanoModal, setShowPlanoModal] = useState(false);
   const [menuAberto, setMenuAberto] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+  const [menuLayout, setMenuLayout] = useState<{ width: number; height: number }>({
+    width: 192,
+    height: 120
+  });
+  const [loadingContractEstagiarioId, setLoadingContractEstagiarioId] = useState<string | null>(null);
+  const [contractPreviewOpen, setContractPreviewOpen] = useState(false);
+  const [contractPreviewUrl, setContractPreviewUrl] = useState<string | null>(null);
+  const [contractPreviewPath, setContractPreviewPath] = useState<string | null>(null);
+  const [contractDownloading, setContractDownloading] = useState(false);
   const [showMultaModal, setShowMultaModal] = useState(false);
   const [multaPercentual, setMultaPercentual] = useState<string>('');
   const [mensalidadeParaMulta, setMensalidadeParaMulta] = useState<Mensalidade | null>(null);
@@ -37,8 +80,38 @@ export default function ClienteDetalhes() {
   const [showExcluirModal, setShowExcluirModal] = useState(false);
   const [mensalidadeParaEditar, setMensalidadeParaEditar] = useState<Mensalidade | null>(null);
   const [mensalidadeParaExcluir, setMensalidadeParaExcluir] = useState<Mensalidade | null>(null);
+  const [showGerarParcelasModal, setShowGerarParcelasModal] = useState(false);
+  const [mensalidadeParaGerarParcelas, setMensalidadeParaGerarParcelas] = useState<Mensalidade | null>(null);
   const [novoVencimento, setNovoVencimento] = useState('');
   const [novoValor, setNovoValor] = useState('');
+  const [showFormaPagamentoModal, setShowFormaPagamentoModal] = useState(false);
+  const [mensalidadeParaEditarFormaPagamento, setMensalidadeParaEditarFormaPagamento] = useState<Mensalidade | null>(null);
+  const [novaFormaPagamento, setNovaFormaPagamento] = useState<'pix' | 'boleto'>('pix');
+  const [selectedParcelasIds, setSelectedParcelasIds] = useState<Set<string>>(new Set());
+  const [editingBulkIds, setEditingBulkIds] = useState<string[] | null>(null);
+  const [excluirBulkIds, setExcluirBulkIds] = useState<string[] | null>(null);
+
+  // Estados para modal de edição de cliente
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingCliente, setEditingCliente] = useState<Cliente | null>(null);
+  const [loadingAction, setLoadingAction] = useState(false);
+  const [loadingCnpjLookup, setLoadingCnpjLookup] = useState(false);
+  const formCnpjRef = useRef('');
+  const [formData, setFormData] = useState({
+    cnpj: '',
+    razaoSocial: '',
+    nomeFantasia: '',
+    telefone: '',
+    email: '',
+    endereco: '',
+    uf: '',
+    cidade: '',
+    bairro: '',
+    cep: '',
+    responsavel: '',
+    responsavelCargo: '',
+    status: 'ativo' as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo'
+  });
   
   const [formDataEstagiario, setFormDataEstagiario] = useState({
     nome: '',
@@ -70,6 +143,56 @@ export default function ClienteDetalhes() {
   };
   */
 
+  // Função para formatar data sem problemas de timezone
+  const formatarDataNascimento = (dataString: string | undefined): string => {
+    if (!dataString) return '-';
+    
+    // Se a data está no formato YYYY-MM-DD, criar uma data local
+    const partes = dataString.split('-');
+    if (partes.length === 3) {
+      const ano = parseInt(partes[0], 10);
+      const mes = parseInt(partes[1], 10) - 1; // Mês é 0-indexed
+      const dia = parseInt(partes[2], 10);
+      const data = new Date(ano, mes, dia);
+      return data.toLocaleDateString('pt-BR');
+    }
+    
+    // Fallback para outros formatos
+    return new Date(dataString).toLocaleDateString('pt-BR');
+  };
+
+  const normalizeDriveMatch = (value: string): string =>
+    value
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+
+  const internRowMenuId = (estagiarioId: string) => `est-${estagiarioId}`;
+
+  useEffect(() => {
+    formCnpjRef.current = formData.cnpj;
+  }, [formData.cnpj]);
+
+  const handleCnpjLookupBlur = useCallback(async (e: FocusEvent<HTMLInputElement>) => {
+    const digits = e.currentTarget.value.replace(/\D/g, '');
+    if (digits.length !== 14) return;
+    setLoadingCnpjLookup(true);
+    try {
+      const mapped = await fetchCnpjLookup(digits);
+      if (!mapped) return;
+      setFormData((prev) => ({
+        ...prev,
+        ...mapped,
+        cnpj: prev.cnpj,
+      }));
+    } catch (err) {
+      console.error('Erro ao consultar CNPJ:', err);
+    } finally {
+      setLoadingCnpjLookup(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (filtroEstagiario) {
@@ -157,6 +280,117 @@ export default function ClienteDetalhes() {
       setLoadingMensalidades(false);
     }
   }, [id]);
+
+  // Funções para máscara de edição de cliente
+  const handleCnpjChange = (value: string) => {
+    const numericValue = value.replace(/\D/g, '');
+    let formattedValue = numericValue;
+    
+    if (numericValue.length > 2) {
+      formattedValue = numericValue.substring(0, 2) + '.' + numericValue.substring(2);
+    }
+    if (numericValue.length > 5) {
+      formattedValue = formattedValue.substring(0, 6) + '.' + formattedValue.substring(6);
+    }
+    if (numericValue.length > 8) {
+      formattedValue = formattedValue.substring(0, 10) + '/' + formattedValue.substring(10);
+    }
+    if (numericValue.length > 12) {
+      formattedValue = formattedValue.substring(0, 15) + '-' + numericValue.substring(15, 17);
+    }
+
+    formCnpjRef.current = formattedValue;
+    setFormData({...formData, cnpj: formattedValue});
+  };
+
+  const handleCepChange = (value: string) => {
+    const numericValue = value.replace(/\D/g, '');
+    let formattedValue = numericValue;
+    
+    if (numericValue.length > 5) {
+      formattedValue = numericValue.substring(0, 5) + '-' + numericValue.substring(5, 8);
+    }
+    
+    setFormData({...formData, cep: formattedValue});
+  };
+
+  const handleTelefoneClienteChange = (value: string) => {
+    const numericValue = value.replace(/\D/g, '');
+    let formattedValue = numericValue;
+    
+    if (numericValue.length > 0) {
+      formattedValue = '(' + numericValue.substring(0, 2);
+    }
+    if (numericValue.length > 2) {
+      formattedValue += ') ' + numericValue.substring(2, 7);
+    }
+    if (numericValue.length > 7) {
+      formattedValue = formattedValue.substring(0, 10) + '-' + numericValue.substring(7, 11);
+    }
+    
+    setFormData({...formData, telefone: formattedValue});
+  };
+
+  const handleEdit = () => {
+    if (!cliente) return;
+    setEditingCliente(cliente);
+    setFormData({
+      cnpj: cliente.cnpj,
+      razaoSocial: cliente.razaoSocial,
+      nomeFantasia: cliente.nomeFantasia,
+      telefone: cliente.telefone,
+      email: cliente.email,
+      endereco: cliente.endereco ?? '',
+      uf: cliente.uf ?? '',
+      cidade: cliente.cidade,
+      bairro: cliente.bairro,
+      cep: cliente.cep,
+      responsavel: cliente.responsavel,
+      responsavelCargo: cliente.responsavelCargo ?? '',
+      status: cliente.status
+    });
+    setShowEditModal(true);
+  };
+
+  const handleSave = async () => {
+    if (!editingCliente) return;
+    
+    try {
+      setLoadingAction(true);
+      await clientesService.update(editingCliente.id!, formData);
+      
+      // Atualizar o cliente local
+      setCliente(prev => prev ? { ...prev, ...formData } : null);
+      
+      setShowEditModal(false);
+      setEditingCliente(null);
+    } catch (error) {
+      console.error('Erro ao salvar cliente:', error);
+      alert('Erro ao salvar cliente. Tente novamente.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleCloseEditModal = () => {
+    setShowEditModal(false);
+    setEditingCliente(null);
+    setFormData({
+      cnpj: '',
+      razaoSocial: '',
+      nomeFantasia: '',
+      telefone: '',
+      email: '',
+      endereco: '',
+      uf: '',
+      cidade: '',
+      bairro: '',
+      cep: '',
+      responsavel: '',
+      responsavelCargo: '',
+      status: 'ativo'
+    });
+  };
 
   useEffect(() => {
     if (id) {
@@ -602,11 +836,12 @@ export default function ClienteDetalhes() {
         await vinculacoesService.vincularEstagiario(id as string, estagiarioId);
         
         // Atualizar listas locais
-        const estagiarioCompleto: Estagiario = { 
-          ...novoEstagiario, 
+        const estagiarioCompleto: EstagiarioWithCompanyEntry = {
+          ...novoEstagiario,
           id: estagiarioId,
           createdAt: new Date(),
-          updatedAt: new Date()
+          updatedAt: new Date(),
+          companyEntryDate: new Date()
         };
         setEstagiarios(prev => [...prev, estagiarioCompleto]);
         setTodosEstagiarios(prev => [...prev, estagiarioCompleto]);
@@ -632,7 +867,10 @@ export default function ClienteDetalhes() {
         // Atualizar a lista local
         const estagiarioParaVincular = todosEstagiarios.find(e => e.id === estagiarioId);
         if (estagiarioParaVincular) {
-          setEstagiarios(prev => [...prev, estagiarioParaVincular]);
+          setEstagiarios(prev => [
+            ...prev,
+            { ...estagiarioParaVincular, companyEntryDate: new Date() }
+          ]);
           setEstagiariosDisponiveis(prev => prev.filter(e => e.id !== estagiarioId));
           setEstagiariosFiltrados(prev => prev.filter(e => e.id !== estagiarioId));
         }
@@ -740,20 +978,63 @@ export default function ClienteDetalhes() {
 
 
   const marcarComoPago = async (mensalidade: Mensalidade) => {
+    const abertas = mensalidades.filter(m => m.status !== 'pago');
+    const ehUltimaParcelaAberta = abertas.length === 1 && abertas[0].id === mensalidade.id;
     try {
       setLoadingMensalidade(true);
-      
-      // Usar a forma de pagamento já cadastrada no plano
-      const formaPagamentoPlano = mensalidade.formaPagamento || 'pix'; // Fallback para PIX se não tiver
-      
-      // Marcar mensalidade como paga no banco com a forma de pagamento do plano
+      const formaPagamentoPlano = mensalidade.formaPagamento || 'pix';
       await mensalidadesService.marcarComoPago(mensalidade.id, new Date(), formaPagamentoPlano as 'pix' | 'boleto');
-      
-      // Recarregar mensalidades para atualizar a interface
       await loadMensalidades();
+      if (ehUltimaParcelaAberta) {
+        setMensalidadeParaGerarParcelas(mensalidade);
+        setShowGerarParcelasModal(true);
+      }
     } catch (error) {
       console.error('Erro ao marcar mensalidade como paga:', error);
       alert('Erro ao marcar mensalidade como paga');
+    } finally {
+      setLoadingMensalidade(false);
+    }
+  };
+
+  const fecharModalGerarParcelas = () => {
+    setShowGerarParcelasModal(false);
+    setMensalidadeParaGerarParcelas(null);
+  };
+
+  const gerarDozeParcelas = async () => {
+    const base = mensalidadeParaGerarParcelas;
+    if (!base || !id || !cliente) return;
+    try {
+      setLoadingMensalidade(true);
+      const dataBase = base.dataVencimento instanceof Date ? base.dataVencimento : new Date(base.dataVencimento);
+      const diaVencimento = dataBase.getDate();
+      for (let i = 0; i < 12; i++) {
+        const dataVencimentoParcela = new Date(dataBase.getFullYear(), dataBase.getMonth() + 1 + i, 1);
+        const ultimoDiaMes = new Date(dataVencimentoParcela.getFullYear(), dataVencimentoParcela.getMonth() + 1, 0).getDate();
+        dataVencimentoParcela.setDate(Math.min(diaVencimento, ultimoDiaMes));
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        const dataComp = new Date(dataVencimentoParcela);
+        dataComp.setHours(0, 0, 0, 0);
+        const status: 'pago' | 'vencido' | 'aberto' = dataComp < hoje ? 'vencido' : 'aberto';
+        await mensalidadesService.create({
+          clienteId: id as string,
+          clienteNome: cliente.razaoSocial,
+          dataVencimento: dataVencimentoParcela,
+          valor: base.valor,
+          status,
+          observacoes: base.observacoes ?? '',
+          numeroParcela: i + 1,
+          totalParcelas: 12,
+          formaPagamento: base.formaPagamento ?? 'pix'
+        });
+      }
+      fecharModalGerarParcelas();
+      await loadMensalidades();
+    } catch (error) {
+      console.error('Erro ao gerar parcelas:', error);
+      alert('Erro ao gerar parcelas. Tente novamente.');
     } finally {
       setLoadingMensalidade(false);
     }
@@ -769,35 +1050,35 @@ export default function ClienteDetalhes() {
     }
   };
 
-  const toggleMenu = (id: string, event: React.MouseEvent) => {
+  const toggleMenu = (
+    id: string,
+    event: React.MouseEvent,
+    layout?: { width: number; height: number }
+  ) => {
     if (menuAberto === id) {
       setMenuAberto(null);
     } else {
-      // Capturar posição do mouse
+      const menuWidth = layout?.width ?? 192;
+      const menuHeight = layout?.height ?? 120;
       const x = event.clientX;
       const y = event.clientY;
-      
-      // Ajustar posição se o menu sair da tela
-      const menuWidth = 192; // w-48 = 192px
-      const menuHeight = 120; // Altura aproximada do menu
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
-      
+
       let adjustedX = x;
       let adjustedY = y;
-      
-      // Ajustar horizontalmente se sair da tela
+
       if (x + menuWidth / 2 > viewportWidth) {
-        adjustedX = viewportWidth - menuWidth / 2 - 10; // 10px de margem
+        adjustedX = viewportWidth - menuWidth / 2 - 10;
       } else if (x - menuWidth / 2 < 0) {
-        adjustedX = menuWidth / 2 + 10; // 10px de margem
+        adjustedX = menuWidth / 2 + 10;
       }
-      
-      // Ajustar verticalmente se sair da tela
+
       if (y + menuHeight > viewportHeight) {
-        adjustedY = y - menuHeight - 10; // Mostrar acima do cursor
+        adjustedY = y - menuHeight - 10;
       }
-      
+
+      setMenuLayout({ width: menuWidth, height: menuHeight });
       setMenuPosition({
         x: adjustedX,
         y: adjustedY
@@ -808,6 +1089,111 @@ export default function ClienteDetalhes() {
 
   const fecharMenu = () => {
     setMenuAberto(null);
+  };
+
+  const handleCopyFormularioCadastroLink = async () => {
+    const clienteIdParam =
+      typeof id === 'string' ? id : Array.isArray(id) ? id[0] : '';
+    if (!clienteIdParam || typeof window === 'undefined') return;
+    const url = `${window.location.origin}/formulario-contrato-estagio/?clienteId=${encodeURIComponent(clienteIdParam)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      alert('Link do formulário copiado para a área de transferência.');
+    } catch {
+      alert(url);
+    }
+  };
+
+  const handleViewInternContract = async (estagiario: EstagiarioWithCompanyEntry) => {
+    if (!estagiario.id) return;
+    if (!getSupabaseBrowserClient()) {
+      alert('Configure o Drive (Supabase) para visualizar contratos.');
+      fecharMenu();
+      return;
+    }
+    try {
+      setLoadingContractEstagiarioId(estagiario.id);
+      let targetPath = estagiario.contratoPdfDrivePath ?? '';
+      if (!targetPath) {
+        const files = await driveStorageService.listAll();
+        const contracts = files.filter((f) => f.category === 'contrato');
+        const parts = normalizeDriveMatch(estagiario.nome)
+          .split(/\s+/)
+          .filter((p) => p.length >= 3);
+        const match =
+          contracts.find((f) => {
+            const dn = normalizeDriveMatch(f.displayName);
+            return parts.length > 0 && parts.every((p) => dn.includes(p));
+          }) ?? null;
+        if (!match) {
+          alert(
+            'Nenhum arquivo de contrato encontrado para este estagiário. Peça o preenchimento do formulário ou envie o contrato pelo Drive.'
+          );
+          fecharMenu();
+          return;
+        }
+        targetPath = match.fullPath;
+      }
+      const url = await driveStorageService.getSignedDownloadUrl(targetPath);
+      setContractPreviewPath(targetPath);
+      setContractPreviewUrl(url);
+      setContractPreviewOpen(true);
+      fecharMenu();
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : 'Não foi possível abrir o contrato.');
+    } finally {
+      setLoadingContractEstagiarioId(null);
+    }
+  };
+
+  const closeContractPreview = () => {
+    setContractPreviewOpen(false);
+    setContractPreviewUrl(null);
+    setContractPreviewPath(null);
+  };
+
+  const handleDownloadContract = useCallback(async () => {
+    if (!contractPreviewUrl || typeof window === 'undefined') return;
+    const seg = contractPreviewPath?.split('/').pop() ?? '';
+    const displayName = seg ? displayNameFromStorageName(seg) : 'contrato.docx';
+    const lower = displayName.toLowerCase();
+    const pdfFallbackName = `${displayName.replace(/\.(docx|doc)$/i, '') || 'contrato'}.pdf`;
+    setContractDownloading(true);
+    try {
+      const res = await fetch(contractPreviewUrl);
+      if (!res.ok) throw new Error('download failed');
+      const blob = await res.blob();
+      const isPdf = blob.type === 'application/pdf' || lower.endsWith('.pdf');
+      const downloadName = isPdf
+        ? lower.endsWith('.pdf')
+          ? displayName
+          : pdfFallbackName
+        : displayName;
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl;
+      a.download = downloadName;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+    } catch {
+      window.open(contractPreviewUrl, '_blank', 'noopener,noreferrer');
+    } finally {
+      setContractDownloading(false);
+    }
+  }, [contractPreviewUrl, contractPreviewPath]);
+
+  const handleOpenContractEditForm = (estagiario: EstagiarioWithCompanyEntry) => {
+    fecharMenu();
+    const cid =
+      typeof id === 'string' ? id : Array.isArray(id) ? id[0] : '';
+    if (!cid || !estagiario.id) return;
+    void router.push(
+      `/formulario-contrato-estagio?clienteId=${encodeURIComponent(cid)}&estagiarioId=${encodeURIComponent(estagiario.id)}`
+    );
   };
 
   const abrirModalMulta = (mensalidade: Mensalidade) => {
@@ -838,12 +1224,14 @@ export default function ClienteDetalhes() {
     setShowVencimentoModal(false);
     setMensalidadeParaEditar(null);
     setNovoVencimento('');
+    setEditingBulkIds(null);
   };
 
   const fecharModalValor = () => {
     setShowValorModal(false);
     setMensalidadeParaEditar(null);
     setNovoValor('');
+    setEditingBulkIds(null);
   };
 
   const abrirModalExcluir = (mensalidade: Mensalidade) => {
@@ -855,18 +1243,158 @@ export default function ClienteDetalhes() {
   const fecharModalExcluir = () => {
     setShowExcluirModal(false);
     setMensalidadeParaExcluir(null);
+    setExcluirBulkIds(null);
+  };
+
+  const abrirBarraExcluir = useCallback(() => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    setMensalidadeParaExcluir(null);
+    setExcluirBulkIds(ids);
+    setShowExcluirModal(true);
+  }, [selectedParcelasIds]);
+
+  const abrirModalFormaPagamento = (mensalidade: Mensalidade) => {
+    setMensalidadeParaEditarFormaPagamento(mensalidade);
+    const formaAtual = mensalidade.formaPagamento || 'pix';
+    setNovaFormaPagamento(formaAtual as 'pix' | 'boleto');
+    setShowFormaPagamentoModal(true);
+    fecharMenu();
+  };
+
+  const fecharModalFormaPagamento = () => {
+    setShowFormaPagamentoModal(false);
+    setMensalidadeParaEditarFormaPagamento(null);
+    setNovaFormaPagamento('pix');
+    setEditingBulkIds(null);
+  };
+
+  const toggleParcelaSelection = useCallback((id: string) => {
+    setSelectedParcelasIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllMensalidades = useCallback(() => {
+    if (selectedParcelasIds.size === mensalidades.length) {
+      setSelectedParcelasIds(new Set());
+    } else {
+      setSelectedParcelasIds(new Set(mensalidades.map(m => m.id)));
+    }
+  }, [mensalidades, selectedParcelasIds.size]);
+
+  const abrirBarraVencimento = useCallback(() => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    const first = mensalidades.find(m => m.id === ids[0]);
+    setMensalidadeParaEditar(null);
+    setEditingBulkIds(ids);
+    if (first) {
+      const data = first.dataVencimento instanceof Date ? first.dataVencimento : new Date(first.dataVencimento);
+      setNovoVencimento(data.getDate().toString());
+    } else {
+      setNovoVencimento('');
+    }
+    setShowVencimentoModal(true);
+  }, [selectedParcelasIds, mensalidades]);
+
+  const abrirBarraValor = useCallback(() => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    const first = mensalidades.find(m => m.id === ids[0]);
+    setMensalidadeParaEditar(null);
+    setEditingBulkIds(ids);
+    setNovoValor(first ? formatCurrency(first.valor) : '');
+    setShowValorModal(true);
+  }, [selectedParcelasIds, mensalidades]);
+
+  const abrirBarraFormaPagamento = useCallback(() => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    const first = mensalidades.find(m => m.id === ids[0]);
+    setMensalidadeParaEditarFormaPagamento(null);
+    setEditingBulkIds(ids);
+    setNovaFormaPagamento((first?.formaPagamento as 'pix' | 'boleto') || 'pix');
+    setShowFormaPagamentoModal(true);
+  }, [selectedParcelasIds, mensalidades]);
+
+  const marcarSelecionadasComoPago = useCallback(async () => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    const selecionadas = mensalidades.filter(m => ids.includes(m.id));
+    try {
+      setLoadingMensalidade(true);
+      for (const m of selecionadas) {
+        await mensalidadesService.marcarComoPago(m.id, new Date(), (m.formaPagamento || 'pix') as 'pix' | 'boleto');
+      }
+      await loadMensalidades();
+      setSelectedParcelasIds(new Set());
+    } catch (error) {
+      console.error('Erro ao marcar mensalidades como pagas:', error);
+      alert('Erro ao marcar mensalidades como pagas');
+    } finally {
+      setLoadingMensalidade(false);
+    }
+  }, [selectedParcelasIds, mensalidades, loadMensalidades]);
+
+  const marcarSelecionadasComoNaoPago = useCallback(async () => {
+    const ids = Array.from(selectedParcelasIds);
+    if (ids.length === 0) return;
+    try {
+      setLoadingMensalidade(true);
+      for (const id of ids) {
+        await mensalidadesService.marcarComoNaoPago(id);
+      }
+      await loadMensalidades();
+      setSelectedParcelasIds(new Set());
+    } catch (error) {
+      console.error('Erro ao marcar mensalidades como não pagas:', error);
+      alert('Erro ao marcar mensalidades como não pagas');
+    } finally {
+      setLoadingMensalidade(false);
+    }
+  }, [selectedParcelasIds, loadMensalidades]);
+
+  const handleSalvarFormaPagamento = async () => {
+    const ids = editingBulkIds && editingBulkIds.length > 0 ? editingBulkIds : (mensalidadeParaEditarFormaPagamento ? [mensalidadeParaEditarFormaPagamento.id] : null);
+    if (!ids || ids.length === 0) return;
+    try {
+      setLoadingMensalidade(true);
+      for (const id of ids) {
+        await mensalidadesService.update(id, { formaPagamento: novaFormaPagamento });
+      }
+      await loadMensalidades();
+      if (editingBulkIds?.length) setSelectedParcelasIds(new Set());
+      fecharModalFormaPagamento();
+      alert(ids.length > 1 ? 'Formas de pagamento alteradas com sucesso!' : 'Forma de pagamento alterada com sucesso!');
+    } catch (error) {
+      console.error('Erro ao alterar forma de pagamento:', error);
+      alert('Erro ao alterar forma de pagamento');
+    } finally {
+      setLoadingMensalidade(false);
+    }
   };
 
   const excluirMensalidade = async () => {
-    if (!mensalidadeParaExcluir) return;
+    const ids = excluirBulkIds && excluirBulkIds.length > 0 ? excluirBulkIds : (mensalidadeParaExcluir ? [mensalidadeParaExcluir.id] : null);
+    if (!ids || ids.length === 0) return;
 
     try {
       setLoadingMensalidade(true);
-      
-      await mensalidadesService.delete(mensalidadeParaExcluir.id);
+      if (excluirBulkIds && excluirBulkIds.length > 0) {
+        for (const id of ids) {
+          await mensalidadesService.delete(id);
+        }
+        setSelectedParcelasIds(new Set());
+      } else {
+        await mensalidadesService.delete(ids[0]);
+      }
       await loadMensalidades();
-      
       fecharModalExcluir();
+      alert(ids.length > 1 ? 'Parcelas excluídas com sucesso!' : 'Parcela excluída com sucesso!');
     } catch (error) {
       console.error('Erro ao excluir mensalidade:', error);
       alert('Erro ao excluir mensalidade');
@@ -876,29 +1404,34 @@ export default function ClienteDetalhes() {
   };
 
   const handleSalvarVencimento = async () => {
-    if (!mensalidadeParaEditar || !novoVencimento) {
-      return;
-    }
-
+    if (!novoVencimento) return;
     const dia = parseInt(novoVencimento);
     if (dia < 1 || dia > 31) {
       alert('Por favor, informe um dia válido (1 a 31).');
       return;
     }
-
+    const ids = editingBulkIds && editingBulkIds.length > 0 ? editingBulkIds : (mensalidadeParaEditar ? [mensalidadeParaEditar.id] : null);
+    if (!ids || ids.length === 0) return;
     try {
       setLoadingMensalidade(true);
-      
-      const novaDataVencimento = new Date(mensalidadeParaEditar.dataVencimento);
-      novaDataVencimento.setDate(dia);
-      
-      await mensalidadesService.update(mensalidadeParaEditar.id, {
-        dataVencimento: novaDataVencimento
-      });
-      
+      if (editingBulkIds && editingBulkIds.length > 0) {
+        for (const id of ids) {
+          const m = mensalidades.find(mens => mens.id === id);
+          if (m) {
+            const novaDataVencimento = new Date(m.dataVencimento instanceof Date ? m.dataVencimento : new Date(m.dataVencimento));
+            novaDataVencimento.setDate(dia);
+            await mensalidadesService.update(id, { dataVencimento: novaDataVencimento });
+          }
+        }
+        setSelectedParcelasIds(new Set());
+      } else if (mensalidadeParaEditar) {
+        const novaDataVencimento = new Date(mensalidadeParaEditar.dataVencimento);
+        novaDataVencimento.setDate(dia);
+        await mensalidadesService.update(mensalidadeParaEditar.id, { dataVencimento: novaDataVencimento });
+      }
       await loadMensalidades();
       fecharModalVencimento();
-      alert('Data de vencimento alterada com sucesso!');
+      alert(ids.length > 1 ? 'Datas de vencimento alteradas com sucesso!' : 'Data de vencimento alterada com sucesso!');
     } catch (error) {
       console.error('Erro ao alterar vencimento:', error);
       alert('Erro ao alterar data de vencimento');
@@ -908,8 +1441,7 @@ export default function ClienteDetalhes() {
   };
 
   const handleSalvarValor = async () => {
-    if (!mensalidadeParaEditar || !novoValor) return;
-
+    if (!novoValor) return;
     const valorNumerico = (() => {
       const digits = novoValor.replace(/\D/g, '');
       if (digits === '') return 0;
@@ -919,16 +1451,21 @@ export default function ClienteDetalhes() {
       alert('Por favor, informe um valor válido.');
       return;
     }
-
+    const ids = editingBulkIds && editingBulkIds.length > 0 ? editingBulkIds : (mensalidadeParaEditar ? [mensalidadeParaEditar.id] : null);
+    if (!ids || ids.length === 0) return;
     try {
       setLoadingMensalidade(true);
-      
-      await mensalidadesService.update(mensalidadeParaEditar.id, {
-        valor: valorNumerico
-      });
-      
+      if (editingBulkIds && editingBulkIds.length > 0) {
+        for (const id of ids) {
+          await mensalidadesService.update(id, { valor: valorNumerico });
+        }
+        setSelectedParcelasIds(new Set());
+      } else {
+        await mensalidadesService.update(ids[0], { valor: valorNumerico });
+      }
       await loadMensalidades();
       fecharModalValor();
+      alert(ids.length > 1 ? 'Valores alterados com sucesso!' : 'Valor alterado com sucesso!');
     } catch (error) {
       console.error('Erro ao alterar valor:', error);
       alert('Erro ao alterar valor');
@@ -1067,7 +1604,7 @@ export default function ClienteDetalhes() {
                   Voltar
                 </button>
                 <button
-                  onClick={() => router.push(`/clientes?edit=${cliente.id}`)}
+                  onClick={handleEdit}
                   className="bg-[#004085] dark:bg-blue-600 hover:bg-[#0056B3] dark:hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
                 >
                   Editar Cliente
@@ -1251,7 +1788,14 @@ export default function ClienteDetalhes() {
                     <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400">
                       Estagiários Vinculados ({estagiarios.length})
                     </h2>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyFormularioCadastroLink()}
+                        className="bg-amber-600 dark:bg-amber-700 hover:bg-amber-700 dark:hover:bg-amber-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                      >
+                        Copiar link do formulário
+                      </button>
                       <button
                         onClick={handleVincular}
                         className="bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
@@ -1291,6 +1835,12 @@ export default function ClienteDetalhes() {
                                 Telefone
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Data de entrada
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Valor da bolsa
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Ações
                               </th>
                             </tr>
@@ -1302,28 +1852,104 @@ export default function ClienteDetalhes() {
                                   <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.cpf || '-'}</div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
                                   <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {estagiario.dataNascimento ? new Date(estagiario.dataNascimento).toLocaleDateString('pt-BR') : '-'}
+                                    {formatCpfDisplay(estagiario.cpf)}
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.telefone1 || '-'}</div>
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {formatarDataNascimento(estagiario.dataNascimento)}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {formatPhoneDisplay(estagiario.telefone1)}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {formatarDataNascimento(estagiario.estagioDataInicio)}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {estagiario.estagioValorBolsa?.trim()
+                                      ? estagiario.estagioValorBolsa
+                                      : '-'}
+                                  </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                  <button 
-                                    onClick={() => handleDesvincularEstagiario(estagiario.id!)}
-                                    disabled={loadingVincular}
-                                    className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    {loadingVincular ? (
-                                      <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-                                    ) : (
-                                      'Desvincular'
+                                  <div className="relative">
+                                    <button
+                                      type="button"
+                                      onClick={(e) =>
+                                        toggleMenu(internRowMenuId(estagiario.id!), e, {
+                                          width: 224,
+                                          height: 176
+                                        })
+                                      }
+                                      className="menu-button p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700"
+                                      aria-label="Ações do estagiário"
+                                    >
+                                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                      </svg>
+                                    </button>
+                                    {menuAberto === internRowMenuId(estagiario.id!) && (
+                                      <div
+                                        className="menu-dropdown fixed bg-white dark:bg-slate-800 rounded-md shadow-lg z-50 border border-gray-200 dark:border-gray-700"
+                                        style={{
+                                          left: `${menuPosition.x}px`,
+                                          top: `${menuPosition.y}px`,
+                                          width: `${menuLayout.width}px`,
+                                          transform: 'translate(-50%, 10px)'
+                                        }}
+                                      >
+                                        <div className="py-1">
+                                          <button
+                                            type="button"
+                                            className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            disabled={loadingContractEstagiarioId === estagiario.id}
+                                            onClick={() => void handleViewInternContract(estagiario)}
+                                          >
+                                            {loadingContractEstagiarioId === estagiario.id ? (
+                                              <span className="inline-flex items-center gap-2">
+                                                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                                Ver Contrato
+                                              </span>
+                                            ) : (
+                                              'Ver Contrato'
+                                            )}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                            onClick={() => handleOpenContractEditForm(estagiario)}
+                                          >
+                                            Editar contrato
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            disabled={loadingVincular}
+                                            onClick={() => {
+                                              void handleDesvincularEstagiario(estagiario.id!);
+                                              fecharMenu();
+                                            }}
+                                          >
+                                            {loadingVincular ? (
+                                              <span className="inline-flex items-center gap-2">
+                                                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                                Desvincular Estagiário
+                                              </span>
+                                            ) : (
+                                              'Desvincular Estagiário'
+                                            )}
+                                          </button>
+                                        </div>
+                                      </div>
                                     )}
-                                  </button>
+                                  </div>
                                 </td>
                               </tr>
                             ))}
@@ -1420,6 +2046,58 @@ export default function ClienteDetalhes() {
                     </div>
                   </div>
 
+                  {selectedParcelasIds.size > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 mb-4 p-3 bg-gray-100 dark:bg-slate-700 rounded-lg">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300 mr-2">
+                        {selectedParcelasIds.size} parcela(s) selecionada(s)
+                      </span>
+                      <button
+                        onClick={marcarSelecionadasComoPago}
+                        disabled={loadingMensalidade}
+                        className="px-3 py-1.5 text-sm bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        Marcar como Pago
+                      </button>
+                      <button
+                        onClick={marcarSelecionadasComoNaoPago}
+                        disabled={loadingMensalidade}
+                        className="px-3 py-1.5 text-sm bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-600 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        Marcar como Não Pago
+                      </button>
+                      <button
+                        onClick={abrirBarraVencimento}
+                        className="px-3 py-1.5 text-sm bg-blue-600 dark:bg-blue-700 hover:bg-blue-700 dark:hover:bg-blue-600 text-white font-medium rounded-lg transition-colors"
+                      >
+                        Alterar vencimento
+                      </button>
+                      <button
+                        onClick={abrirBarraFormaPagamento}
+                        className="px-3 py-1.5 text-sm bg-indigo-600 dark:bg-indigo-700 hover:bg-indigo-700 dark:hover:bg-indigo-600 text-white font-medium rounded-lg transition-colors"
+                      >
+                        Alterar forma de pagamento
+                      </button>
+                      <button
+                        onClick={abrirBarraValor}
+                        className="px-3 py-1.5 text-sm bg-purple-600 dark:bg-purple-700 hover:bg-purple-700 dark:hover:bg-purple-600 text-white font-medium rounded-lg transition-colors"
+                      >
+                        Alterar valor
+                      </button>
+                      <button
+                        onClick={abrirBarraExcluir}
+                        className="px-3 py-1.5 text-sm bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-600 text-white font-medium rounded-lg transition-colors"
+                      >
+                        Excluir parcela
+                      </button>
+                      <button
+                        onClick={() => setSelectedParcelasIds(new Set())}
+                        className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-600"
+                      >
+                        Limpar seleção
+                      </button>
+                    </div>
+                  )}
+
                   {/* Tabela de Mensalidades */}
                   {loadingMensalidades ? (
                     <div className="p-8 text-center">
@@ -1432,6 +2110,14 @@ export default function ClienteDetalhes() {
                         <table className="w-full">
                           <thead className="bg-gray-50 dark:bg-slate-700">
                             <tr>
+                              <th className="px-4 py-3 text-left">
+                                <input
+                                  type="checkbox"
+                                  checked={mensalidades.length > 0 && selectedParcelasIds.size === mensalidades.length}
+                                  onChange={toggleSelectAllMensalidades}
+                                  className="h-4 w-4 text-[#004085] focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded"
+                                />
+                              </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Descrição
                               </th>
@@ -1461,6 +2147,14 @@ export default function ClienteDetalhes() {
                           <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
                             {mensalidades.map((mensalidade) => (
                               <tr key={mensalidade.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
+                                <td className="px-4 py-4">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedParcelasIds.has(mensalidade.id)}
+                                    onChange={() => toggleParcelaSelection(mensalidade.id)}
+                                    className="h-4 w-4 text-[#004085] focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded"
+                                  />
+                                </td>
                                 <td className="px-6 py-4">
                                   <div className="text-sm text-gray-900 dark:text-gray-100">
                                     {mensalidade.observacoes || '-'}
@@ -1538,10 +2232,11 @@ export default function ClienteDetalhes() {
                                     {/* Menu Dropdown */}
                                     {menuAberto === mensalidade.id && (
                                       <div 
-                                        className="menu-dropdown fixed w-48 bg-white dark:bg-slate-800 rounded-md shadow-lg z-50 border border-gray-200 dark:border-gray-700"
+                                        className="menu-dropdown fixed bg-white dark:bg-slate-800 rounded-md shadow-lg z-50 border border-gray-200 dark:border-gray-700"
                                         style={{
                                           left: `${menuPosition.x}px`,
                                           top: `${menuPosition.y}px`,
+                                          width: `${menuLayout.width}px`,
                                           transform: 'translate(-50%, 10px)'
                                         }}
                                       >
@@ -1605,6 +2300,13 @@ export default function ClienteDetalhes() {
                                               </button>
                                             </>
                                           )}
+
+                                          <button
+                                            className="block w-full text-left px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-gray-100 dark:hover:bg-slate-700"
+                                            onClick={() => abrirModalFormaPagamento(mensalidade)}
+                                          >
+                                            Editar Parcela
+                                          </button>
 
                                           <button
                                             className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1730,7 +2432,9 @@ export default function ClienteDetalhes() {
                               <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.email}</div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.telefone1}</div>
+                              <div className="text-sm text-gray-900 dark:text-gray-100">
+                                {formatPhoneDisplay(estagiario.telefone1)}
+                              </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.cidade}</div>
@@ -2232,7 +2936,7 @@ export default function ClienteDetalhes() {
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
-                Alterar Data de Vencimento
+                {editingBulkIds?.length ? `Alterar vencimento (${editingBulkIds.length} parcelas)` : 'Alterar Data de Vencimento'}
               </h3>
               <button
                 onClick={fecharModalVencimento}
@@ -2245,10 +2949,17 @@ export default function ClienteDetalhes() {
             </div>
 
             <div className="mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar?.clienteNome}</span>
-              </p>
-              
+              {!editingBulkIds?.length && mensalidadeParaEditar && (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar.clienteNome}</span>
+                </p>
+              )}
+              {editingBulkIds?.length ? (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  {editingBulkIds.length} parcela(s) selecionada(s)
+                </p>
+              ) : null}
+
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Novo Dia de Vencimento *
               </label>
@@ -2295,7 +3006,7 @@ export default function ClienteDetalhes() {
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
-                Alterar Valor
+                {editingBulkIds?.length ? `Alterar valor (${editingBulkIds.length} parcelas)` : 'Alterar Valor'}
               </h3>
               <button
                 onClick={fecharModalValor}
@@ -2308,10 +3019,17 @@ export default function ClienteDetalhes() {
             </div>
 
             <div className="mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar?.clienteNome}</span>
-              </p>
-              
+              {!editingBulkIds?.length && mensalidadeParaEditar && (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{mensalidadeParaEditar.clienteNome}</span>
+                </p>
+              )}
+              {editingBulkIds?.length ? (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  {editingBulkIds.length} parcela(s) selecionada(s)
+                </p>
+              ) : null}
+
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Novo Valor *
               </label>
@@ -2354,7 +3072,7 @@ export default function ClienteDetalhes() {
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-red-600 dark:text-red-400">
-                Excluir Parcela
+                {excluirBulkIds?.length ? `Excluir ${excluirBulkIds.length} parcela(s)` : 'Excluir Parcela'}
               </h3>
               <button
                 onClick={fecharModalExcluir}
@@ -2372,43 +3090,45 @@ export default function ClienteDetalhes() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
               </div>
-              
+
               <p className="text-sm text-gray-600 dark:text-gray-300 text-center mb-4">
-                Tem certeza que deseja excluir esta parcela?
+                {excluirBulkIds?.length
+                  ? `Tem certeza que deseja excluir ${excluirBulkIds.length} parcela(s)?`
+                  : 'Tem certeza que deseja excluir esta parcela?'}
               </p>
-              
-              <div className="bg-gray-50 dark:bg-slate-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">Cliente:</span>
-                    <p className="text-gray-900 dark:text-gray-100">{mensalidadeParaExcluir?.clienteNome}</p>
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">Valor:</span>
-                    <p className="text-gray-900 dark:text-gray-100 font-semibold">
-                      {mensalidadeParaExcluir ? formatCurrency(mensalidadeParaExcluir.valor) : ''}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">Vencimento:</span>
-                    <p className="text-gray-900 dark:text-gray-100">
-                      {mensalidadeParaExcluir ? (() => {
-                        const data = mensalidadeParaExcluir.dataVencimento instanceof Date 
-                          ? mensalidadeParaExcluir.dataVencimento 
-                          : new Date(mensalidadeParaExcluir.dataVencimento);
-                        return data.toLocaleDateString('pt-BR');
-                      })() : ''}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-700 dark:text-gray-300">Status:</span>
-                    <p className="text-gray-900 dark:text-gray-100">
-                      {mensalidadeParaExcluir ? getStatusText(mensalidadeParaExcluir.status) : ''}
-                    </p>
+
+              {!excluirBulkIds?.length && mensalidadeParaExcluir && (
+                <div className="bg-gray-50 dark:bg-slate-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Cliente:</span>
+                      <p className="text-gray-900 dark:text-gray-100">{mensalidadeParaExcluir.clienteNome}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Valor:</span>
+                      <p className="text-gray-900 dark:text-gray-100 font-semibold">
+                        {formatCurrency(mensalidadeParaExcluir.valor)}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Vencimento:</span>
+                      <p className="text-gray-900 dark:text-gray-100">
+                        {(() => {
+                          const data = mensalidadeParaExcluir.dataVencimento instanceof Date
+                            ? mensalidadeParaExcluir.dataVencimento
+                            : new Date(mensalidadeParaExcluir.dataVencimento);
+                          return data.toLocaleDateString('pt-BR');
+                        })()}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Status:</span>
+                      <p className="text-gray-900 dark:text-gray-100">{getStatusText(mensalidadeParaExcluir.status)}</p>
+                    </div>
                   </div>
                 </div>
-              </div>
-              
+              )}
+
               <p className="text-xs text-red-600 dark:text-red-400 text-center mt-4">
                 ⚠️ Esta ação não pode ser desfeita.
               </p>
@@ -2428,6 +3148,8 @@ export default function ClienteDetalhes() {
               >
                 {loadingMensalidade ? (
                   <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : excluirBulkIds?.length ? (
+                  `Excluir ${excluirBulkIds.length} parcela(s)`
                 ) : (
                   'Excluir Parcela'
                 )}
@@ -2436,6 +3158,417 @@ export default function ClienteDetalhes() {
           </div>
         </div>
       )}
+
+      {/* Modal de Editar Forma de Pagamento */}
+      {showFormaPagamentoModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                {editingBulkIds?.length ? `Alterar forma de pagamento (${editingBulkIds.length} parcelas)` : 'Editar Parcela'}
+              </h3>
+              <button
+                onClick={fecharModalFormaPagamento}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-4">
+              {!editingBulkIds?.length && (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  Cliente: <span className="font-medium text-gray-900 dark:text-gray-100">{cliente?.razaoSocial}</span>
+                </p>
+              )}
+              {editingBulkIds?.length ? (
+                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                  {editingBulkIds.length} parcela(s) selecionada(s)
+                </p>
+              ) : null}
+
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Forma de Pagamento *
+              </label>
+
+              <div className="space-y-3">
+                <label className="flex items-center p-3 border border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
+                  <input
+                    type="radio"
+                    name="formaPagamento"
+                    value="pix"
+                    checked={novaFormaPagamento === 'pix'}
+                    onChange={(e) => setNovaFormaPagamento(e.target.value as 'pix' | 'boleto')}
+                    className="w-4 h-4 text-[#004085] dark:text-blue-400 focus:ring-[#004085] dark:focus:ring-blue-400 border-gray-300 dark:border-gray-600"
+                  />
+                  <span className="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+                    PIX
+                  </span>
+                </label>
+
+                <label className="flex items-center p-3 border border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors">
+                  <input
+                    type="radio"
+                    name="formaPagamento"
+                    value="boleto"
+                    checked={novaFormaPagamento === 'boleto'}
+                    onChange={(e) => setNovaFormaPagamento(e.target.value as 'pix' | 'boleto')}
+                    className="w-4 h-4 text-[#004085] dark:text-blue-400 focus:ring-[#004085] dark:focus:ring-blue-400 border-gray-300 dark:border-gray-600"
+                  />
+                  <span className="ml-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Boleto
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={fecharModalFormaPagamento}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSalvarFormaPagamento}
+                disabled={loadingMensalidade}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMensalidade ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Salvar'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Gerar mais 12 parcelas */}
+      {showGerarParcelasModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                Gerar mais parcelas
+              </h3>
+              <button
+                onClick={fecharModalGerarParcelas}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-300 text-center mb-6">
+              Todas as parcelas foram quitadas. Deseja gerar mais 12 meses de parcelas?
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={fecharModalGerarParcelas}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+              >
+                Não
+              </button>
+              <button
+                onClick={gerarDozeParcelas}
+                disabled={loadingMensalidade}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingMensalidade ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Sim, gerar 12 meses'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Editar Cliente */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto transition-colors">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                Editar Cliente
+              </h3>
+              <button
+                onClick={handleCloseEditModal}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  CNPJ *
+                </label>
+                <input
+                  type="text"
+                  value={formData.cnpj}
+                  onChange={(e) => handleCnpjChange(e.target.value)}
+                  onBlur={(ev) => void handleCnpjLookupBlur(ev)}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="00.000.000/0000-00"
+                  maxLength={18}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Razão Social *
+                </label>
+                <input
+                  type="text"
+                  value={formData.razaoSocial}
+                  onChange={(e) => setFormData({...formData, razaoSocial: e.target.value})}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="Razão Social da Empresa"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Nome Fantasia *
+                </label>
+                <input
+                  type="text"
+                  value={formData.nomeFantasia}
+                  onChange={(e) => setFormData({...formData, nomeFantasia: e.target.value})}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="Nome Fantasia da Empresa"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Telefone *
+                </label>
+                <input
+                  type="text"
+                  value={formData.telefone}
+                  onChange={(e) => handleTelefoneClienteChange(e.target.value)}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="(61) 99999-9999"
+                  maxLength={15}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Email *
+                </label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({...formData, email: e.target.value})}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="email@empresa.com"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Endereço (logradouro)
+                </label>
+                <input
+                  type="text"
+                  value={formData.endereco}
+                  onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="Quadra, conjunto, número"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  UF
+                </label>
+                <input
+                  type="text"
+                  value={formData.uf}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      uf: e.target.value.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase()
+                    })
+                  }
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="DF"
+                  maxLength={2}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Cidade *
+                </label>
+                <input
+                  type="text"
+                  value={formData.cidade}
+                  onChange={(e) => setFormData({...formData, cidade: e.target.value})}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="Brasília"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Bairro *
+                </label>
+                <input
+                  type="text"
+                  value={formData.bairro}
+                  onChange={(e) => setFormData({...formData, bairro: e.target.value})}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="Asa Sul"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  CEP *
+                </label>
+                <input
+                  type="text"
+                  value={formData.cep}
+                  onChange={(e) => handleCepChange(e.target.value)}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="70000-000"
+                  maxLength={9}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Responsável *
+                </label>
+                <input
+                  type="text"
+                  value={formData.responsavel}
+                  onChange={(e) => setFormData({...formData, responsavel: e.target.value})}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="Nome do Responsável"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Cargo do representante
+                </label>
+                <input
+                  type="text"
+                  value={formData.responsavelCargo}
+                  onChange={(e) => setFormData({ ...formData, responsavelCargo: e.target.value })}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="Ex.: Diretor Administrativo"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Status *
+                </label>
+                <select
+                  value={formData.status}
+                  onChange={(e) => setFormData({...formData, status: e.target.value as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo'})}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                >
+                  <option value="ativo">Ativo</option>
+                  <option value="em-andamento">Em andamento</option>
+                  <option value="bloqueado">Bloqueado</option>
+                  <option value="inativo">Inativo</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={handleCloseEditModal}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={loadingAction || loadingCnpjLookup || !formData.cnpj || !formData.razaoSocial || !formData.nomeFantasia || !formData.telefone || !formData.email || !formData.cidade || !formData.bairro || !formData.cep || !formData.responsavel}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loadingAction || loadingCnpjLookup ? (
+                  <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  'Atualizar'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+        {contractPreviewOpen && contractPreviewUrl && (
+          <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-[10001] px-4">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg w-full max-w-5xl max-h-[90vh] overflow-hidden transition-colors">
+              <div className="px-4 sm:px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
+                <h3 className="text-base sm:text-lg font-bold text-[#004085] dark:text-blue-400 truncate min-w-0">
+                  Contrato de estágio
+                </h3>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadContract()}
+                    disabled={contractDownloading}
+                    className="px-3 py-2 text-sm font-medium rounded-lg border border-[#004085] dark:border-blue-500 text-[#004085] dark:text-blue-400 hover:bg-[#004085]/10 dark:hover:bg-blue-950/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {contractDownloading ? 'Baixando…' : 'Baixar DOCX'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeContractPreview}
+                    className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                    aria-label="Fechar"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 sm:p-6 h-[75vh]">
+                <iframe
+                  src={contractPreviewIframeSrc(
+                    contractPreviewPath ?? '',
+                    contractPreviewUrl
+                  )}
+                  title="Contrato de estágio"
+                  className="w-full h-full min-h-[60vh] rounded-lg border border-gray-200 dark:border-gray-700 bg-white"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         </main>
       </div>
