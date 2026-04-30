@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type FocusEvent } from 'react';
+import toast from 'react-hot-toast';
 import { useRouter } from 'next/router';
 import PainelHeader from '../components/PainelHeader';
 import ProtectedRoute from '../components/ProtectedRoute';
@@ -1098,9 +1099,10 @@ export default function ClienteDetalhes() {
     const url = `${window.location.origin}/formulario-contrato-estagio/?clienteId=${encodeURIComponent(clienteIdParam)}`;
     try {
       await navigator.clipboard.writeText(url);
-      alert('Link do formulário copiado para a área de transferência.');
+      toast.success('Link do formulário copiado para a área de transferência.');
     } catch {
-      alert(url);
+      toast.error('Não foi possível copiar automaticamente.');
+      toast(url, { duration: 10000 });
     }
   };
 
@@ -1789,6 +1791,14 @@ export default function ClienteDetalhes() {
                       Estagiários Vinculados ({estagiarios.length})
                     </h2>
                     <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void loadEstagiarios()}
+                        disabled={loadingEstagiarios}
+                        className="bg-slate-600 dark:bg-slate-600 hover:bg-slate-700 dark:hover:bg-slate-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                      >
+                        Recarregar
+                      </button>
                       <button
                         type="button"
                         onClick={() => void handleCopyFormularioCadastroLink()}

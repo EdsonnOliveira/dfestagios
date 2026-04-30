@@ -37,7 +37,7 @@ def tighten_programa_estagio_section(xml: str) -> str:
         if "<w:spacing" not in blk:
             blk = re.sub(
                 r"(<w:pPr>)",
-                r'\1<w:spacing w:before="0" w:after="0" w:line="180" '
+                r'\1<w:spacing w:before="0" w:after="100" w:line="180" '
                 r'w:lineRule="exact"/>',
                 blk,
                 count=1,
@@ -45,13 +45,151 @@ def tighten_programa_estagio_section(xml: str) -> str:
         else:
             blk = re.sub(
                 r"<w:spacing[^>]+/>",
-                '<w:spacing w:before="0" w:after="0" w:line="180" '
+                '<w:spacing w:before="0" w:after="100" w:line="180" '
                 'w:lineRule="exact"/>',
                 blk,
                 count=1,
             )
         new_blocks.append(blk)
     return before + "".join(new_blocks) + after
+
+
+def zero_supervisor_paragraph_after_spacing(xml: str) -> str:
+    def repl_para(match: re.Match[str]) -> str:
+        block = match.group(0)
+        texts = "".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", block))
+        t = texts.strip()
+        if t == "Supervisor de Estágio" or (
+            "Nome:" in texts and "supervisor_nome" in block
+        ):
+            block = re.sub(
+                r'(w:after=")\d+(")',
+                r"\g<1>0\2",
+                block,
+                count=1,
+            )
+        return block
+
+    return re.sub(r"<w:p\b[\s\S]*?</w:p>", repl_para, xml)
+
+
+def merge_reitor_into_previous_ie_paragraph(xml: str) -> str:
+    needle = "{ie_reitor}"
+    pos = xml.find(needle)
+    if pos < 0:
+        return xml
+    p_start = xml.rfind("<w:p ", 0, pos)
+    if p_start < 0:
+        return xml
+    p_end = xml.find("</w:p>", pos)
+    if p_end < 0:
+        return xml
+    p_end += len("</w:p>")
+    reitor_para = xml[p_start:p_end]
+    if len(reitor_para) > 1500:
+        return xml
+    inner_m = re.search(r"</w:pPr>([\s\S]*?)</w:p>", reitor_para)
+    if not inner_m:
+        return xml
+    inner_runs = inner_m.group(1)
+    prev_p_start = xml.rfind("<w:p ", 0, p_start - 1)
+    if prev_p_start < 0:
+        return xml
+    prev_seg = xml[prev_p_start:p_start]
+    insert_before = prev_seg.rfind("</w:p>")
+    if insert_before < 0:
+        return xml
+    inner_prev = prev_seg[:insert_before]
+    last_r_close = inner_prev.rfind("</w:r>")
+    if last_r_close < 0:
+        return xml
+    ins_at = prev_p_start + last_r_close + len("</w:r>")
+    br = (
+        '<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>'
+        '<w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>'
+        '<w:br w:type="textWrapping"/></w:r>'
+    )
+    return xml[:ins_at] + br + inner_runs + xml[ins_at:p_start] + xml[p_end:]
+
+
+def add_spacing_between_ie_and_estudante_boxes(xml: str) -> str:
+    needle = "Estudante:</w:t>"
+    pos = xml.find(needle)
+    if pos < 0:
+        return xml
+    p_start = xml.rfind("<w:p ", 0, pos)
+    if p_start < 0:
+        return xml
+    ppr_start = xml.find("<w:pPr>", p_start, pos)
+    if ppr_start < 0:
+        return xml
+    sp_start = xml.find("<w:spacing ", ppr_start, pos)
+    if sp_start < 0:
+        return xml
+    sp_end = xml.find("/>", sp_start) + 2
+    new_sp = '<w:spacing w:before="80" w:line="200" w:lineRule="exact"/>'
+    return xml[:sp_start] + new_sp + xml[sp_end:]
+
+
+def inject_ie_assinatura_image_placeholder(xml: str) -> str:
+    para_img = (
+        '<w:p w14:paraId="77IEIMG01" w14:textId="77777777" w:rsidR="0096791D" '
+        'w:rsidRDefault="0096791D" w:rsidP="00CE4AC0">'
+        '<w:pPr><w:pStyle w:val="Corpodetexto"/><w:jc w:val="center"/>'
+        '<w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>'
+        '<w:b/><w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr></w:pPr>'
+        '<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>'
+        '<w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>'
+        "<w:t>{%ie_assinatura}</w:t></w:r></w:p>"
+    )
+    xml = re.sub(
+        r"<w:p\b[^>]*>[\s\S]*?\{%ie_assinatura\}[\s\S]*?</w:p>\s*",
+        "",
+        xml,
+        count=1,
+    )
+    lab = "<w:t>Instituição de Ensino</w:t>"
+    li = xml.rfind(lab)
+    if li < 0:
+        return xml
+    und = xml.rfind("___________________________________________________", 0, li)
+    if und < 0:
+        return xml
+    insert_at = xml.find("</w:p>", und)
+    if insert_at < 0:
+        return xml
+    insert_at += len("</w:p>")
+    return xml[:insert_at] + para_img + xml[insert_at:]
+
+
+def replace_brasilia_date_line_paragraph(xml: str) -> str:
+    token = "{data_assinatura}"
+    pos = xml.find(token)
+    if pos < 0:
+        return xml
+    p_start = xml.rfind("<w:p ", 0, pos)
+    if p_start < 0:
+        return xml
+    p_end = xml.find("</w:p>", pos)
+    if p_end < 0:
+        return xml
+    p_end += len("</w:p>")
+    old_block = xml[p_start:p_end]
+    open_m = re.match(r"(<w:p\b[^>]*>)", old_block)
+    if not open_m:
+        return xml
+    open_tag = open_m.group(1)
+    rpr = (
+        "<w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\" w:cs=\"Arial\"/>"
+        "<w:b/><w:sz w:val=\"16\"/><w:szCs w:val=\"16\"/></w:rPr>"
+    )
+    new_inner = (
+        f"<w:r>{rpr}<w:t>Brasília</w:t></w:r>"
+        f"<w:r>{rpr}"
+        f"<w:t xml:space=\"preserve\">, ______ de ______ de ______</w:t></w:r>"
+    )
+    new_block = open_tag + new_inner + "</w:p>"
+    return xml[:p_start] + new_block + xml[p_end:]
 
 
 KEYS = [
@@ -242,6 +380,9 @@ def patch_xml(xml: str) -> str:
             _tab + _reitor_runs + "</w:p>", xml, count=1
         )
 
+    xml = merge_reitor_into_previous_ie_paragraph(xml)
+    xml = add_spacing_between_ie_and_estudante_boxes(xml)
+
     _carimbo_tight = (
         '<w:spacing w:before="120" w:after="120" w:line="240" w:lineRule="auto"/>'
         '<w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial" '
@@ -258,6 +399,9 @@ def patch_xml(xml: str) -> str:
         xml = xml.replace(_carimbo_tight, _carimbo_tight_new, 1)
 
     xml = tighten_programa_estagio_section(xml)
+    xml = zero_supervisor_paragraph_after_spacing(xml)
+    xml = inject_ie_assinatura_image_placeholder(xml)
+    xml = replace_brasilia_date_line_paragraph(xml)
 
     return xml
 

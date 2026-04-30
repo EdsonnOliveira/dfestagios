@@ -472,6 +472,9 @@ export const vinculacoesService = {
           });
         }
       }
+      const cadastroMs = (e: Estagiario) =>
+        parseFirestoreDate(e.createdAt)?.getTime() ?? 0;
+      result.sort((a, b) => cadastroMs(b) - cadastroMs(a));
       return result;
     } catch (error) {
       console.error('Erro ao buscar estagiários vinculados:', error);

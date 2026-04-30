@@ -9,6 +9,7 @@ import {
   type KeyboardEvent
 } from 'react';
 import Head from 'next/head';
+import toast from 'react-hot-toast';
 import { useRouter } from 'next/router';
 import { clientesService, estagiariosService, vinculacoesService } from '../services/firebase';
 import {
@@ -379,7 +380,7 @@ export default function FormularioContratoEstagio() {
       const data = await fetchCepLookup(d);
       if (!data) {
         lastCepFetched.current = '';
-        alert('CEP não encontrado.');
+        toast.error('CEP não encontrado.');
         return;
       }
       lastCepFetched.current = d;
@@ -392,7 +393,7 @@ export default function FormularioContratoEstagio() {
       }));
     } catch {
       lastCepFetched.current = '';
-      alert('Não foi possível consultar o CEP.');
+      toast.error('Não foi possível consultar o CEP.');
     } finally {
       setLoadingCep(false);
     }
@@ -410,7 +411,7 @@ export default function FormularioContratoEstagio() {
       if (!data) {
         lastUniCnpjFetched.current = '';
         setForm((p) => ({ ...p, uniNome: '', uniCep: '', uniEndereco: '' }));
-        alert('CNPJ não encontrado. Verifique o número.');
+        toast.error('CNPJ não encontrado. Verifique o número.');
         return;
       }
       lastUniCnpjFetched.current = digits;
@@ -423,7 +424,7 @@ export default function FormularioContratoEstagio() {
     } catch {
       lastUniCnpjFetched.current = '';
       setForm((p) => ({ ...p, uniNome: '', uniCep: '', uniEndereco: '' }));
-      alert('Não foi possível consultar o CNPJ. Tente novamente.');
+      toast.error('Não foi possível consultar o CNPJ. Tente novamente.');
     } finally {
       setLoadingUniCnpj(false);
     }
@@ -465,7 +466,7 @@ export default function FormularioContratoEstagio() {
       if (!form.respTelefone.trim()) missing.push('Telefone do responsável');
     }
     if (missing.length > 0) {
-      alert(`Preencha: ${missing.join(', ')}.`);
+      toast.error(`Preencha: ${missing.join(', ')}.`);
       return;
     }
 
@@ -476,7 +477,7 @@ export default function FormularioContratoEstagio() {
           ? router.query.clienteId[0]
           : '';
     if (!clienteIdRaw || !empresa) {
-      alert('Abra este formulário pelo link enviado pela empresa.');
+      toast.error('Abra este formulário pelo link enviado pela empresa.');
       return;
     }
 
@@ -645,7 +646,7 @@ export default function FormularioContratoEstagio() {
         });
       }
 
-      alert(
+      toast.success(
         estagiarioIdEdit
           ? 'Contrato atualizado com sucesso.'
           : 'Cadastro concluído com sucesso.'
@@ -659,7 +660,7 @@ export default function FormularioContratoEstagio() {
       }
     } catch (err) {
       console.error(err);
-      alert(
+      toast.error(
         err instanceof Error
           ? err.message
           : 'Não foi possível concluir o cadastro. Tente novamente.'
