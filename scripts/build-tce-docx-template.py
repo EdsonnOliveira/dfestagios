@@ -192,6 +192,75 @@ def replace_brasilia_date_line_paragraph(xml: str) -> str:
     return xml[:p_start] + new_block + xml[p_end:]
 
 
+def patch_estudante_cpf_e_nacionalidade(xml: str) -> str:
+    old_spacer = '<w:t xml:space="preserve"> {est_row_spacer_18}</w:t>'
+    if old_spacer not in xml:
+        raise SystemExit("est_row_spacer_18 text run not found")
+    xml = xml.replace(
+        old_spacer,
+        '<w:t xml:space="preserve"> {est_cpf}</w:t>',
+        1,
+    )
+
+    nat_pat = (
+        '<w:t xml:space="preserve">:  </w:t></w:r></w:p>'
+        '<w:p w14:paraId="04ED598E"'
+    )
+    nat_repl = (
+        '<w:t xml:space="preserve">: Brasileira</w:t></w:r></w:p>'
+        '<w:p w14:paraId="04ED598E"'
+    )
+    if nat_pat not in xml:
+        raise SystemExit("nacionalidade colon pattern not found")
+    xml = xml.replace(nat_pat, nat_repl, 1)
+
+    return xml
+
+
+def patch_responsavel_telefone_cpf_row(xml: str) -> str:
+    token = '<w:p w14:paraId="5246DD24"'
+    pos = xml.find(token)
+    if pos < 0:
+        raise SystemExit("responsavel row paragraph 5246DD24 not found")
+    close = xml.find("</w:p>", pos)
+    if close < 0:
+        raise SystemExit("responsavel row paragraph end not found")
+    close += len("</w:p>")
+    new_para = (
+        '<w:p w14:paraId="5246DD24" w14:textId="0BE39A9D" w:rsidR="0096791D" '
+        'w:rsidRPr="00040859" w:rsidRDefault="00B9079D" w:rsidP="00017F1B">'
+        "<w:pPr><w:pStyle w:val=\"Corpodetexto\"/><w:pBdr>"
+        '<w:top w:val="single" w:sz="12" w:space="1" w:color="333399"/>'
+        '<w:left w:val="single" w:sz="12" w:space="0" w:color="333399"/>'
+        '<w:bottom w:val="single" w:sz="12" w:space="1" w:color="333399"/>'
+        '<w:right w:val="single" w:sz="12" w:space="0" w:color="333399"/></w:pBdr>'
+        '<w:spacing w:line="200" w:lineRule="exact"/>'
+        '<w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>'
+        '<w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr></w:pPr>'
+        '<w:r w:rsidRPr="00040859"><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" '
+        'w:cs="Arial"/><w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>'
+        "<w:t>Telefone</w:t></w:r>"
+        "<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\" w:cs=\"Arial\"/>"
+        '<w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr><w:t>:</w:t></w:r>'
+        "<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\" w:cs=\"Arial\"/>"
+        '<w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>'
+        '<w:t xml:space="preserve"> {resp_telefone_contrato}</w:t></w:r>'
+        "<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\" w:cs=\"Arial\"/>"
+        '<w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>'
+        '<w:t xml:space="preserve">                                  </w:t></w:r>'
+        '<w:r w:rsidRPr="00040859"><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" '
+        'w:cs="Arial"/><w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>'
+        "<w:t>CPF</w:t></w:r>"
+        "<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\" w:cs=\"Arial\"/>"
+        '<w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr><w:t>:</w:t></w:r>'
+        "<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\" w:cs=\"Arial\"/>"
+        '<w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>'
+        '<w:t xml:space="preserve"> {resp_cpf_contrato}</w:t></w:r>'
+        "</w:p>"
+    )
+    return xml[:pos] + new_para + xml[close:]
+
+
 KEYS = [
     "hdr_blank_a",
     "hdr_blank_b",
@@ -288,11 +357,61 @@ def patch_xml(xml: str) -> str:
     ie_cnpj_repl = (
         "<w:t xml:space=\"preserve\">"
         "                                                                                                                     "
-        "CNPJ: {ie_cnpj} </w:t>"
+        "CNPJ:\xa0{ie_cnpj} </w:t>"
     )
     if ie_cnpj_pat not in xml:
         raise SystemExit("IE CNPJ pattern not found")
     xml = xml.replace(ie_cnpj_pat, ie_cnpj_repl, 1)
+
+    cargo_pat = (
+        '<w:t xml:space="preserve">Cargo: </w:t></w:r></w:p>'
+        '<w:p w14:paraId="599BC6D2"'
+    )
+    cargo_repl = (
+        '<w:t xml:space="preserve">Cargo: {empresa_cargo}</w:t></w:r></w:p>'
+        '<w:p w14:paraId="599BC6D2"'
+    )
+    if cargo_pat not in xml:
+        raise SystemExit("empresa Cargo pattern not found")
+    xml = xml.replace(cargo_pat, cargo_repl, 1)
+
+    empresa_tel_pat = (
+        '<w:t xml:space="preserve">Telefone: </w:t></w:r></w:p>'
+        '<w:p w14:paraId="6672B522"'
+    )
+    empresa_tel_repl = (
+        '<w:t xml:space="preserve">Telefone: {empresa_telefone}</w:t></w:r></w:p>'
+        '<w:p w14:paraId="6672B522"'
+    )
+    if empresa_tel_pat not in xml:
+        raise SystemExit("empresa Telefone pattern not found")
+    xml = xml.replace(empresa_tel_pat, empresa_tel_repl, 1)
+
+    hor_est_pat = (
+        "Horário de Estágio</w:t></w:r><w:r w:rsidR=\"009F0770\"><w:rPr>"
+        '<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:b/><w:sz w:val="16"/>'
+        '<w:szCs w:val="16"/></w:rPr>'
+        '<w:t xml:space="preserve">: </w:t></w:r></w:p>'
+        '<w:p w14:paraId="57C1B7FC"'
+    )
+    hor_est_repl = (
+        "Horário de Estágio</w:t></w:r><w:r w:rsidR=\"009F0770\"><w:rPr>"
+        '<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:b/><w:sz w:val="16"/>'
+        '<w:szCs w:val="16"/></w:rPr>'
+        '<w:t xml:space="preserve">: {est_horario_estagio}</w:t></w:r></w:p>'
+        '<w:p w14:paraId="57C1B7FC"'
+    )
+    if hor_est_pat not in xml:
+        raise SystemExit("Horário de Estágio pattern not found")
+    xml = xml.replace(hor_est_pat, hor_est_repl, 1)
+
+    atividades_needle = '<w:t xml:space="preserve">Atividades: </w:t>'
+    atividades_repl = (
+        '<w:t xml:space="preserve">Atividades: {est_atividades}</w:t>'
+    )
+    if atividades_needle not in xml:
+        raise SystemExit("Atividades label run not found")
+    xml = xml.replace(atividades_needle, atividades_repl, 1)
 
     rg7 = "<w:t xml:space=\"preserve\">       </w:t>"
     xml = xml.replace(rg7, "<w:t xml:space=\"preserve\"> {est_rg}</w:t>", 1)
@@ -402,8 +521,42 @@ def patch_xml(xml: str) -> str:
     xml = zero_supervisor_paragraph_after_spacing(xml)
     xml = inject_ie_assinatura_image_placeholder(xml)
     xml = replace_brasilia_date_line_paragraph(xml)
+    xml = patch_estudante_cpf_e_nacionalidade(xml)
+    xml = patch_responsavel_telefone_cpf_row(xml)
+    xml = patch_ie_cep_merge_label_value(xml)
+    xml = patch_nacionalidade_merge_label_value(xml)
 
     return xml
+
+
+def patch_nacionalidade_merge_label_value(xml: str) -> str:
+    pat = (
+        r"</w:rPr><w:t>Nacionalidade</w:t></w:r>"
+        r'<w:r w:rsidR="[^"]*"><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>'
+        r'<w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr>'
+        r'<w:t xml:space="preserve">: Brasileira</w:t></w:r>'
+    )
+    repl = (
+        '</w:rPr><w:t xml:space="preserve">Nacionalidade:\xa0Brasileira</w:t></w:r>'
+    )
+    out, n = re.subn(pat, repl, xml, count=1)
+    if n != 1:
+        raise SystemExit("Nacionalidade label/value merge not applied")
+    return out
+
+
+def patch_ie_cep_merge_label_value(xml: str) -> str:
+    pat = (
+        r'<w:t xml:space="preserve"> CEP:</w:t></w:r>'
+        r'<w:r w:rsidR="[^"]*"><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>'
+        r"<w:b/><w:sz w:val=\"16\"/><w:szCs w:val=\"16\"/></w:rPr>"
+        r'<w:t xml:space="preserve"> \{ie_cep\}</w:t></w:r>'
+    )
+    repl = '<w:t xml:space="preserve"> CEP:\xa0{ie_cep}</w:t></w:r>'
+    out, n = re.subn(pat, repl, xml, count=1)
+    if n != 1:
+        raise SystemExit("IE CEP label/value merge not applied")
+    return out
 
 
 def main() -> None:

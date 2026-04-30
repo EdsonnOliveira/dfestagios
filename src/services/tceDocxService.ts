@@ -84,6 +84,13 @@ function stripCurrencyPrefixBrl(value: string): string {
   return value.replace(/^\s*R\$\s*/i, '').trim();
 }
 
+function cnpjFormattedForDocx(value: string): string {
+  if (!value) return '';
+  return value
+    .replace(/-/g, '\u2011')
+    .replace(/\//g, '/\u2060');
+}
+
 function resolveEmpresaUf(explicitUf: string, cidade: string): string {
   const u = explicitUf.trim().toUpperCase();
   if (/^[A-Z]{2}$/.test(u)) return u;
@@ -169,7 +176,7 @@ function buildTemplateData(p: TceContractPayload): Record<string, string> {
     empresa_bairro: z(p.empresaBairro),
     spacer_pre_cidade_row: '',
     empresa_cep: z(p.empresaCep),
-    empresa_cnpj_a: ecnpj,
+    empresa_cnpj_a: cnpjFormattedForDocx(ecnpj),
     empresa_cnpj_b: '',
     empresa_telefone: z(p.empresaTelefone),
     empresa_cargo: z(p.empresaRepresentanteCargo) || 'Proprietário(a)',
@@ -184,7 +191,7 @@ function buildTemplateData(p: TceContractPayload): Record<string, string> {
     ie_telefone: ieTel,
     ie_reitor: ieReitor,
     ie_cep: ieCep,
-    ie_cnpj: ieCnpj,
+    ie_cnpj: cnpjFormattedForDocx(ieCnpj),
     est_nome: z(p.estagiarioNome),
     est_row_spacer_17: '',
     est_row_spacer_18: '',
