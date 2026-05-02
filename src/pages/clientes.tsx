@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import PainelHeader from '../components/PainelHeader';
+import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
 import AdminRoute from '../components/AdminRoute';
 import { clientesService } from '../services/firebase';
@@ -101,10 +102,7 @@ export default function Clientes() {
 
   // Função para aplicar máscara de CNPJ
   const handleCnpjChange = (value: string) => {
-    // Remove tudo que não é dígito
-    const numericValue = value.replace(/\D/g, '');
-    
-    // Aplica a máscara do CNPJ: XX.XXX.XXX/XXXX-XX
+    const numericValue = value.replace(/\D/g, '').slice(0, 14);
     let formattedValue = numericValue;
     
     if (numericValue.length > 2) {
@@ -117,7 +115,7 @@ export default function Clientes() {
       formattedValue = formattedValue.substring(0, 10) + '/' + formattedValue.substring(10);
     }
     if (numericValue.length > 12) {
-      formattedValue = formattedValue.substring(0, 15) + '-' + formattedValue.substring(15, 17);
+      formattedValue = formattedValue.substring(0, 15) + '-' + numericValue.substring(12, 14);
     }
 
     formCnpjRef.current = formattedValue;
@@ -760,8 +758,7 @@ export default function Clientes() {
         </main>
 
         {/* Modal de Adicionar/Editar Cliente */}
-        {(showAddModal || showEditModal) && (
-          <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+        <AnimatedModal open={showAddModal || showEditModal} onClose={handleCloseModals}>
             <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto transition-colors">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -961,12 +958,10 @@ export default function Clientes() {
                 </button>
               </div>
             </div>
-          </div>
-        )}
+        </AnimatedModal>
 
         {/* Modal de Confirmação de Exclusão */}
-        {showDeleteModal && (
-          <div className="fixed inset-0 bg-[#00408580] flex items-center justify-center z-50">
+        <AnimatedModal open={showDeleteModal} onClose={handleCloseModals}>
             <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-bold text-[#004085]">
@@ -1011,12 +1006,10 @@ export default function Clientes() {
                 </button>
               </div>
             </div>
-          </div>
-        )}
+        </AnimatedModal>
 
         {/* Modal de Alteração de Status */}
-        {showStatusModal && (
-          <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+        <AnimatedModal open={showStatusModal} onClose={handleCloseModals}>
             <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -1117,8 +1110,7 @@ export default function Clientes() {
                 </button>
               </div>
             </div>
-          </div>
-        )}
+        </AnimatedModal>
         </div>
       </AdminRoute>
     </ProtectedRoute>

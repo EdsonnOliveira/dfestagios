@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import PainelHeader from '../components/PainelHeader';
+import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
 import { estagiariosService, clientesService } from '../services/firebase';
 import { Estagiario, Cliente } from '../types/firebase';
@@ -844,8 +845,7 @@ export default function Painel() {
         )}
       </div>
 
-      {showEditModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showEditModal} onClose={handleCloseModal}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -998,11 +998,9 @@ export default function Painel() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
-             {showInativarModal && (
-         <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showInativarModal} onClose={handleCancelarInativacao}>
            <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
              <div className="flex justify-between items-center mb-4">
                <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -1055,11 +1053,9 @@ export default function Painel() {
                </button>
              </div>
            </div>
-         </div>
-       )}
+      </AnimatedModal>
 
-       {showMotivoModal && (
-         <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showMotivoModal} onClose={handleCloseMotivoModal}>
            <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
              <div className="flex justify-between items-center mb-4">
                <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -1098,8 +1094,7 @@ export default function Painel() {
                </button>
              </div>
            </div>
-         </div>
-       )}
+      </AnimatedModal>
         </main>
       </div>
     </ProtectedRoute>

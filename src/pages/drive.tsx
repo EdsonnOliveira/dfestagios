@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
 import PainelHeader from '../components/PainelHeader';
+import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
 import AdminRoute from '../components/AdminRoute';
 import {
@@ -419,8 +420,12 @@ export default function Drive() {
             </div>
           </main>
         </div>
-        {previewFile && (
-          <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50 px-4">
+        <AnimatedModal
+          open={!!previewFile}
+          onClose={closePreview}
+          containerClassName="px-4"
+        >
+            {previewFile ? (
             <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg w-full max-w-5xl max-h-[90vh] overflow-hidden transition-colors">
               <div className="px-4 sm:px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                 <div className="min-w-0">
@@ -484,8 +489,8 @@ export default function Drive() {
                 )}
               </div>
             </div>
-          </div>
-        )}
+            ) : null}
+        </AnimatedModal>
       </AdminRoute>
     </ProtectedRoute>
   );

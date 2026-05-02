@@ -376,13 +376,18 @@ export const clientesService = {
 };
 
 export const vinculacoesService = {
-  async vincularEstagiario(clienteId: string, estagiarioId: string) {
+  async vincularEstagiario(
+    clienteId: string,
+    estagiarioId: string,
+    dataVinculacaoOverride?: Date
+  ) {
     const now = new Date();
+    const dataVinculacao = dataVinculacaoOverride ?? now;
     try {
       const docRef = await addDoc(collection(db, 'vinculacoes'), {
         clienteId,
         estagiarioId,
-        dataVinculacao: now,
+        dataVinculacao,
         status: 'ativo',
         createdAt: now,
         updatedAt: now

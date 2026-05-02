@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import PainelHeader from '../components/PainelHeader';
+import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
 import { gruposService } from '../services/firebase';
 import { Grupo } from '../types/firebase';
@@ -237,8 +238,11 @@ export default function PainelGrupos() {
           </div>
         </main>
 
-        {(showAddModal || showEditModal) && (
-          <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50 p-4">
+        <AnimatedModal
+          open={showAddModal || showEditModal}
+          onClose={handleCloseModal}
+          containerClassName="p-4"
+        >
             <div className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-6 w-full max-w-md mx-4 transition-colors">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-base sm:text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -302,8 +306,7 @@ export default function PainelGrupos() {
                 </button>
               </div>
             </div>
-          </div>
-        )}
+        </AnimatedModal>
       </div>
     </ProtectedRoute>
   );

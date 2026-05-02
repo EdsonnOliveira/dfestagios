@@ -241,6 +241,74 @@ function wordParagraphPlainText(paraXml: string): string {
   return parts.join('');
 }
 
+function wordRunPlainText(runXml: string): string {
+  const parts: string[] = [];
+  const re = /<w:t[^>]*>([^<]*)<\/w:t>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(runXml)) !== null) {
+    parts.push(m[1]);
+  }
+  return parts.join('');
+}
+
+function stripIeCnpjRunsWhenNotStudying(documentXml: string): string {
+  return documentXml.replace(/<w:p\b[\s\S]*?<\/w:p>/g, (para) => {
+    if (
+      !para.includes('Instituição de Ensino') ||
+      !para.includes('CNPJ:')
+    ) {
+      return para;
+    }
+    return para.replace(/<w:r\b[\s\S]*?<\/w:r>/g, (run) => {
+      const plain = wordRunPlainText(run);
+      return plain.includes('CNPJ:') ? '' : run;
+    });
+  });
+}
+
+function stripIeReitorRunsWhenNotStudying(documentXml: string): string {
+  return documentXml.replace(/<w:p\b[\s\S]*?<\/w:p>/g, (para) => {
+    if (!para.includes('Reitor(a):')) {
+      return para;
+    }
+    const runRe = /<w:r\b[\s\S]*?<\/w:r>/g;
+    const runs = para.match(runRe);
+    if (!runs?.length) {
+      return para;
+    }
+    const keep = runs.map(() => true);
+    for (let i = 0; i < runs.length; i++) {
+      const plain = wordRunPlainText(runs[i]);
+      if (!plain.includes('Reitor(a):')) {
+        continue;
+      }
+      keep[i] = false;
+      const nextPlain =
+        i + 1 < runs.length ? wordRunPlainText(runs[i + 1]) : '';
+      if (
+        nextPlain.length > 0 &&
+        nextPlain.length <= 6 &&
+        /^\s*$/.test(nextPlain)
+      ) {
+        keep[i + 1] = false;
+      }
+      if (
+        i > 0 &&
+        /<w:br\b/.test(runs[i - 1]) &&
+        wordRunPlainText(runs[i - 1]).trim() === ''
+      ) {
+        keep[i - 1] = false;
+      }
+    }
+    let ri = 0;
+    return para.replace(runRe, () => {
+      const out = keep[ri] ? runs[ri] : '';
+      ri += 1;
+      return out;
+    });
+  });
+}
+
 function zeroSupervisorHeadingParagraphAfterSpacing(documentXml: string): string {
   return documentXml.replace(/<w:p\b[\s\S]*?<\/w:p>/g, (block) => {
     const text = wordParagraphPlainText(block).trim();
@@ -399,6 +467,10 @@ export async function generateTceDocxBlob(
   const docFile = outZip.file('word/document.xml');
   if (docFile) {
     let xml = docFile.asText();
+    if (!payload.estudandoSim) {
+      xml = stripIeCnpjRunsWhenNotStudying(xml);
+      xml = stripIeReitorRunsWhenNotStudying(xml);
+    }
     if (showIeCarimbo) {
       xml = applyIeAssinaturaAnchorOverlay(xml);
     }

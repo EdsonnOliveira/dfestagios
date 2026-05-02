@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import PainelHeader from '../components/PainelHeader';
+import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
 import AdminRoute from '../components/AdminRoute';
 import { clientesService } from '../services/firebase';
@@ -1956,8 +1957,7 @@ export default function Mensalidades() {
       </div>
 
       {/* Modal de Edição do Cliente */}
-      {showClienteModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showClienteModal} onClose={fecharModalCliente}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -2160,12 +2160,10 @@ export default function Mensalidades() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal de Alterar Vencimento */}
-      {showVencimentoModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showVencimentoModal} onClose={fecharModalVencimento}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -2230,12 +2228,10 @@ export default function Mensalidades() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal de Alterar Valor */}
-      {showValorModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showValorModal} onClose={fecharModalValor}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -2296,11 +2292,13 @@ export default function Mensalidades() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
-      {showMultaModal && (
-        <div className="fixed inset-0 bg-black/40 dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal
+        open={showMultaModal}
+        onClose={() => setShowMultaModal(false)}
+        overlayClassName="bg-black/40 dark:bg-slate-900/80"
+      >
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 w-full max-w-md mx-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -2361,12 +2359,10 @@ export default function Mensalidades() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal de Excluir Parcela */}
-      {showExcluirModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showExcluirModal} onClose={fecharModalExcluir}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-red-600 dark:text-red-400">
@@ -2451,12 +2447,10 @@ export default function Mensalidades() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal Gerar mais 12 parcelas */}
-      {showGerarParcelasModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showGerarParcelasModal} onClose={fecharModalGerarParcelas}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -2494,12 +2488,10 @@ export default function Mensalidades() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal de Editar Forma de Pagamento */}
-      {showFormaPagamentoModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showFormaPagamentoModal} onClose={fecharModalFormaPagamento}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -2582,8 +2574,7 @@ export default function Mensalidades() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
       </AdminRoute>
     </ProtectedRoute>
   );

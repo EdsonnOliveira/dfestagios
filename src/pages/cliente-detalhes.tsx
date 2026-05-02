@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, type FocusEvent } from 'react
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/router';
 import PainelHeader from '../components/PainelHeader';
+import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
 import { clientesService, estagiariosService, vinculacoesService } from '../services/firebase';
 import { mensalidadesService, Mensalidade } from '../services/mensalidadesService';
@@ -119,7 +120,9 @@ export default function ClienteDetalhes() {
     cpf: '',
     telefone: '',
     email: '',
-    dataNascimento: ''
+    dataNascimento: '',
+    estagioDataInicio: '',
+    estagioValorBolsa: ''
   });
 
   const [formDataPlano, setFormDataPlano] = useState({
@@ -284,7 +287,7 @@ export default function ClienteDetalhes() {
 
   // Funções para máscara de edição de cliente
   const handleCnpjChange = (value: string) => {
-    const numericValue = value.replace(/\D/g, '');
+    const numericValue = value.replace(/\D/g, '').slice(0, 14);
     let formattedValue = numericValue;
     
     if (numericValue.length > 2) {
@@ -297,7 +300,7 @@ export default function ClienteDetalhes() {
       formattedValue = formattedValue.substring(0, 10) + '/' + formattedValue.substring(10);
     }
     if (numericValue.length > 12) {
-      formattedValue = formattedValue.substring(0, 15) + '-' + numericValue.substring(15, 17);
+      formattedValue = formattedValue.substring(0, 15) + '-' + numericValue.substring(12, 14);
     }
 
     formCnpjRef.current = formattedValue;
@@ -526,7 +529,9 @@ export default function ClienteDetalhes() {
       cpf: '',
       telefone: '',
       email: '',
-      dataNascimento: ''
+      dataNascimento: '',
+      estagioDataInicio: '',
+      estagioValorBolsa: ''
     });
     setShowCadastrarModal(true);
   };
@@ -806,6 +811,20 @@ export default function ClienteDetalhes() {
     setFormDataEstagiario({...formDataEstagiario, cpf: formatted});
   };
 
+  const handleEstagioValorBolsaChange = (value: string) => {
+    const numericValue = value.replace(/\D/g, '');
+    if (!numericValue) {
+      setFormDataEstagiario({ ...formDataEstagiario, estagioValorBolsa: '' });
+      return;
+    }
+    const numberValue = parseInt(numericValue, 10) / 100;
+    const formattedValue = new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(numberValue);
+    setFormDataEstagiario({ ...formDataEstagiario, estagioValorBolsa: formattedValue });
+  };
+
   const handleCadastrarEstagiario = async () => {
     if (!formDataEstagiario.nome.trim() || !formDataEstagiario.cpf.trim() || !formDataEstagiario.telefone.trim() || !formDataEstagiario.email.trim()) {
       alert('Por favor, preencha todos os campos obrigatórios.');
@@ -816,33 +835,48 @@ export default function ClienteDetalhes() {
       setLoadingCadastrar(true);
       
       // Criar estagiário
+      const dataInicioStr = formDataEstagiario.estagioDataInicio.trim();
+      const dataVinculacaoEstimada = dataInicioStr
+        ? (() => {
+            const [y, m, d] = dataInicioStr.split('-').map((x) => parseInt(x, 10));
+            if (!y || !m || !d) return undefined;
+            return new Date(y, m - 1, d);
+          })()
+        : undefined;
+
+      const bolsaStr = formDataEstagiario.estagioValorBolsa.trim();
+
       const novoEstagiario = {
         nome: formDataEstagiario.nome,
         cpf: formDataEstagiario.cpf,
         telefone1: formDataEstagiario.telefone,
         email: formDataEstagiario.email,
         dataNascimento: formDataEstagiario.dataNascimento || undefined,
-        uf: 'DF', // Valor padrão
-        cidade: 'Brasília', // Valor padrão
-        bairro: '', // Valor padrão
-        endereco: '', // Valor padrão
-        grauInstrucao: 'Ensino Médio', // Valor padrão
+        estagioDataInicio: dataInicioStr || undefined,
+        estagioValorBolsa: bolsaStr || undefined,
+        uf: 'DF',
+        cidade: 'Brasília',
+        bairro: '',
+        endereco: '',
+        grauInstrucao: 'Ensino Médio',
         status: 'ativo' as const
       };
 
       const estagiarioId = await estagiariosService.add(novoEstagiario);
       
-      // Vincular automaticamente ao cliente
       if (id) {
-        await vinculacoesService.vincularEstagiario(id as string, estagiarioId);
+        await vinculacoesService.vincularEstagiario(
+          id as string,
+          estagiarioId,
+          dataVinculacaoEstimada
+        );
         
-        // Atualizar listas locais
         const estagiarioCompleto: EstagiarioWithCompanyEntry = {
           ...novoEstagiario,
           id: estagiarioId,
           createdAt: new Date(),
           updatedAt: new Date(),
-          companyEntryDate: new Date()
+          companyEntryDate: dataVinculacaoEstimada ?? new Date()
         };
         setEstagiarios(prev => [...prev, estagiarioCompleto]);
         setTodosEstagiarios(prev => [...prev, estagiarioCompleto]);
@@ -1694,6 +1728,15 @@ export default function ClienteDetalhes() {
                       <p className="text-sm text-gray-900 dark:text-gray-100">{cliente.email}</p>
                     </div>
 
+                    <div className="md:col-span-2 lg:col-span-3">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Endereço (logradouro)
+                      </label>
+                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                        {cliente.endereco?.trim() ? cliente.endereco : '-'}
+                      </p>
+                    </div>
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Status
@@ -1730,6 +1773,15 @@ export default function ClienteDetalhes() {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        UF
+                      </label>
+                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                        {cliente.uf?.trim() ? cliente.uf : '-'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Cidade
                       </label>
                       <p className="text-sm text-gray-900 dark:text-gray-100">{cliente.cidade}</p>
@@ -1754,6 +1806,15 @@ export default function ClienteDetalhes() {
                         Responsável
                       </label>
                       <p className="text-sm text-gray-900 dark:text-gray-100">{cliente.responsavel}</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Cargo do representante
+                      </label>
+                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                        {cliente.responsavelCargo?.trim() ? cliente.responsavelCargo : '-'}
+                      </p>
                     </div>
 
                     <div>
@@ -2357,8 +2418,7 @@ export default function ClienteDetalhes() {
 
 
           {/* Modal para Vincular Estagiários */}
-          {showVincularModal && (
-            <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <AnimatedModal open={showVincularModal} onClose={() => setShowVincularModal(false)}>
               <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto transition-colors">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -2499,12 +2559,10 @@ export default function ClienteDetalhes() {
                   </button>
                 </div>
               </div>
-            </div>
-          )}
+          </AnimatedModal>
 
           {/* Modal para Cadastrar Novo Estagiário */}
-          {showCadastrarModal && (
-            <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <AnimatedModal open={showCadastrarModal} onClose={() => setShowCadastrarModal(false)}>
               <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -2586,6 +2644,38 @@ export default function ClienteDetalhes() {
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
                     />
                   </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Data de início
+                      </label>
+                      <input
+                        type="date"
+                        value={formDataEstagiario.estagioDataInicio}
+                        onChange={(e) =>
+                          setFormDataEstagiario({
+                            ...formDataEstagiario,
+                            estagioDataInicio: e.target.value
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Valor da bolsa
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={formDataEstagiario.estagioValorBolsa}
+                        onChange={(e) => handleEstagioValorBolsaChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                        placeholder="R$ 0,00"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex justify-end space-x-3 mt-6">
@@ -2608,12 +2698,10 @@ export default function ClienteDetalhes() {
                   </button>
                 </div>
               </div>
-            </div>
-          )}
+          </AnimatedModal>
 
           {/* Modal para Plano de Pagamento */}
-          {showPlanoModal && (
-            <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+          <AnimatedModal open={showPlanoModal} onClose={() => setShowPlanoModal(false)}>
               <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-2xl mx-4 transition-colors">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -2871,12 +2959,16 @@ export default function ClienteDetalhes() {
                   </button>
                 </div>
               </div>
-            </div>
-          )}
+          </AnimatedModal>
 
       {/* Modal de Aplicar Multa */}
-      {showMultaModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal
+        open={showMultaModal}
+        onClose={() => {
+          setShowMultaModal(false);
+          setMensalidadeParaMulta(null);
+        }}
+      >
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -2937,12 +3029,10 @@ export default function ClienteDetalhes() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal de Alterar Vencimento */}
-      {showVencimentoModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showVencimentoModal} onClose={fecharModalVencimento}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -3007,12 +3097,10 @@ export default function ClienteDetalhes() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal de Alterar Valor */}
-      {showValorModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showValorModal} onClose={fecharModalValor}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -3073,12 +3161,10 @@ export default function ClienteDetalhes() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal de Excluir Parcela */}
-      {showExcluirModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showExcluirModal} onClose={fecharModalExcluir}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-red-600 dark:text-red-400">
@@ -3166,12 +3252,10 @@ export default function ClienteDetalhes() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal de Editar Forma de Pagamento */}
-      {showFormaPagamentoModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showFormaPagamentoModal} onClose={fecharModalFormaPagamento}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -3254,12 +3338,10 @@ export default function ClienteDetalhes() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal Gerar mais 12 parcelas */}
-      {showGerarParcelasModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showGerarParcelasModal} onClose={fecharModalGerarParcelas}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -3297,12 +3379,10 @@ export default function ClienteDetalhes() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       {/* Modal de Editar Cliente */}
-      {showEditModal && (
-        <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-50">
+      <AnimatedModal open={showEditModal} onClose={handleCloseEditModal}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto transition-colors">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
@@ -3535,11 +3615,14 @@ export default function ClienteDetalhes() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
-        {contractPreviewOpen && contractPreviewUrl && (
-          <div className="fixed inset-0 bg-[#00408580] dark:bg-slate-900/80 flex items-center justify-center z-[10001] px-4">
+        <AnimatedModal
+          open={contractPreviewOpen && !!contractPreviewUrl}
+          onClose={closeContractPreview}
+          zIndexClassName="z-[10001]"
+          containerClassName="px-4"
+        >
             <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg w-full max-w-5xl max-h-[90vh] overflow-hidden transition-colors">
               <div className="px-4 sm:px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
                 <h3 className="text-base sm:text-lg font-bold text-[#004085] dark:text-blue-400 truncate min-w-0">
@@ -3570,15 +3653,14 @@ export default function ClienteDetalhes() {
                 <iframe
                   src={contractPreviewIframeSrc(
                     contractPreviewPath ?? '',
-                    contractPreviewUrl
+                    contractPreviewUrl ?? ''
                   )}
                   title="Contrato de estágio"
                   className="w-full h-full min-h-[60vh] rounded-lg border border-gray-200 dark:border-gray-700 bg-white"
                 />
               </div>
             </div>
-          </div>
-        )}
+        </AnimatedModal>
 
         </main>
       </div>
