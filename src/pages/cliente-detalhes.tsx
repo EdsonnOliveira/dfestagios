@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type FocusEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, type FocusEvent } from 'react';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/router';
 import PainelHeader from '../components/PainelHeader';
@@ -13,6 +13,20 @@ import {
 } from '../services/driveStorageService';
 import { getSupabaseBrowserClient } from '../lib/supabaseClient';
 import { Cliente, Estagiario, EstagiarioWithCompanyEntry } from '../types/firebase';
+import { useAuth } from '../hooks/useAuth';
+import { isPanelAdminEmail } from '../constants/admin';
+import { fisqalService } from '../services/fisqalService';
+import { fiscalSettingsService } from '../services/fiscalSettingsService';
+import { nfseService } from '../services/nfseService';
+import { NfseEmission } from '../types/fisqal';
+import {
+  buildEmitNfsePayload,
+  getDefaultCompetencia,
+  nfseStatusClass,
+  nfseStatusLabel,
+  parseValorServico,
+} from '../lib/nfseEmit';
+import { getNfseServicoOptions } from '../constants/nfseServicos';
 
 function contractPreviewIframeSrc(drivePath: string, signedUrl: string): string {
   if (drivePath.toLowerCase().endsWith('.docx')) {
@@ -45,7 +59,9 @@ function formatPhoneDisplay(value: string | undefined): string {
 export default function ClienteDetalhes() {
   const router = useRouter();
   const { id } = router.query;
-  
+  const { user } = useAuth();
+  const isAdmin = isPanelAdminEmail(user?.email);
+  const supabaseReady = useMemo(() => Boolean(getSupabaseBrowserClient()), []);
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [estagiarios, setEstagiarios] = useState<EstagiarioWithCompanyEntry[]>([]);
   const [todosEstagiarios, setTodosEstagiarios] = useState<Estagiario[]>([]);
@@ -61,7 +77,21 @@ export default function ClienteDetalhes() {
   const [loadingVincular, setLoadingVincular] = useState(false);
   const [loadingCadastrar, setLoadingCadastrar] = useState(false);
   const [loadingMensalidade, setLoadingMensalidade] = useState(false);
-  const [activeTab, setActiveTab] = useState<'info' | 'estagiarios' | 'financeiro'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'estagiarios' | 'financeiro' | 'notaFiscal'>('info');
+  const [nfseEmissions, setNfseEmissions] = useState<NfseEmission[]>([]);
+  const [loadingNfse, setLoadingNfse] = useState(true);
+  const [showEmitNfseModal, setShowEmitNfseModal] = useState(false);
+  const [showCancelNfseModal, setShowCancelNfseModal] = useState(false);
+  const [nfseToCancel, setNfseToCancel] = useState<NfseEmission | null>(null);
+  const [cancelMotivo, setCancelMotivo] = useState('');
+  const [emittingNfse, setEmittingNfse] = useState(false);
+  const [nfseActionId, setNfseActionId] = useState<string | null>(null);
+  const [formNfse, setFormNfse] = useState({
+    dataCompetencia: getDefaultCompetencia(),
+    valorServico: '',
+    codigoServico: '',
+    discriminacao: '',
+  });
   const [showPlanoModal, setShowPlanoModal] = useState(false);
   const [menuAberto, setMenuAberto] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
@@ -285,6 +315,200 @@ export default function ClienteDetalhes() {
     }
   }, [id]);
 
+  const loadNfseEmissions = useCallback(async () => {
+    if (!id) return;
+    try {
+      setLoadingNfse(true);
+      const list = await nfseService.getByCliente(id as string);
+      setNfseEmissions(list);
+    } catch (error) {
+      console.error('Erro ao carregar NFS-e:', error);
+    } finally {
+      setLoadingNfse(false);
+    }
+  }, [id]);
+
+  const refreshNfseStatus = useCallback(
+    async (emission: NfseEmission) => {
+      if (!emission.id || !supabaseReady) return;
+      try {
+        const timeline = await fisqalService.getNfseStatus(emission.dpsId);
+        await nfseService.updateStatus(
+          emission.id,
+          timeline.status,
+          timeline.chaveAcesso
+        );
+        setNfseEmissions((prev) =>
+          prev.map((item) =>
+            item.id === emission.id
+              ? {
+                  ...item,
+                  status: timeline.status,
+                  chaveAcesso: timeline.chaveAcesso ?? item.chaveAcesso,
+                }
+              : item
+          )
+        );
+        if (timeline.status === 'authorized') {
+          toast.success('NFS-e autorizada');
+        } else if (timeline.status === 'rejected') {
+          toast.error('NFS-e rejeitada');
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Erro ao consultar status';
+        toast.error(message);
+      }
+    },
+    [supabaseReady]
+  );
+
+  const openEmitNfseModal = useCallback(async () => {
+    if (!cliente) return;
+    try {
+      const settings = await fiscalSettingsService.get();
+      setFormNfse({
+        dataCompetencia: getDefaultCompetencia(),
+        valorServico: String(parseValorServico(cliente.valor) || ''),
+        codigoServico: settings.defaultCodigoServico,
+        discriminacao: cliente.servico?.trim() || 'Serviços prestados',
+      });
+      setShowEmitNfseModal(true);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Erro ao preparar emissão';
+      toast.error(message);
+    }
+  }, [cliente]);
+
+  const handleEmitNfse = async () => {
+    if (!cliente?.id || !supabaseReady) return;
+    try {
+      setEmittingNfse(true);
+      const settings = await fiscalSettingsService.get();
+      if (!fiscalSettingsService.isComplete(settings)) {
+        toast.error('Configure os dados fiscais em Configurações');
+        return;
+      }
+      const certificates = await fisqalService.listCertificates();
+      const hasActiveCert = certificates.some((c) => c.status === 'active');
+      if (!hasActiveCert) {
+        toast.error('Cadastre um certificado digital ativo em Configurações');
+        return;
+      }
+      const cobertura = await fisqalService.getMunicipioCobertura(
+        settings.codigoMunicipioEmissor,
+        settings.fiscalAmbiente
+      );
+      if (!cobertura.podeEmitir) {
+        toast.error('Município emissor sem cobertura para emissão NFS-e');
+        return;
+      }
+      const valorServico = Number.parseFloat(formNfse.valorServico);
+      if (!Number.isFinite(valorServico) || valorServico <= 0) {
+        toast.error('Informe um valor de serviço válido');
+        return;
+      }
+      if (!formNfse.discriminacao.trim()) {
+        toast.error('Informe a discriminação do serviço');
+        return;
+      }
+      const reserved = await fiscalSettingsService.reserveNextDps();
+      const payload = buildEmitNfsePayload(settings, cliente, {
+        dataCompetencia: formNfse.dataCompetencia,
+        valorServico,
+        codigoServico: formNfse.codigoServico.trim(),
+        discriminacao: formNfse.discriminacao.trim(),
+        numeroDps: reserved.numeroDps,
+        serieDps: reserved.serieDps,
+        idDps: reserved.idDps,
+        companyId: '',
+      });
+      const idempotencyKey =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${reserved.numeroDps}`;
+      const result = await fisqalService.emitNfse(payload, idempotencyKey);
+      await nfseService.create({
+        clienteId: cliente.id,
+        dpsId: result.dpsId,
+        status: result.status,
+        numeroDps: reserved.numeroDps,
+        serieDps: reserved.serieDps,
+        dataCompetencia: formNfse.dataCompetencia,
+        valorServico,
+        discriminacao: formNfse.discriminacao.trim(),
+      });
+      toast.success('NFS-e enfileirada para emissão');
+      setShowEmitNfseModal(false);
+      await loadNfseEmissions();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Erro ao emitir NFS-e';
+      toast.error(message);
+    } finally {
+      setEmittingNfse(false);
+    }
+  };
+
+  const handleDownloadNfsePdf = async (emission: NfseEmission) => {
+    try {
+      setNfseActionId(emission.dpsId);
+      const url = await fisqalService.getNfsePdfUrl(emission.dpsId);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Erro ao baixar PDF';
+      toast.error(message);
+    } finally {
+      setNfseActionId(null);
+    }
+  };
+
+  const handleDownloadNfseXml = async (emission: NfseEmission) => {
+    try {
+      setNfseActionId(emission.dpsId);
+      const url = await fisqalService.getNfseXmlUrl(emission.dpsId);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Erro ao baixar XML';
+      toast.error(message);
+    } finally {
+      setNfseActionId(null);
+    }
+  };
+
+  const openCancelNfseModal = (emission: NfseEmission) => {
+    setNfseToCancel(emission);
+    setCancelMotivo('');
+    setShowCancelNfseModal(true);
+  };
+
+  const handleCancelNfse = async () => {
+    if (!nfseToCancel?.id || !cancelMotivo.trim()) {
+      toast.error('Informe o motivo do cancelamento');
+      return;
+    }
+    try {
+      setNfseActionId(nfseToCancel.dpsId);
+      await fisqalService.cancelNfse(nfseToCancel.dpsId, {
+        motivoCancelamento: cancelMotivo.trim(),
+      });
+      await nfseService.updateStatus(nfseToCancel.id, 'cancel_pending');
+      toast.success('Cancelamento enfileirado');
+      setShowCancelNfseModal(false);
+      setNfseToCancel(null);
+      await loadNfseEmissions();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Erro ao cancelar NFS-e';
+      toast.error(message);
+    } finally {
+      setNfseActionId(null);
+    }
+  };
+
   // Funções para máscara de edição de cliente
   const handleCnpjChange = (value: string) => {
     const numericValue = value.replace(/\D/g, '').slice(0, 14);
@@ -406,8 +630,23 @@ export default function ClienteDetalhes() {
   useEffect(() => {
     if (cliente) {
       loadMensalidades();
+      void loadNfseEmissions();
     }
-  }, [cliente, loadMensalidades]);
+  }, [cliente, loadMensalidades, loadNfseEmissions]);
+
+  useEffect(() => {
+    if (!isAdmin || !supabaseReady) return;
+    const pending = nfseEmissions.filter(
+      (item) => item.status === 'pending' || item.status === 'cancel_pending'
+    );
+    if (pending.length === 0) return;
+    const interval = window.setInterval(() => {
+      pending.forEach((item) => {
+        void refreshNfseStatus(item);
+      });
+    }, 8000);
+    return () => window.clearInterval(interval);
+  }, [isAdmin, nfseEmissions, refreshNfseStatus, supabaseReady]);
 
   // Função removida - não utilizada
   /*
@@ -1683,6 +1922,18 @@ export default function ClienteDetalhes() {
                 >
                   Financeiro ({mensalidades.length})
                 </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => setActiveTab('notaFiscal')}
+                    className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                      activeTab === 'notaFiscal'
+                        ? 'border-[#004085] dark:border-blue-400 text-[#004085] dark:text-blue-400'
+                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                    }`}
+                  >
+                    Nota Fiscal ({nfseEmissions.length})
+                  </button>
+                )}
               </nav>
             </div>
 
@@ -2409,6 +2660,128 @@ export default function ClienteDetalhes() {
                           <p className="text-gray-500 dark:text-gray-400">Nenhuma mensalidade encontrada para este cliente.</p>
                         </div>
                       )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'notaFiscal' && isAdmin && (
+                <div>
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400">
+                      Nota Fiscal
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => void openEmitNfseModal()}
+                      disabled={!supabaseReady}
+                      className="bg-[#004085] dark:bg-blue-600 hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                    >
+                      Emitir NFS-e
+                    </button>
+                  </div>
+                  {!supabaseReady && (
+                    <p className="mb-4 text-sm text-amber-700 dark:text-amber-300">
+                      Configure o Supabase para habilitar emissão de NFS-e.
+                    </p>
+                  )}
+                  {loadingNfse ? (
+                    <div className="flex justify-center py-8">
+                      <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#004085] dark:border-blue-400" />
+                    </div>
+                  ) : nfseEmissions.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-500 dark:text-gray-400">
+                        Nenhuma NFS-e emitida para este cliente.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead className="bg-gray-50 dark:bg-slate-700">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
+                              Competência
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
+                              Valor
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
+                              Status
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
+                              Chave
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
+                              Ações
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
+                          {nfseEmissions.map((emission) => (
+                            <tr key={emission.id ?? emission.dpsId}>
+                              <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                                {emission.dataCompetencia}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                                {formatCurrency(emission.valorServico)}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span
+                                  className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${nfseStatusClass(emission.status)}`}
+                                >
+                                  {nfseStatusLabel(emission.status)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300 max-w-[180px] truncate">
+                                {emission.chaveAcesso ?? '—'}
+                              </td>
+                              <td className="px-4 py-3 text-sm">
+                                <div className="flex flex-wrap gap-2">
+                                  {(emission.status === 'pending' ||
+                                    emission.status === 'cancel_pending') && (
+                                    <button
+                                      type="button"
+                                      onClick={() => void refreshNfseStatus(emission)}
+                                      className="text-[#004085] dark:text-blue-400 hover:underline"
+                                    >
+                                      Atualizar
+                                    </button>
+                                  )}
+                                  {emission.status === 'authorized' && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDownloadNfsePdf(emission)}
+                                        disabled={nfseActionId === emission.dpsId}
+                                        className="text-[#004085] dark:text-blue-400 hover:underline disabled:opacity-50"
+                                      >
+                                        PDF
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDownloadNfseXml(emission)}
+                                        disabled={nfseActionId === emission.dpsId}
+                                        className="text-[#004085] dark:text-blue-400 hover:underline disabled:opacity-50"
+                                      >
+                                        XML
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => openCancelNfseModal(emission)}
+                                        disabled={nfseActionId === emission.dpsId}
+                                        className="text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+                                      >
+                                        Cancelar
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
@@ -3616,6 +3989,142 @@ export default function ClienteDetalhes() {
             </div>
           </div>
       </AnimatedModal>
+
+        <AnimatedModal open={showEmitNfseModal} onClose={() => setShowEmitNfseModal(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-lg mx-4 transition-colors">
+            <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400 mb-4">
+              Emitir NFS-e
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Data de competência
+                </label>
+                <input
+                  type="date"
+                  value={formNfse.dataCompetencia}
+                  onChange={(e) =>
+                    setFormNfse((prev) => ({
+                      ...prev,
+                      dataCompetencia: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Valor do serviço
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formNfse.valorServico}
+                  onChange={(e) =>
+                    setFormNfse((prev) => ({
+                      ...prev,
+                      valorServico: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Código do serviço
+                </label>
+                <select
+                  value={formNfse.codigoServico}
+                  onChange={(e) =>
+                    setFormNfse((prev) => ({
+                      ...prev,
+                      codigoServico: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                >
+                  {getNfseServicoOptions(formNfse.codigoServico).map(
+                    (option) => (
+                      <option key={option.code} value={option.code}>
+                        {option.label}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Discriminação
+                </label>
+                <textarea
+                  value={formNfse.discriminacao}
+                  onChange={(e) =>
+                    setFormNfse((prev) => ({
+                      ...prev,
+                      discriminacao: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowEmitNfseModal(false)}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleEmitNfse()}
+                disabled={emittingNfse}
+                className="px-4 py-2 bg-[#004085] dark:bg-blue-600 hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+              >
+                {emittingNfse ? 'Emitindo...' : 'Emitir'}
+              </button>
+            </div>
+          </div>
+        </AnimatedModal>
+
+        <AnimatedModal open={showCancelNfseModal} onClose={() => setShowCancelNfseModal(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-lg mx-4 transition-colors">
+            <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400 mb-4">
+              Cancelar NFS-e
+            </h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Motivo do cancelamento
+              </label>
+              <textarea
+                value={cancelMotivo}
+                onChange={(e) => setCancelMotivo(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+              />
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowCancelNfseModal(false)}
+                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCancelNfse()}
+                disabled={nfseActionId === nfseToCancel?.dpsId}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+              >
+                Confirmar cancelamento
+              </button>
+            </div>
+          </div>
+        </AnimatedModal>
 
         <AnimatedModal
           open={contractPreviewOpen && !!contractPreviewUrl}

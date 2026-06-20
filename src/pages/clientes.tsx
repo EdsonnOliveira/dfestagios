@@ -17,6 +17,7 @@ export default function Clientes() {
   const [filtroCidade, setFiltroCidade] = useState('');
   const [filtroBairro, setFiltroBairro] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
+  const [filtroEstagiario, setFiltroEstagiario] = useState('');
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
@@ -372,6 +373,11 @@ export default function Clientes() {
                           filtroStatus === 'bloqueado' ? 'Bloqueado' : 'Inativo';
         filtrosAplicados.push(`Status: "${statusText}"`);
       }
+      if (filtroEstagiario) {
+        const estagiarioText =
+          filtroEstagiario === 'com-estagiario' ? 'Com estagiário' : 'Sem estagiário';
+        filtrosAplicados.push(`Estagiários: "${estagiarioText}"`);
+      }
       
       if (filtrosAplicados.length > 0) {
         filtrosTexto = `Filtros: ${filtrosAplicados.join(', ')}`;
@@ -446,6 +452,7 @@ export default function Clientes() {
         cliente.bairro,
         cliente.cep,
         cliente.responsavel,
+        (cliente.estagiariosVinculados?.length ?? 0).toString(),
         cliente.status === 'ativo' ? 'Ativo' : 
         cliente.status === 'em-andamento' ? 'Em andamento' :
         cliente.status === 'bloqueado' ? 'Bloqueado' : 'Inativo'
@@ -454,7 +461,7 @@ export default function Clientes() {
       // Configurações da tabela
       const tableConfig = {
         startY: yPosition,
-        head: [['#', 'CNPJ', 'Razão Social', 'Nome Fantasia', 'Telefone', 'Email', 'Cidade', 'Bairro', 'CEP', 'Responsável', 'Status']],
+        head: [['#', 'CNPJ', 'Razão Social', 'Nome Fantasia', 'Telefone', 'Email', 'Cidade', 'Bairro', 'CEP', 'Responsável', 'Estagiários', 'Status']],
         body: tableData,
         styles: {
           fontSize: 7,
@@ -483,7 +490,8 @@ export default function Clientes() {
           7: { cellWidth: 20, halign: 'left' as const }, // Bairro
           8: { cellWidth: 15, halign: 'center' as const }, // CEP
           9: { cellWidth: 25, halign: 'left' as const }, // Responsável
-          10: { cellWidth: 15, halign: 'center' as const } // Status
+          10: { cellWidth: 15, halign: 'center' as const }, // Estagiários
+          11: { cellWidth: 15, halign: 'center' as const } // Status
         },
         margin: { left: margin, right: margin },
         showHead: 'everyPage' as const
@@ -522,6 +530,11 @@ export default function Clientes() {
     }
   };
 
+  const getEstagiariosCount = useCallback(
+    (cliente: Cliente) => cliente.estagiariosVinculados?.length ?? 0,
+    []
+  );
+
   const filtrarClientes = () => {
     return clientes.filter(cliente => {
       const matchRazaoSocial = cliente.razaoSocial.toLowerCase().includes(filtroRazaoSocial.toLowerCase());
@@ -529,8 +542,13 @@ export default function Clientes() {
       const matchCidade = filtroCidade === '' || cliente.cidade === filtroCidade;
       const matchBairro = filtroBairro === '' || cliente.bairro === filtroBairro;
       const matchStatus = filtroStatus === '' || cliente.status === filtroStatus;
+      const estagiariosCount = getEstagiariosCount(cliente);
+      const matchEstagiario =
+        filtroEstagiario === '' ||
+        (filtroEstagiario === 'com-estagiario' && estagiariosCount > 0) ||
+        (filtroEstagiario === 'sem-estagiario' && estagiariosCount === 0);
       
-      return matchRazaoSocial && matchNomeFantasia && matchCidade && matchBairro && matchStatus;
+      return matchRazaoSocial && matchNomeFantasia && matchCidade && matchBairro && matchStatus && matchEstagiario;
     });
   };
 
@@ -573,7 +591,7 @@ export default function Clientes() {
               </div>
             </div>
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Nome Fantasia
@@ -634,6 +652,21 @@ export default function Clientes() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Tem Estagiário
+                </label>
+                <select
+                  value={filtroEstagiario}
+                  onChange={(e) => setFiltroEstagiario(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">Todos</option>
+                  <option value="com-estagiario">Sim</option>
+                  <option value="sem-estagiario">Não</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Status
                 </label>
                 <select
@@ -680,6 +713,9 @@ export default function Clientes() {
                         Telefone
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Estagiários
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Status
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -698,6 +734,11 @@ export default function Clientes() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900 dark:text-gray-100">{cliente.telefone}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900 dark:text-gray-100">
+                            {getEstagiariosCount(cliente)}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span 

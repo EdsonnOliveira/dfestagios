@@ -1,6 +1,7 @@
 import { useAuth } from '../hooks/useAuth';
 import { useRouter } from 'next/router';
 import { useEffect } from 'react';
+import { isPanelAdminEmail } from '../constants/admin';
 
 interface AdminRouteProps {
   children: React.ReactNode;
@@ -11,7 +12,7 @@ export default function AdminRoute({ children }: AdminRouteProps) {
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && (!user || user.email !== 'contato.estagiosdf@gmail.com')) {
+    if (!loading && (!user || !isPanelAdminEmail(user.email))) {
       router.push('/painel');
     }
   }, [user, loading, router]);
@@ -27,7 +28,7 @@ export default function AdminRoute({ children }: AdminRouteProps) {
     );
   }
 
-  if (!user || user.email !== 'contato.estagiosdf@gmail.com') {
+  if (!user || !isPanelAdminEmail(user.email)) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-slate-900 flex items-center justify-center">
         <div className="text-center">

@@ -4,10 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true next dev",
-    "build": "next build",
+    "build": "NODE_ENV=production next build",
     "start": "next start",
     "lint": "next lint",
-    "db:push": "bash -c 'set -a && [ -f .env.local ] && . ./.env.local; set +a; exec supabase db push --db-url \"$SUPABASE_DB_URL\"'"
+    "db:push": "bash -c 'set -a && [ -f .env.local ] && . ./.env.local; set +a; exec supabase db push --db-url \"$SUPABASE_DB_URL\"'",
+    "secrets:deploy": "bash -c 'set -a && [ -f .env.local ] && . ./.env.local; set +a; if [ -z \"$FISQAL_API_KEY\" ] || [ -z \"$FISQAL_COMPANY_ID\" ]; then echo \"Defina FISQAL_API_KEY e FISQAL_COMPANY_ID no .env.local\"; exit 1; fi; exec supabase secrets set FISQAL_API_KEY=\"$FISQAL_API_KEY\" FISQAL_COMPANY_ID=\"$FISQAL_COMPANY_ID\" FIREBASE_WEB_API_KEY=\"${FIREBASE_WEB_API_KEY:-AIzaSyDscTHd8mvrq--M_QcPBCAxSJR8hN14gEA}\"'",
+    "functions:deploy:fisqal": "supabase functions deploy fisqal-proxy --no-verify-jwt",
+    "secrets:deploy": "bash -c 'set -a && [ -f .env.local ] && . ./.env.local; set +a; if [ -z \"$FISQAL_API_KEY\" ] || [ -z \"$FISQAL_COMPANY_ID\" ]; then echo \"Defina FISQAL_API_KEY e FISQAL_COMPANY_ID no .env.local\"; exit 1; fi; if [ -z \"$SUPABASE_PROJECT_REF\" ]; then echo \"Defina SUPABASE_PROJECT_REF no .env.local\"; exit 1; fi; exec supabase secrets set FISQAL_API_KEY=\"$FISQAL_API_KEY\" FISQAL_COMPANY_ID=\"$FISQAL_COMPANY_ID\" FIREBASE_WEB_API_KEY=\"${FIREBASE_WEB_API_KEY}\" --project-ref \"$SUPABASE_PROJECT_REF\"'",
+    "functions:deploy:fisqal": "bash -c 'set -a && [ -f .env.local ] && . ./.env.local; set +a; if [ -z \"$SUPABASE_PROJECT_REF\" ]; then echo \"Defina SUPABASE_PROJECT_REF no .env.local\"; exit 1; fi; exec supabase functions deploy fisqal-proxy --no-verify-jwt --project-ref \"$SUPABASE_PROJECT_REF\"'"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.78.0",

@@ -17,6 +17,7 @@ export default function Mensalidades() {
   const [filtroDataFim, setFiltroDataFim] = useState('');
   const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
+  const [filtroFormaPagamento, setFiltroFormaPagamento] = useState('');
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [mensalidades, setMensalidades] = useState<Mensalidade[]>([]);
@@ -191,6 +192,15 @@ export default function Mensalidades() {
       );
     }
 
+    if (filtroFormaPagamento) {
+      mensalidadesFiltradas = mensalidadesFiltradas.filter((mensalidade) => {
+        if (filtroFormaPagamento === 'sem_forma') {
+          return !mensalidade.formaPagamento;
+        }
+        return mensalidade.formaPagamento === filtroFormaPagamento;
+      });
+    }
+
     // Adicionar clientes que não têm nenhuma mensalidade
     const clientesIdsComMensalidade = new Set(mensalidades.map(m => m.clienteId));
     const clientesSemMensalidade = clientes
@@ -253,15 +263,25 @@ export default function Mensalidades() {
 
     // Filtro por data - clientes sem mensalidade não têm data de vencimento, então só incluir se não houver filtro de data
     if (filtroDataInicio || filtroDataFim) {
-      // Se houver filtro de data, não incluir clientes sem mensalidade
       clientesSemMensalidadeFiltrados = [];
     }
 
-    // Combinar mensalidades filtradas com clientes sem mensalidade
+    if (filtroFormaPagamento && filtroFormaPagamento !== 'sem_forma') {
+      clientesSemMensalidadeFiltrados = [];
+    }
+
     const todosClientes = [...mensalidadesFiltradas, ...clientesSemMensalidadeFiltrados];
 
     setClientesComStatus(todosClientes);
-  }, [mensalidades, clientes, filtroDataInicio, filtroDataFim, filtroCliente, filtroStatus]);
+  }, [
+    mensalidades,
+    clientes,
+    filtroDataInicio,
+    filtroDataFim,
+    filtroCliente,
+    filtroStatus,
+    filtroFormaPagamento,
+  ]);
 
   useEffect(() => {
     loadMensalidades();
@@ -1266,7 +1286,7 @@ export default function Mensalidades() {
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 mb-6 transition-colors">
             <h2 className="text-lg sm:text-xl font-bold text-[#004085] dark:text-blue-400 mb-4">Filtros</h2>
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Data Início
@@ -1318,6 +1338,22 @@ export default function Mensalidades() {
                   <option value="vencido">Vencido</option>
                   <option value="aberto">Aberto</option>
                   <option value="sem_mensalidade">Sem Mensalidade</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Forma de Pagamento
+                </label>
+                <select
+                  value={filtroFormaPagamento}
+                  onChange={(e) => setFiltroFormaPagamento(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">Todos</option>
+                  <option value="pix">PIX</option>
+                  <option value="boleto">Boleto</option>
+                  <option value="sem_forma">Sem forma</option>
                 </select>
               </div>
             </div>
@@ -1403,6 +1439,7 @@ export default function Mensalidades() {
                   setFiltroDataFim('');
                   setFiltroCliente('');
                   setFiltroStatus('');
+                  setFiltroFormaPagamento('');
                 }}
                 className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
               >

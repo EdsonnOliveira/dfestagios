@@ -13,7 +13,7 @@ import {
   hasCompletedOneYearContractTerm
 } from '../lib/contractTerm';
 
-const PANEL_ADMIN_EMAIL = 'contato.estagiosdf@gmail.com';
+import { isPanelAdminEmail } from '../constants/admin';
 
 type ContractYearAlert = {
   key: string;
@@ -41,7 +41,7 @@ export default function PainelHeader() {
   }, [router.pathname]);
 
   useEffect(() => {
-    if (user?.email !== PANEL_ADMIN_EMAIL) {
+    if (!isPanelAdminEmail(user?.email)) {
       setContractAlerts([]);
       return;
     }
@@ -153,7 +153,7 @@ export default function PainelHeader() {
           >
             Estagiários
           </button>
-          {user?.email === PANEL_ADMIN_EMAIL && (
+          {isPanelAdminEmail(user?.email) && (
             <>
               <button
                 onClick={() => handleNavigation('/clientes')}
@@ -172,6 +172,12 @@ export default function PainelHeader() {
                 className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
               >
                 Drive
+              </button>
+              <button
+                onClick={() => handleNavigation('/configuracoes')}
+                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+              >
+                Configurações
               </button>
             </>
           )}
@@ -227,7 +233,7 @@ export default function PainelHeader() {
         </button>
       </div>
 
-      {user?.email === PANEL_ADMIN_EMAIL && visibleContractAlerts.length > 0 && (
+      {isPanelAdminEmail(user?.email) && visibleContractAlerts.length > 0 && (
         <div className="border-t border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 max-h-52 overflow-y-auto">
           <div className="max-w-7xl mx-auto px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
@@ -308,7 +314,7 @@ export default function PainelHeader() {
               >
                 Estagiários
               </button>
-              {user?.email === PANEL_ADMIN_EMAIL && (
+              {isPanelAdminEmail(user?.email) && (
                 <>
                   <button
                     onClick={() => {
@@ -336,6 +342,15 @@ export default function PainelHeader() {
                     className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
                   >
                     Drive
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleNavigation('/configuracoes');
+                      closeMobileMenu();
+                    }}
+                    className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
+                  >
+                    Configurações
                   </button>
                 </>
               )}
