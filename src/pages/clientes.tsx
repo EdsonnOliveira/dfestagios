@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type FocusEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, type FocusEvent } from 'react';
 import { useRouter } from 'next/router';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -8,7 +8,130 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import AdminRoute from '../components/AdminRoute';
 import { clientesService } from '../services/firebase';
 import { fetchCnpjLookup } from '../services/brasilApiCnpj';
-import { Cliente } from '../types/firebase';
+import { Cliente, ClienteFilial, FormaCaptacao, FORMA_CAPTACAO_OPTIONS } from '../types/firebase';
+
+const emptyFilialForm = {
+  cnpj: '',
+  razaoSocial: '',
+  nomeFantasia: '',
+  telefone: '',
+  email: '',
+  endereco: '',
+  cidade: '',
+  bairro: '',
+  cep: '',
+  uf: '',
+  responsavel: '',
+  responsavelCargo: '',
+};
+
+const normalizeLocationKey = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+
+const formatLocationLabel = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+
+const hasAccent = (value: string) =>
+  value.normalize('NFD').replace(/\p{M}/gu, '') !== value.normalize('NFD');
+
+const buildUniqueLocations = (values: string[]) => {
+  const locationMap = new Map<string, string>();
+
+  values.forEach((raw) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+
+    const key = normalizeLocationKey(trimmed);
+    const candidate = formatLocationLabel(trimmed);
+    const current = locationMap.get(key);
+
+    if (!current) {
+      locationMap.set(key, candidate);
+      return;
+    }
+
+    if (hasAccent(candidate) && !hasAccent(current)) {
+      locationMap.set(key, candidate);
+    }
+  });
+
+  return Array.from(locationMap.values()).sort((a, b) =>
+    a.localeCompare(b, 'pt-BR', { sensitivity: 'base' })
+  );
+};
+
+const parseClienteDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'toDate' in value &&
+    typeof (value as { toDate: () => Date }).toDate === 'function'
+  ) {
+    const parsed = (value as { toDate: () => Date }).toDate();
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+};
+
+const WEEKDAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const;
+const WEEKDAY_FULL_LABELS = [
+  'Domingo',
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
+  'Sábado',
+] as const;
+
+const CAPTACAO_FILL_COLORS: Record<FormaCaptacao | 'nao-informado', string> = {
+  instagram: '#ec4899',
+  linkedin: '#0284c7',
+  whatsapp: '#22c55e',
+  'trafego-pago': '#a855f7',
+  site: '#6366f1',
+  indicacao: '#f59e0b',
+  outro: '#64748b',
+  'nao-informado': '#9ca3af',
+};
+
+const polarToCartesian = (cx: number, cy: number, radius: number, angleInDegrees: number) => {
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180;
+  return {
+    x: cx + radius * Math.cos(angleInRadians),
+    y: cy + radius * Math.sin(angleInRadians),
+  };
+};
+
+const describePieSlice = (
+  cx: number,
+  cy: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number
+) => {
+  const start = polarToCartesian(cx, cy, radius, endAngle);
+  const end = polarToCartesian(cx, cy, radius, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y} Z`;
+};
 
 export default function Clientes() {
   const router = useRouter();
@@ -18,21 +141,25 @@ export default function Clientes() {
   const [filtroBairro, setFiltroBairro] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
   const [filtroEstagiario, setFiltroEstagiario] = useState('');
+  const [filtroFilial, setFiltroFilial] = useState('');
+  const [filtroResponsavel, setFiltroResponsavel] = useState('');
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showStatusModal, setShowStatusModal] = useState(false);
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null);
   const [deletingCliente, setDeletingCliente] = useState<Cliente | null>(null);
-  const [statusCliente, setStatusCliente] = useState<Cliente | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
   const [loadingCnpjLookup, setLoadingCnpjLookup] = useState(false);
   const formCnpjRef = useRef('');
-  const [novoStatus, setNovoStatus] = useState<'ativo' | 'em-andamento' | 'bloqueado' | 'inativo'>('ativo');
   const [motivoStatus, setMotivoStatus] = useState('');
+  const [filiais, setFiliais] = useState<ClienteFilial[]>([]);
+  const [showFilialForm, setShowFilialForm] = useState(false);
+  const [editingFilialId, setEditingFilialId] = useState<string | null>(null);
+  const [filialForm, setFilialForm] = useState(emptyFilialForm);
+  const [loadingFilialCnpj, setLoadingFilialCnpj] = useState(false);
 
   const [formData, setFormData] = useState({
     cnpj: '',
@@ -45,7 +172,9 @@ export default function Clientes() {
     bairro: '',
     cep: '',
     responsavel: '',
-    status: 'ativo' as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo'
+    status: 'ativo' as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo',
+    formaCaptacao: '' as FormaCaptacao | '',
+    formaCaptacaoDetalhe: '',
   });
 
   useEffect(() => {
@@ -53,7 +182,7 @@ export default function Clientes() {
   }, [formData.cnpj]);
 
   useEffect(() => {
-    loadClientes();
+    void loadClientes();
   }, []);
 
   const handleCnpjBlur = useCallback(async (e: FocusEvent<HTMLInputElement>) => {
@@ -74,6 +203,142 @@ export default function Clientes() {
       setLoadingCnpjLookup(false);
     }
   }, []);
+
+  const formatCnpjMask = (value: string) => {
+    const numericValue = value.replace(/\D/g, '').slice(0, 14);
+    let formattedValue = numericValue;
+    if (numericValue.length > 2) {
+      formattedValue = numericValue.substring(0, 2) + '.' + numericValue.substring(2);
+    }
+    if (numericValue.length > 5) {
+      formattedValue = formattedValue.substring(0, 6) + '.' + formattedValue.substring(6);
+    }
+    if (numericValue.length > 8) {
+      formattedValue = formattedValue.substring(0, 10) + '/' + formattedValue.substring(10);
+    }
+    if (numericValue.length > 12) {
+      formattedValue = formattedValue.substring(0, 15) + '-' + numericValue.substring(12, 14);
+    }
+    return formattedValue;
+  };
+
+  const formatCepMask = (value: string) => {
+    const numericValue = value.replace(/\D/g, '');
+    if (numericValue.length > 5) {
+      return numericValue.substring(0, 5) + '-' + numericValue.substring(5, 8);
+    }
+    return numericValue;
+  };
+
+  const formatTelefoneMask = (value: string) => {
+    const numericValue = value.replace(/\D/g, '');
+    let formattedValue = numericValue;
+    if (numericValue.length > 0) {
+      formattedValue = '(' + numericValue.substring(0, 2);
+    }
+    if (numericValue.length > 2) {
+      formattedValue += ') ' + numericValue.substring(2, 7);
+    }
+    if (numericValue.length > 7) {
+      formattedValue = formattedValue.substring(0, 10) + '-' + numericValue.substring(7, 11);
+    }
+    return formattedValue;
+  };
+
+  const handleFilialCnpjBlur = useCallback(async (e: FocusEvent<HTMLInputElement>) => {
+    const digits = e.currentTarget.value.replace(/\D/g, '');
+    if (digits.length !== 14) return;
+    setLoadingFilialCnpj(true);
+    try {
+      const mapped = await fetchCnpjLookup(digits);
+      if (!mapped) return;
+      setFilialForm((prev) => ({
+        ...prev,
+        ...mapped,
+        cnpj: prev.cnpj,
+        uf: prev.uf,
+        responsavelCargo: prev.responsavelCargo,
+      }));
+    } catch (err) {
+      console.error('Erro ao consultar CNPJ da filial:', err);
+    } finally {
+      setLoadingFilialCnpj(false);
+    }
+  }, []);
+
+  const resetFilialForm = () => {
+    setFilialForm(emptyFilialForm);
+    setEditingFilialId(null);
+    setShowFilialForm(false);
+  };
+
+  const handleAddFilial = () => {
+    setFilialForm(emptyFilialForm);
+    setEditingFilialId(null);
+    setShowFilialForm(true);
+  };
+
+  const handleEditFilial = (filial: ClienteFilial) => {
+    setFilialForm({
+      cnpj: filial.cnpj,
+      razaoSocial: filial.razaoSocial,
+      nomeFantasia: filial.nomeFantasia,
+      telefone: filial.telefone,
+      email: filial.email,
+      endereco: filial.endereco ?? '',
+      cidade: filial.cidade,
+      bairro: filial.bairro,
+      cep: filial.cep,
+      uf: filial.uf ?? '',
+      responsavel: filial.responsavel,
+      responsavelCargo: filial.responsavelCargo ?? '',
+    });
+    setEditingFilialId(filial.id);
+    setShowFilialForm(true);
+  };
+
+  const handleRemoveFilial = (filialId: string) => {
+    setFiliais((prev) => prev.filter((f) => f.id !== filialId));
+    if (editingFilialId === filialId) resetFilialForm();
+  };
+
+  const handleSaveFilial = () => {
+    if (
+      !filialForm.cnpj ||
+      !filialForm.razaoSocial ||
+      !filialForm.nomeFantasia ||
+      !filialForm.telefone ||
+      !filialForm.email ||
+      !filialForm.endereco ||
+      !filialForm.cidade ||
+      !filialForm.bairro ||
+      !filialForm.cep ||
+      !filialForm.responsavel
+    ) {
+      return;
+    }
+    const payload: ClienteFilial = {
+      id: editingFilialId ?? crypto.randomUUID(),
+      cnpj: filialForm.cnpj,
+      razaoSocial: filialForm.razaoSocial,
+      nomeFantasia: filialForm.nomeFantasia,
+      telefone: filialForm.telefone,
+      email: filialForm.email,
+      endereco: filialForm.endereco,
+      cidade: filialForm.cidade,
+      bairro: filialForm.bairro,
+      cep: filialForm.cep,
+      uf: filialForm.uf || undefined,
+      responsavel: filialForm.responsavel,
+      responsavelCargo: filialForm.responsavelCargo || undefined,
+    };
+    if (editingFilialId) {
+      setFiliais((prev) => prev.map((f) => (f.id === editingFilialId ? payload : f)));
+    } else {
+      setFiliais((prev) => [...prev, payload]);
+    }
+    resetFilialForm();
+  };
 
   // Função para formatar valor monetário
   // const formatCurrency = (value: string) => {
@@ -184,8 +449,13 @@ export default function Clientes() {
       bairro: '',
       cep: '',
       responsavel: '',
-      status: 'ativo'
+      status: 'ativo',
+      formaCaptacao: '',
+      formaCaptacaoDetalhe: '',
     });
+    setMotivoStatus('');
+    setFiliais([]);
+    resetFilialForm();
     setShowAddModal(true);
   };
 
@@ -202,52 +472,91 @@ export default function Clientes() {
       bairro: cliente.bairro,
       cep: cliente.cep,
       responsavel: cliente.responsavel,
-      status: cliente.status
+      status: cliente.status,
+      formaCaptacao: cliente.formaCaptacao ?? '',
+      formaCaptacaoDetalhe: cliente.formaCaptacaoDetalhe ?? '',
     });
+    setMotivoStatus(cliente.motivoStatus ?? '');
+    setFiliais(cliente.filiais ? [...cliente.filiais] : []);
+    resetFilialForm();
     setShowEditModal(true);
-  };
-
-  const handleDelete = (cliente: Cliente) => {
-    setDeletingCliente(cliente);
-    setShowDeleteModal(true);
   };
 
   const handleSave = async () => {
     try {
       setLoadingAction(true);
-      
-      // Validação básica
-      
+      const motivoTrimmed = motivoStatus.trim();
+      const { formaCaptacao, formaCaptacaoDetalhe, ...restForm } = formData;
+      const detalheTrimmed = formaCaptacaoDetalhe.trim();
+      const needsDetalhe =
+        formaCaptacao === 'indicacao' || formaCaptacao === 'outro';
+      const captacaoPayload = {
+        formaCaptacao: formaCaptacao || null,
+        formaCaptacaoDetalhe: needsDetalhe ? detalheTrimmed : '',
+      };
+
       if (editingCliente) {
-        // Editar cliente existente
-        await clientesService.update(editingCliente.id!, formData);
-        setClientes(prev => prev.map(cliente => 
-          cliente.id === editingCliente.id 
-            ? { ...cliente, ...formData }
-            : cliente
-        ));
+        const statusChanged = editingCliente.status !== formData.status;
+        const updateData = {
+          ...restForm,
+          ...captacaoPayload,
+          filiais,
+          ...(motivoTrimmed ? { motivoStatus: motivoTrimmed } : {}),
+        };
+
+        if (statusChanged) {
+          const { status, ...dataWithoutStatus } = updateData;
+          await clientesService.update(editingCliente.id!, dataWithoutStatus);
+          await clientesService.updateStatus(
+            editingCliente.id!,
+            status,
+            motivoTrimmed || undefined
+          );
+        } else {
+          await clientesService.update(editingCliente.id!, updateData);
+        }
+
+        setClientes((prev) =>
+          prev.map((cliente) =>
+            cliente.id === editingCliente.id
+              ? {
+                  ...cliente,
+                  ...updateData,
+                  formaCaptacao: formaCaptacao || null,
+                  formaCaptacaoDetalhe: needsDetalhe ? detalheTrimmed : '',
+                }
+              : cliente
+          )
+        );
         setShowEditModal(false);
         setEditingCliente(null);
       } else {
-        // Adicionar novo cliente
         const clienteData = {
-          ...formData,
+          ...restForm,
+          ...captacaoPayload,
+          filiais,
           dataVencimento: '',
           valor: '',
           servico: '',
-          motivoStatus: '',
-          estagiariosVinculados: []
+          motivoStatus: motivoTrimmed,
+          estagiariosVinculados: [] as string[],
         };
         const id = await clientesService.add(clienteData);
         const newCliente: Cliente = {
           id,
           ...clienteData,
+          formaCaptacao: formaCaptacao || null,
+          formaCaptacaoDetalhe: needsDetalhe ? detalheTrimmed : '',
           createdAt: new Date(),
-          updatedAt: new Date()
+          updatedAt: new Date(),
         };
-        setClientes(prev => [newCliente, ...prev]);
+        setClientes((prev) => [newCliente, ...prev]);
         setShowAddModal(false);
       }
+
+      setMotivoStatus('');
+      setFiliais([]);
+      resetFilialForm();
     } catch (error) {
       console.error('Erro ao salvar cliente:', error);
     } finally {
@@ -275,12 +584,11 @@ export default function Clientes() {
     setShowAddModal(false);
     setShowEditModal(false);
     setShowDeleteModal(false);
-    setShowStatusModal(false);
     setEditingCliente(null);
     setDeletingCliente(null);
-    setStatusCliente(null);
-    setNovoStatus('ativo');
     setMotivoStatus('');
+    setFiliais([]);
+    resetFilialForm();
     setFormData({
       cnpj: '',
       razaoSocial: '',
@@ -292,37 +600,10 @@ export default function Clientes() {
       bairro: '',
       cep: '',
       responsavel: '',
-      status: 'ativo'
+      status: 'ativo',
+      formaCaptacao: '',
+      formaCaptacaoDetalhe: '',
     });
-  };
-
-  const handleOpenStatusModal = (cliente: Cliente) => {
-    setStatusCliente(cliente);
-    setNovoStatus(cliente.status);
-    setMotivoStatus('');
-    setShowStatusModal(true);
-  };
-
-  const handleUpdateStatus = async () => {
-    if (!statusCliente) return;
-    
-    try {
-      setLoadingAction(true);
-      await clientesService.updateStatus(statusCliente.id!, novoStatus, motivoStatus);
-      
-      setClientes(prev => prev.map(cliente => 
-        cliente.id === statusCliente.id 
-          ? { ...cliente, status: novoStatus }
-          : cliente
-      ));
-      
-      handleCloseModals();
-    } catch (error) {
-      console.error('Erro ao atualizar status:', error);
-      alert('Erro ao atualizar status. Tente novamente.');
-    } finally {
-      setLoadingAction(false);
-    }
   };
 
   const exportarPDF = () => {
@@ -365,6 +646,7 @@ export default function Clientes() {
       
       if (filtroRazaoSocial) filtrosAplicados.push(`Razão Social: "${filtroRazaoSocial}"`);
       if (filtroNomeFantasia) filtrosAplicados.push(`Nome Fantasia: "${filtroNomeFantasia}"`);
+      if (filtroResponsavel) filtrosAplicados.push(`Responsável: "${filtroResponsavel}"`);
       if (filtroCidade) filtrosAplicados.push(`Cidade: "${filtroCidade}"`);
       if (filtroBairro) filtrosAplicados.push(`Bairro: "${filtroBairro}"`);
       if (filtroStatus) {
@@ -377,6 +659,11 @@ export default function Clientes() {
         const estagiarioText =
           filtroEstagiario === 'com-estagiario' ? 'Com estagiário' : 'Sem estagiário';
         filtrosAplicados.push(`Estagiários: "${estagiarioText}"`);
+      }
+      if (filtroFilial) {
+        const filialText =
+          filtroFilial === 'com-filial' ? 'Com filial' : 'Sem filial';
+        filtrosAplicados.push(`Filiais: "${filialText}"`);
       }
       
       if (filtrosAplicados.length > 0) {
@@ -535,11 +822,27 @@ export default function Clientes() {
     []
   );
 
+  const getFiliaisCount = useCallback(
+    (cliente: Cliente) => cliente.filiais?.length ?? 0,
+    []
+  );
+
+  const getResponsavelFirstName = useCallback((responsavel: string) => {
+    const trimmed = responsavel.trim();
+    if (!trimmed) return '-';
+    return trimmed.split(/\s+/)[0];
+  }, []);
+
   const filtrarClientes = () => {
     return clientes.filter(cliente => {
       const matchRazaoSocial = cliente.razaoSocial.toLowerCase().includes(filtroRazaoSocial.toLowerCase());
       const matchNomeFantasia = cliente.nomeFantasia.toLowerCase().includes(filtroNomeFantasia.toLowerCase());
-      const matchCidade = filtroCidade === '' || cliente.cidade === filtroCidade;
+      const matchResponsavel = cliente.responsavel
+        .toLowerCase()
+        .includes(filtroResponsavel.toLowerCase());
+      const matchCidade =
+        filtroCidade === '' ||
+        normalizeLocationKey(cliente.cidade) === normalizeLocationKey(filtroCidade);
       const matchBairro = filtroBairro === '' || cliente.bairro === filtroBairro;
       const matchStatus = filtroStatus === '' || cliente.status === filtroStatus;
       const estagiariosCount = getEstagiariosCount(cliente);
@@ -547,15 +850,174 @@ export default function Clientes() {
         filtroEstagiario === '' ||
         (filtroEstagiario === 'com-estagiario' && estagiariosCount > 0) ||
         (filtroEstagiario === 'sem-estagiario' && estagiariosCount === 0);
-      
-      return matchRazaoSocial && matchNomeFantasia && matchCidade && matchBairro && matchStatus && matchEstagiario;
+      const filiaisCount = getFiliaisCount(cliente);
+      const matchFilial =
+        filtroFilial === '' ||
+        (filtroFilial === 'com-filial' && filiaisCount > 0) ||
+        (filtroFilial === 'sem-filial' && filiaisCount === 0);
+
+      return (
+        matchRazaoSocial &&
+        matchNomeFantasia &&
+        matchResponsavel &&
+        matchCidade &&
+        matchBairro &&
+        matchStatus &&
+        matchEstagiario &&
+        matchFilial
+      );
     });
   };
 
   const clientesFiltrados = filtrarClientes();
 
-  const cidadesUnicas = Array.from(new Set(clientes.map(c => c.cidade).filter(cidade => cidade))).sort();
+  const dashboardMetrics = useMemo(() => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const weekdayCounts = [0, 0, 0, 0, 0, 0, 0];
+    const monthDayCounts = Array.from({ length: 31 }, () => 0);
+    let novosNoMes = 0;
+    let totalEstagiarios = 0;
+    let comEstagiarios = 0;
+    let totalFiliais = 0;
+    let comFiliais = 0;
+    let ativos = 0;
+    let emAndamento = 0;
+    let bloqueados = 0;
+    let inativos = 0;
+    const captacaoCounts: Record<FormaCaptacao | 'nao-informado', number> = {
+      instagram: 0,
+      linkedin: 0,
+      whatsapp: 0,
+      'trafego-pago': 0,
+      site: 0,
+      indicacao: 0,
+      outro: 0,
+      'nao-informado': 0,
+    };
+
+    clientes.forEach((cliente) => {
+      if (cliente.status === 'ativo') ativos += 1;
+      else if (cliente.status === 'em-andamento') emAndamento += 1;
+      else if (cliente.status === 'bloqueado') bloqueados += 1;
+      else inativos += 1;
+
+      const estagiariosCount = cliente.estagiariosVinculados?.length ?? 0;
+      totalEstagiarios += estagiariosCount;
+      if (estagiariosCount > 0) comEstagiarios += 1;
+
+      const filiaisCount = cliente.filiais?.length ?? 0;
+      totalFiliais += filiaisCount;
+      if (filiaisCount > 0) comFiliais += 1;
+
+      if (cliente.formaCaptacao) {
+        captacaoCounts[cliente.formaCaptacao] += 1;
+      } else {
+        captacaoCounts['nao-informado'] += 1;
+      }
+
+      const createdAt = parseClienteDate(cliente.createdAt);
+      if (!createdAt) return;
+
+      weekdayCounts[createdAt.getDay()] += 1;
+      monthDayCounts[createdAt.getDate() - 1] += 1;
+      if (createdAt >= monthStart) novosNoMes += 1;
+    });
+
+    const maxWeekdayCount = Math.max(...weekdayCounts, 0);
+    const peakWeekdayIndexes = weekdayCounts
+      .map((count, index) => ({ count, index }))
+      .filter((item) => item.count === maxWeekdayCount && maxWeekdayCount > 0)
+      .map((item) => item.index);
+
+    const weekdayData = WEEKDAY_LABELS.map((label, index) => ({
+      label,
+      fullLabel: WEEKDAY_FULL_LABELS[index],
+      count: weekdayCounts[index],
+      isPeak: peakWeekdayIndexes.includes(index),
+    }));
+
+    const maxMonthDayCount = Math.max(...monthDayCounts, 0);
+    const peakMonthDayIndexes = monthDayCounts
+      .map((count, index) => ({ count, index }))
+      .filter((item) => item.count === maxMonthDayCount && maxMonthDayCount > 0)
+      .map((item) => item.index);
+
+    const monthDayData = monthDayCounts.map((count, index) => ({
+      day: index + 1,
+      count,
+      isPeak: peakMonthDayIndexes.includes(index),
+    }));
+
+    const captacaoData = [
+      ...FORMA_CAPTACAO_OPTIONS.map((option) => ({
+        label: option.label,
+        count: captacaoCounts[option.value],
+        fill: CAPTACAO_FILL_COLORS[option.value],
+      })),
+      {
+        label: 'Não informado',
+        count: captacaoCounts['nao-informado'],
+        fill: CAPTACAO_FILL_COLORS['nao-informado'],
+      },
+    ];
+    const captacaoTotal = captacaoData.reduce((sum, item) => sum + item.count, 0);
+    let captacaoAngle = 0;
+    const captacaoPieSlices = captacaoData
+      .filter((item) => item.count > 0)
+      .map((item) => {
+        const sweep = captacaoTotal > 0 ? (item.count / captacaoTotal) * 360 : 0;
+        const startAngle = captacaoAngle;
+        const endAngle = captacaoAngle + sweep;
+        captacaoAngle = endAngle;
+        return {
+          ...item,
+          startAngle,
+          endAngle,
+          percent: captacaoTotal > 0 ? Math.round((item.count / captacaoTotal) * 100) : 0,
+        };
+      });
+    const peakCaptacao = captacaoData.reduce(
+      (best, item) => (item.count > best.count ? item : best),
+      captacaoData[0]
+    );
+
+    return {
+      total: clientes.length,
+      ativos,
+      emAndamento,
+      bloqueados,
+      inativos,
+      totalEstagiarios,
+      comEstagiarios,
+      totalFiliais,
+      comFiliais,
+      novosNoMes,
+      weekdayData,
+      maxWeekdayCount: Math.max(maxWeekdayCount, 1),
+      peakWeekdayLabel:
+        peakWeekdayIndexes.length > 0
+          ? WEEKDAY_FULL_LABELS[peakWeekdayIndexes[0]]
+          : null,
+      peakWeekdayCount: maxWeekdayCount,
+      monthDayData,
+      maxMonthDayCount: Math.max(maxMonthDayCount, 1),
+      peakMonthDay:
+        peakMonthDayIndexes.length > 0 ? peakMonthDayIndexes[0] + 1 : null,
+      peakMonthDayCount: maxMonthDayCount,
+      captacaoData,
+      captacaoTotal,
+      captacaoPieSlices,
+      peakCaptacaoLabel: peakCaptacao.count > 0 ? peakCaptacao.label : null,
+      peakCaptacaoCount: peakCaptacao.count,
+    };
+  }, [clientes]);
+
+  const cidadesUnicas = buildUniqueLocations(clientes.map((c) => c.cidade));
   const bairrosUnicos = Array.from(new Set(clientes.map(c => c.bairro).filter(bairro => bairro))).sort();
+
+  const getMetricFontClass = (value: number) =>
+    String(Math.abs(Math.trunc(value))).length >= 4 ? 'text-lg' : 'text-2xl';
 
   return (
     <ProtectedRoute>
@@ -567,6 +1029,253 @@ export default function Clientes() {
           <div className="mb-6 sm:mb-8">
             <h1 className="text-2xl sm:text-3xl font-bold text-[#004085] dark:text-blue-400 mb-2 px-4 sm:px-0">Clientes</h1>
             <p className="text-gray-600 dark:text-gray-300 text-sm sm:text-base px-4 sm:px-0">Gerencie todos os clientes cadastrados</p>
+          </div>
+
+          <div className="mb-6 space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-4 transition-colors">
+                <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Total</p>
+                <p className={`font-bold text-[#004085] dark:text-blue-400 mt-1 ${getMetricFontClass(dashboardMetrics.total)}`}>
+                  {dashboardMetrics.total}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Clientes</p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-4 transition-colors">
+                <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Ativos</p>
+                <p className={`font-bold text-green-600 dark:text-green-400 mt-1 ${getMetricFontClass(dashboardMetrics.ativos)}`}>
+                  {dashboardMetrics.ativos}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {dashboardMetrics.total > 0
+                    ? `${Math.round((dashboardMetrics.ativos / dashboardMetrics.total) * 100)}% do total`
+                    : '0% do total'}
+                </p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-4 transition-colors">
+                <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Inativos</p>
+                <p className={`font-bold text-red-600 dark:text-red-400 mt-1 ${getMetricFontClass(dashboardMetrics.inativos)}`}>
+                  {dashboardMetrics.inativos}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {dashboardMetrics.emAndamento + dashboardMetrics.bloqueados} em andamento/bloqueados
+                </p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-4 transition-colors">
+                <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Estagiários</p>
+                <p className={`font-bold text-[#004085] dark:text-blue-400 mt-1 ${getMetricFontClass(dashboardMetrics.totalEstagiarios)}`}>
+                  {dashboardMetrics.totalEstagiarios}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {dashboardMetrics.comEstagiarios} clientes com vínculo
+                </p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-4 transition-colors">
+                <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Filiais</p>
+                <p className={`font-bold text-[#004085] dark:text-blue-400 mt-1 ${getMetricFontClass(dashboardMetrics.totalFiliais)}`}>
+                  {dashboardMetrics.totalFiliais}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {dashboardMetrics.comFiliais} clientes com filial
+                </p>
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-4 transition-colors">
+                <p className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400">Novos no mês</p>
+                <p className={`font-bold text-[#004085] dark:text-blue-400 mt-1 ${getMetricFontClass(dashboardMetrics.novosNoMes)}`}>
+                  {dashboardMetrics.novosNoMes}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Fechamentos de contrato neste mês</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 transition-colors">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-4">
+                  <div>
+                    <h2 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                      Entradas por dia da semana
+                    </h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Baseado na data de fechamento de contrato
+                    </p>
+                  </div>
+                  {dashboardMetrics.peakWeekdayLabel && (
+                    <p className="text-sm font-medium text-[#004085] dark:text-blue-400">
+                      Mais entradas: {dashboardMetrics.peakWeekdayLabel} (
+                      {dashboardMetrics.peakWeekdayCount})
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-end gap-2 sm:gap-3 h-44">
+                  {dashboardMetrics.weekdayData.map((day) => (
+                    <div key={day.label} className="flex-1 flex flex-col items-center h-full justify-end">
+                      <span
+                        className={`text-xs font-semibold mb-1 ${
+                          day.count === 0
+                            ? 'text-red-600 dark:text-red-500'
+                            : 'text-gray-700 dark:text-gray-200'
+                        }`}
+                      >
+                        {day.count}
+                      </span>
+                      <div className="w-full flex-1 flex items-end rounded-t bg-gray-100 dark:bg-slate-700/60 overflow-hidden">
+                        <div
+                          className={`w-full rounded-t transition-all ${
+                            day.isPeak
+                              ? 'bg-[#004085] dark:bg-blue-500'
+                              : 'bg-blue-300 dark:bg-blue-700'
+                          }`}
+                          style={{
+                            height: `${Math.max(
+                              (day.count / dashboardMetrics.maxWeekdayCount) * 100,
+                              day.count > 0 ? 8 : 0
+                            )}%`,
+                          }}
+                          title={`${day.fullLabel}: ${day.count}`}
+                        />
+                      </div>
+                      <span className="text-xs text-gray-600 dark:text-gray-300 mt-2">
+                        {day.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 transition-colors">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-4">
+                  <div>
+                    <h2 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                      Forma de captação
+                    </h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Distribuição dos clientes por origem
+                    </p>
+                  </div>
+                  {dashboardMetrics.peakCaptacaoLabel && (
+                    <p className="text-sm font-medium text-[#004085] dark:text-blue-400">
+                      Mais comum: {dashboardMetrics.peakCaptacaoLabel} (
+                      {dashboardMetrics.peakCaptacaoCount})
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-col sm:flex-row items-center gap-6">
+                  <svg viewBox="0 0 160 160" className="w-40 h-40 shrink-0">
+                    {dashboardMetrics.captacaoTotal === 0 ? (
+                      <circle cx="80" cy="80" r="70" className="fill-gray-300 dark:fill-slate-600" />
+                    ) : dashboardMetrics.captacaoPieSlices.length === 1 ? (
+                      <circle
+                        cx="80"
+                        cy="80"
+                        r="70"
+                        fill={dashboardMetrics.captacaoPieSlices[0].fill}
+                      />
+                    ) : (
+                      dashboardMetrics.captacaoPieSlices.map((slice) => (
+                        <path
+                          key={slice.label}
+                          d={describePieSlice(80, 80, 70, slice.startAngle, slice.endAngle)}
+                          fill={slice.fill}
+                        >
+                          <title>
+                            {slice.label}: {slice.count} ({slice.percent}%)
+                          </title>
+                        </path>
+                      ))
+                    )}
+                  </svg>
+                  <div className="space-y-2 w-full">
+                    {[...dashboardMetrics.captacaoData]
+                      .filter((item) => item.count > 0)
+                      .sort((a, b) => b.count - a.count)
+                      .map((item) => {
+                        const percent =
+                          dashboardMetrics.captacaoTotal > 0
+                            ? Math.round((item.count / dashboardMetrics.captacaoTotal) * 100)
+                            : 0;
+                        return (
+                          <div key={item.label} className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className="w-3 h-3 rounded-full shrink-0"
+                                style={{ backgroundColor: item.fill }}
+                              />
+                              <span className="text-sm text-gray-700 dark:text-gray-200 truncate">
+                                {item.label}
+                              </span>
+                            </div>
+                            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 shrink-0">
+                              {item.count} ({percent}%)
+                            </span>
+                          </div>
+                        );
+                      })}
+                    {dashboardMetrics.captacaoTotal === 0 && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        Nenhuma origem cadastrada
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 transition-colors">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-4">
+                <div>
+                  <h2 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                    Entradas por dia do mês
+                  </h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Quantidade de fechamentos de contrato em cada dia (1 a 31)
+                  </p>
+                </div>
+                {dashboardMetrics.peakMonthDay !== null && (
+                  <p className="text-sm font-medium text-[#004085] dark:text-blue-400">
+                    Mais entradas: dia {dashboardMetrics.peakMonthDay} (
+                    {dashboardMetrics.peakMonthDayCount})
+                  </p>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <div className="flex items-end gap-0.5 sm:gap-1 h-44 min-w-[640px]">
+                  {dashboardMetrics.monthDayData.map((day) => (
+                    <div
+                      key={day.day}
+                      className="flex-1 flex flex-col items-center h-full justify-end min-w-0"
+                    >
+                      <span
+                        className={`text-[10px] font-semibold mb-0.5 leading-none ${
+                          day.count === 0
+                            ? 'text-red-600 dark:text-red-500'
+                            : 'text-gray-700 dark:text-gray-200'
+                        }`}
+                      >
+                        {day.count}
+                      </span>
+                      <div className="w-full flex-1 flex items-end rounded-t bg-gray-100 dark:bg-slate-700/60 overflow-hidden">
+                        <div
+                          className={`w-full rounded-t transition-all ${
+                            day.isPeak
+                              ? 'bg-[#004085] dark:bg-blue-500'
+                              : 'bg-blue-300 dark:bg-blue-700'
+                          }`}
+                          style={{
+                            height: `${Math.max(
+                              (day.count / dashboardMetrics.maxMonthDayCount) * 100,
+                              day.count > 0 ? 8 : 0
+                            )}%`,
+                          }}
+                          title={`Dia ${day.day}: ${day.count}`}
+                        />
+                      </div>
+                      <span className="text-[10px] text-gray-600 dark:text-gray-300 mt-1">
+                        {day.day}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 mb-6 transition-colors">
@@ -667,6 +1376,21 @@ export default function Clientes() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Tem Filial
+                </label>
+                <select
+                  value={filtroFilial}
+                  onChange={(e) => setFiltroFilial(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">Todos</option>
+                  <option value="com-filial">Sim</option>
+                  <option value="sem-filial">Não</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Status
                 </label>
                 <select
@@ -680,6 +1404,19 @@ export default function Clientes() {
                   <option value="bloqueado">Bloqueado</option>
                   <option value="inativo">Inativo</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Responsável
+                </label>
+                <input
+                  type="text"
+                  placeholder="Buscar por responsável..."
+                  value={filtroResponsavel}
+                  onChange={(e) => setFiltroResponsavel(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
               </div>
             </div>
           </div>
@@ -700,7 +1437,17 @@ export default function Clientes() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full table-fixed border-collapse">
+                  <colgroup>
+                    <col className="w-[15%]" />
+                    <col className="w-[21%]" />
+                    <col className="w-[13%]" />
+                    <col className="w-[11%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[7%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[15%]" />
+                  </colgroup>
                   <thead className="bg-gray-50 dark:bg-slate-700">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -713,7 +1460,13 @@ export default function Clientes() {
                         Telefone
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Responsável
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Estagiários
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Filiais
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Status
@@ -725,22 +1478,58 @@ export default function Clientes() {
                   </thead>
                   <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {clientesFiltrados.map((cliente) => (
-                      <tr key={cliente.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{cliente.cnpj}</div>
+                      <tr
+                        key={cliente.id}
+                        onClick={() => router.push(`/cliente-detalhes?id=${cliente.id}`)}
+                        className="group hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap overflow-hidden group-hover:bg-gray-50 dark:group-hover:bg-slate-700">
+                          <div
+                            className="text-sm font-bold text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate"
+                            title={cliente.cnpj}
+                          >
+                            {cliente.cnpj}
+                          </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 dark:text-gray-100">{cliente.nomeFantasia}</div>
+                        <td className="px-6 py-4 overflow-hidden group-hover:bg-gray-50 dark:group-hover:bg-slate-700">
+                          <div
+                            className="text-sm text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate"
+                            title={cliente.nomeFantasia}
+                          >
+                            {cliente.nomeFantasia}
+                          </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 dark:text-gray-100">{cliente.telefone}</div>
+                        <td className="px-6 py-4 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-slate-700">
+                          {cliente.telefone ? (
+                            <a
+                              href={`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-sm text-gray-900 dark:text-gray-100 hover:text-green-600 dark:hover:text-green-400 hover:underline cursor-pointer transition-colors"
+                            >
+                              {cliente.telefone}
+                            </a>
+                          ) : (
+                            <div className="text-sm text-gray-900 dark:text-gray-100">-</div>
+                          )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 dark:text-gray-100">
+                        <td className="px-6 py-4 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-slate-700">
+                          <div className="text-sm text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                            {getResponsavelFirstName(cliente.responsavel)}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-slate-700">
+                          <div className="text-sm text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
                             {getEstagiariosCount(cliente)}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-slate-700">
+                          <div className="text-sm text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                            {getFiliaisCount(cliente)}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-slate-700">
                           <span 
                             className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                               cliente.status === 'ativo' 
@@ -757,30 +1546,15 @@ export default function Clientes() {
                              cliente.status === 'bloqueado' ? 'Bloqueado' : 'Inativo'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium group-hover:bg-gray-50 dark:group-hover:bg-slate-700">
                           <button 
-                            onClick={() => router.push(`/cliente-detalhes?id=${cliente.id}`)}
-                            className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-3"
-                          >
-                            Detalhes
-                          </button>
-                          <button 
-                            onClick={() => handleEdit(cliente)}
-                            className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 mr-3"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEdit(cliente);
+                            }}
+                            className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300"
                           >
                             Editar
-                          </button>
-                          <button 
-                            onClick={() => handleOpenStatusModal(cliente)}
-                            className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 mr-3"
-                          >
-                            Status
-                          </button>
-                          <button 
-                            onClick={() => handleDelete(cliente)}
-                            className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300"
-                          >
-                            Excluir
                           </button>
                         </td>
                       </tr>
@@ -977,26 +1751,437 @@ export default function Clientes() {
                     <option value="inativo">Inativo</option>
                   </select>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Forma de Captação
+                  </label>
+                  <select
+                    value={formData.formaCaptacao}
+                    onChange={(e) => {
+                      const value = e.target.value as FormaCaptacao | '';
+                      setFormData({
+                        ...formData,
+                        formaCaptacao: value,
+                        formaCaptacaoDetalhe:
+                          value === 'indicacao' || value === 'outro'
+                            ? formData.formaCaptacaoDetalhe
+                            : '',
+                      });
+                    }}
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  >
+                    <option value="">Selecione</option>
+                    {FORMA_CAPTACAO_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {formData.formaCaptacao === 'indicacao' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Quem *
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.formaCaptacaoDetalhe}
+                      onChange={(e) =>
+                        setFormData({ ...formData, formaCaptacaoDetalhe: e.target.value })
+                      }
+                      disabled={loadingCnpjLookup}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                      placeholder="Nome de quem indicou"
+                    />
+                  </div>
+                )}
+
+                {formData.formaCaptacao === 'outro' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Outro *
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.formaCaptacaoDetalhe}
+                      onChange={(e) =>
+                        setFormData({ ...formData, formaCaptacaoDetalhe: e.target.value })
+                      }
+                      disabled={loadingCnpjLookup}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                      placeholder="Descreva a forma de captação"
+                    />
+                  </div>
+                )}
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Motivo da Alteração{' '}
+                    {formData.status === 'bloqueado' || formData.status === 'inativo' ? '*' : ''}
+                  </label>
+                  <textarea
+                    value={motivoStatus}
+                    onChange={(e) => setMotivoStatus(e.target.value)}
+                    rows={3}
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                    placeholder={
+                      formData.status === 'bloqueado' || formData.status === 'inativo'
+                        ? 'Descreva o motivo da alteração de status...'
+                        : 'Descreva o motivo da alteração de status (opcional)...'
+                    }
+                    required={formData.status === 'bloqueado' || formData.status === 'inativo'}
+                  />
+                </div>
               </div>
 
-              <div className="flex justify-end space-x-3 mt-6">
-                <button
-                  onClick={handleCloseModals}
-                  className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={loadingAction || loadingCnpjLookup || !formData.cnpj || !formData.razaoSocial || !formData.nomeFantasia || !formData.telefone || !formData.email || !formData.endereco || !formData.cidade || !formData.bairro || !formData.cep || !formData.responsavel}
-                  className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {loadingAction || loadingCnpjLookup ? (
-                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  ) : (
-                    editingCliente ? 'Atualizar' : 'Adicionar'
+              <div className="mt-6 border-t border-gray-200 dark:border-gray-600 pt-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-[#004085] dark:text-blue-400">
+                    Filiais
+                  </h4>
+                  {!showFilialForm && (
+                    <button
+                      type="button"
+                      onClick={handleAddFilial}
+                      className="text-sm text-[#004085] dark:text-blue-400 hover:underline"
+                    >
+                      Adicionar filial
+                    </button>
                   )}
-                </button>
+                </div>
+
+                {filiais.length === 0 && !showFilialForm && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Nenhuma filial cadastrada.
+                  </p>
+                )}
+
+                {filiais.length > 0 && (
+                  <ul className="space-y-2">
+                    {filiais.map((filial) => (
+                      <li
+                        key={filial.id}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                            {filial.nomeFantasia}
+                          </p>
+                          <p className="text-gray-500 dark:text-gray-400">{filial.cnpj}</p>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEditFilial(filial)}
+                            className="text-[#004085] dark:text-blue-400 hover:underline"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFilial(filial.id)}
+                            className="text-red-600 dark:text-red-400 hover:underline"
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {showFilialForm && (
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-600 p-4 space-y-3 bg-gray-50 dark:bg-slate-900/40">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {editingFilialId ? 'Editar filial' : 'Nova filial'}
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          CNPJ *
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.cnpj}
+                          onChange={(e) =>
+                            setFilialForm({ ...filialForm, cnpj: formatCnpjMask(e.target.value) })
+                          }
+                          onBlur={(ev) => void handleFilialCnpjBlur(ev)}
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="00.000.000/0000-00"
+                          maxLength={18}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Razão Social *
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.razaoSocial}
+                          onChange={(e) =>
+                            setFilialForm({ ...filialForm, razaoSocial: e.target.value })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="Razão Social da Filial"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Nome Fantasia *
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.nomeFantasia}
+                          onChange={(e) =>
+                            setFilialForm({ ...filialForm, nomeFantasia: e.target.value })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="Nome Fantasia da Filial"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Telefone *
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.telefone}
+                          onChange={(e) =>
+                            setFilialForm({
+                              ...filialForm,
+                              telefone: formatTelefoneMask(e.target.value),
+                            })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="(61) 99999-9999"
+                          maxLength={15}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Email *
+                        </label>
+                        <input
+                          type="email"
+                          value={filialForm.email}
+                          onChange={(e) =>
+                            setFilialForm({ ...filialForm, email: e.target.value })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="email@filial.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          UF
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.uf}
+                          onChange={(e) =>
+                            setFilialForm({
+                              ...filialForm,
+                              uf: e.target.value.toUpperCase().slice(0, 2),
+                            })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="DF"
+                          maxLength={2}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Endereço *
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.endereco}
+                          onChange={(e) =>
+                            setFilialForm({ ...filialForm, endereco: e.target.value })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="Logradouro, número, complemento"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Cidade *
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.cidade}
+                          onChange={(e) =>
+                            setFilialForm({ ...filialForm, cidade: e.target.value })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="Brasília"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Bairro *
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.bairro}
+                          onChange={(e) =>
+                            setFilialForm({ ...filialForm, bairro: e.target.value })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="Asa Sul"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          CEP *
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.cep}
+                          onChange={(e) =>
+                            setFilialForm({
+                              ...filialForm,
+                              cep: formatCepMask(e.target.value),
+                            })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="70000-000"
+                          maxLength={9}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Responsável *
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.responsavel}
+                          onChange={(e) =>
+                            setFilialForm({ ...filialForm, responsavel: e.target.value })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="Nome do Responsável"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Cargo do responsável
+                        </label>
+                        <input
+                          type="text"
+                          value={filialForm.responsavelCargo}
+                          onChange={(e) =>
+                            setFilialForm({ ...filialForm, responsavelCargo: e.target.value })
+                          }
+                          disabled={loadingFilialCnpj}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                          placeholder="Cargo"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={resetFilialForm}
+                        className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveFilial}
+                        disabled={
+                          loadingFilialCnpj ||
+                          !filialForm.cnpj ||
+                          !filialForm.razaoSocial ||
+                          !filialForm.nomeFantasia ||
+                          !filialForm.telefone ||
+                          !filialForm.email ||
+                          !filialForm.endereco ||
+                          !filialForm.cidade ||
+                          !filialForm.bairro ||
+                          !filialForm.cep ||
+                          !filialForm.responsavel
+                        }
+                        className="px-3 py-1.5 text-sm bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {editingFilialId ? 'Atualizar filial' : 'Salvar filial'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between mt-6">
+                {editingCliente ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeletingCliente(editingCliente);
+                      setShowEditModal(false);
+                      setShowDeleteModal(true);
+                    }}
+                    disabled={loadingAction || loadingCnpjLookup}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Excluir
+                  </button>
+                ) : (
+                  <div />
+                )}
+                <div className="flex space-x-3">
+                  <button
+                    onClick={handleCloseModals}
+                    className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={
+                      loadingAction ||
+                      loadingCnpjLookup ||
+                      !formData.cnpj ||
+                      !formData.razaoSocial ||
+                      !formData.nomeFantasia ||
+                      !formData.telefone ||
+                      !formData.email ||
+                      !formData.endereco ||
+                      !formData.cidade ||
+                      !formData.bairro ||
+                      !formData.cep ||
+                      !formData.responsavel ||
+                      ((formData.status === 'bloqueado' || formData.status === 'inativo') &&
+                        !motivoStatus.trim()) ||
+                      ((formData.formaCaptacao === 'indicacao' ||
+                        formData.formaCaptacao === 'outro') &&
+                        !formData.formaCaptacaoDetalhe.trim())
+                    }
+                    className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {loadingAction || loadingCnpjLookup ? (
+                      <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    ) : (
+                      editingCliente ? 'Atualizar' : 'Adicionar'
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
         </AnimatedModal>
@@ -1043,110 +2228,6 @@ export default function Clientes() {
                     <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                   ) : (
                     'Excluir'
-                  )}
-                </button>
-              </div>
-            </div>
-        </AnimatedModal>
-
-        {/* Modal de Alteração de Status */}
-        <AnimatedModal open={showStatusModal} onClose={handleCloseModals}>
-            <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
-                  Alterar Status do Cliente
-                </h3>
-                <button
-                  onClick={handleCloseModals}
-                  className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Cliente
-                  </label>
-                  <p className="text-sm text-gray-900 dark:text-gray-100 font-medium">
-                    {statusCliente?.razaoSocial}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Status Atual
-                  </label>
-                  <span 
-                    className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      statusCliente?.status === 'ativo' 
-                        ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
-                        : statusCliente?.status === 'em-andamento'
-                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'
-                        : statusCliente?.status === 'bloqueado'
-                        ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200'
-                        : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
-                    }`}
-                  >
-                    {statusCliente?.status === 'ativo' ? 'Ativo' : 
-                     statusCliente?.status === 'em-andamento' ? 'Em andamento' :
-                     statusCliente?.status === 'bloqueado' ? 'Bloqueado' : 'Inativo'}
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Novo Status *
-                  </label>
-                  <select
-                    value={novoStatus}
-                    onChange={(e) => setNovoStatus(e.target.value as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo')}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
-                  >
-                    <option value="ativo">Ativo</option>
-                    <option value="em-andamento">Em andamento</option>
-                    <option value="bloqueado">Bloqueado</option>
-                    <option value="inativo">Inativo</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Motivo da Alteração {novoStatus === 'bloqueado' || novoStatus === 'inativo' ? '*' : ''}
-                  </label>
-                  <textarea
-                    value={motivoStatus}
-                    onChange={(e) => setMotivoStatus(e.target.value)}
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
-                    placeholder={novoStatus === 'bloqueado' || novoStatus === 'inativo' 
-                      ? "Descreva o motivo da alteração de status..." 
-                      : "Descreva o motivo da alteração de status (opcional)..."
-                    }
-                    required={novoStatus === 'bloqueado' || novoStatus === 'inativo'}
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-3 mt-6">
-                <button
-                  onClick={handleCloseModals}
-                  className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleUpdateStatus}
-                  disabled={loadingAction || ((novoStatus === 'bloqueado' || novoStatus === 'inativo') && !motivoStatus.trim())}
-                  className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {loadingAction ? (
-                    <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  ) : (
-                    'Atualizar Status'
                   )}
                 </button>
               </div>

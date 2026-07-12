@@ -26,6 +26,21 @@ type Studying = 'sim' | 'nao' | '';
 
 type EducationLevel = '' | 'superior' | 'medio' | 'tecnico' | 'fundamental';
 
+type EmpresaContratoDados = {
+  razaoSocial: string;
+  nomeFantasia: string;
+  cnpj: string;
+  cidade: string;
+  bairro: string;
+  cep: string;
+  endereco?: string;
+  uf?: string;
+  telefone: string;
+  email: string;
+  responsavel: string;
+  responsavelCargo?: string;
+};
+
 interface FormState {
   nomeCompleto: string;
   rg: string;
@@ -270,6 +285,7 @@ const reqMark = (
 export default function FormularioContratoEstagio() {
   const router = useRouter();
   const [empresa, setEmpresa] = useState<Cliente | null>(null);
+  const [selectedFilialId, setSelectedFilialId] = useState('');
   const [loadError, setLoadError] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
   const [submitting, setSubmitting] = useState(false);
@@ -292,24 +308,40 @@ export default function FormularioContratoEstagio() {
         : Array.isArray(router.query.estagiarioId)
           ? router.query.estagiarioId[0]
           : '';
+    const fId =
+      typeof router.query.filialId === 'string'
+        ? router.query.filialId
+        : Array.isArray(router.query.filialId)
+          ? router.query.filialId[0]
+          : '';
     if (!cId && !eId) return;
     let cancelled = false;
     void (async () => {
       try {
-        if (cId) {
-          const c = await clientesService.getById(cId);
-          if (!cancelled && c) setEmpresa(c);
-        }
-        if (eId) {
-          const e = await estagiariosService.getById(eId);
-          if (!cancelled && e) {
-            const ieDigits = (e.instituicaoEnsinoCnpj || '')
-              .replace(/\D/g, '')
-              .slice(0, 14);
-            lastUniCnpjFetched.current =
-              ieDigits.length === 14 ? ieDigits : '';
-            setForm(formStateFromEstagiario(e));
-          }
+        const [c, e] = await Promise.all([
+          cId ? clientesService.getById(cId) : Promise.resolve(null),
+          eId ? estagiariosService.getById(eId) : Promise.resolve(null),
+        ]);
+        if (cancelled) return;
+        if (c) setEmpresa(c);
+        if (e) {
+          const ieDigits = (e.instituicaoEnsinoCnpj || '')
+            .replace(/\D/g, '')
+            .slice(0, 14);
+          lastUniCnpjFetched.current =
+            ieDigits.length === 14 ? ieDigits : '';
+          setForm(formStateFromEstagiario(e));
+          const savedFilialId = e.empresaFilialId?.trim() ?? '';
+          const filialExists = Boolean(
+            savedFilialId &&
+              c?.filiais?.some((f) => f.id === savedFilialId)
+          );
+          setSelectedFilialId(filialExists ? savedFilialId : '');
+        } else {
+          const queryFilialExists = Boolean(
+            fId && c?.filiais?.some((f) => f.id === fId)
+          );
+          setSelectedFilialId(queryFilialExists ? fId : '');
         }
       } catch {
         if (!cancelled) setLoadError(true);
@@ -318,7 +350,44 @@ export default function FormularioContratoEstagio() {
     return () => {
       cancelled = true;
     };
-  }, [router.isReady, router.query.clienteId, router.query.estagiarioId]);
+  }, [router.isReady, router.query.clienteId, router.query.estagiarioId, router.query.filialId]);
+
+  const empresaContrato: EmpresaContratoDados | null = useMemo(() => {
+    if (!empresa) return null;
+    if (selectedFilialId) {
+      const filial = empresa.filiais?.find((f) => f.id === selectedFilialId);
+      if (filial) {
+        return {
+          razaoSocial: filial.razaoSocial,
+          nomeFantasia: filial.nomeFantasia,
+          cnpj: filial.cnpj,
+          cidade: filial.cidade,
+          bairro: filial.bairro,
+          cep: filial.cep,
+          endereco: filial.endereco,
+          uf: filial.uf,
+          telefone: filial.telefone,
+          email: filial.email,
+          responsavel: filial.responsavel,
+          responsavelCargo: filial.responsavelCargo,
+        };
+      }
+    }
+    return {
+      razaoSocial: empresa.razaoSocial,
+      nomeFantasia: empresa.nomeFantasia,
+      cnpj: empresa.cnpj,
+      cidade: empresa.cidade,
+      bairro: empresa.bairro,
+      cep: empresa.cep,
+      endereco: empresa.endereco,
+      uf: empresa.uf,
+      telefone: empresa.telefone,
+      email: empresa.email,
+      responsavel: empresa.responsavel,
+      responsavelCargo: empresa.responsavelCargo,
+    };
+  }, [empresa, selectedFilialId]);
 
   const idade = useMemo(() => calcularIdade(form.dataNascimento), [form.dataNascimento]);
   const formRef = useRef(form);
@@ -476,7 +545,7 @@ export default function FormularioContratoEstagio() {
         : Array.isArray(router.query.clienteId)
           ? router.query.clienteId[0]
           : '';
-    if (!clienteIdRaw || !empresa) {
+    if (!clienteIdRaw || !empresa || !empresaContrato) {
       toast.error('Abra este formulário pelo link enviado pela empresa.');
       return;
     }
@@ -496,9 +565,9 @@ export default function FormularioContratoEstagio() {
       const cidadeFinal = form.cidade.trim() || 'Brasília';
       const ufFinal = form.uf.trim() || 'DF';
 
-      let empresaEnderecoContrato = empresa.endereco?.trim() ?? '';
+      let empresaEnderecoContrato = empresaContrato.endereco?.trim() ?? '';
       if (!empresaEnderecoContrato) {
-        const empresaCepDigits = empresa.cep.replace(/\D/g, '');
+        const empresaCepDigits = empresaContrato.cep.replace(/\D/g, '');
         if (empresaCepDigits.length === 8) {
           const viaEmpresa = await fetchCepLookup(empresaCepDigits);
           if (viaEmpresa?.enderecoCompleto?.trim()) {
@@ -508,18 +577,18 @@ export default function FormularioContratoEstagio() {
       }
 
       const contractPayload: TceContractPayload = {
-        empresaRazaoSocial: empresa.razaoSocial,
-        empresaNomeFantasia: empresa.nomeFantasia,
-        empresaCnpj: empresa.cnpj,
-        empresaCidade: empresa.cidade,
-        empresaBairro: empresa.bairro,
-        empresaCep: empresa.cep,
+        empresaRazaoSocial: empresaContrato.razaoSocial,
+        empresaNomeFantasia: empresaContrato.nomeFantasia,
+        empresaCnpj: empresaContrato.cnpj,
+        empresaCidade: empresaContrato.cidade,
+        empresaBairro: empresaContrato.bairro,
+        empresaCep: empresaContrato.cep,
         empresaEndereco: empresaEnderecoContrato,
-        empresaUf: empresa.uf?.trim() ?? '',
-        empresaTelefone: empresa.telefone,
-        empresaEmail: empresa.email,
-        empresaResponsavel: empresa.responsavel,
-        empresaRepresentanteCargo: empresa.responsavelCargo?.trim() ?? '',
+        empresaUf: empresaContrato.uf?.trim() ?? '',
+        empresaTelefone: empresaContrato.telefone,
+        empresaEmail: empresaContrato.email,
+        empresaResponsavel: empresaContrato.responsavel,
+        empresaRepresentanteCargo: empresaContrato.responsavelCargo?.trim() ?? '',
         estagiarioNome: form.nomeCompleto.trim(),
         estagiarioRg: form.rg.trim(),
         estagiarioCpf: form.cpf.trim(),
@@ -591,7 +660,8 @@ export default function FormularioContratoEstagio() {
           : '',
         respLegalTelefone: mostrarCamposResponsavel
           ? form.respTelefone.replace(/\D/g, '')
-          : ''
+          : '',
+        empresaFilialId: selectedFilialId || ''
       };
 
       let estagiarioIdResult: string;
@@ -697,45 +767,67 @@ export default function FormularioContratoEstagio() {
               <h2 className="text-base font-bold text-[#004085] dark:text-blue-400 border-b border-gray-200 dark:border-gray-600 pb-2">
                 🏢 DADOS DA EMPRESA
               </h2>
-              {empresa ? (
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              {empresa && empresaContrato ? (
+                <>
                   <div>
-                    <dt className="text-gray-500 dark:text-gray-400">Razão social</dt>
-                    <dd className="font-medium">{empresa.razaoSocial}</dd>
+                    <label className={labelClass} htmlFor="empresaUnidade">
+                      Unidade / CNPJ do contrato {reqMark}
+                    </label>
+                    <select
+                      id="empresaUnidade"
+                      className={inputClass}
+                      value={selectedFilialId}
+                      onChange={(e) => setSelectedFilialId(e.target.value)}
+                    >
+                      <option value="">
+                        Matriz — {empresa.nomeFantasia} ({empresa.cnpj})
+                      </option>
+                      {(empresa.filiais ?? []).map((filial) => (
+                        <option key={filial.id} value={filial.id}>
+                          Filial — {filial.nomeFantasia} ({filial.cnpj})
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                  <div>
-                    <dt className="text-gray-500 dark:text-gray-400">Nome fantasia</dt>
-                    <dd className="font-medium">{empresa.nomeFantasia}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 dark:text-gray-400">CNPJ</dt>
-                    <dd className="font-medium">{empresa.cnpj}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 dark:text-gray-400">Cidade</dt>
-                    <dd className="font-medium">{empresa.cidade}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 dark:text-gray-400">Bairro</dt>
-                    <dd className="font-medium">{empresa.bairro}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 dark:text-gray-400">CEP</dt>
-                    <dd className="font-medium">{empresa.cep}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 dark:text-gray-400">Telefone</dt>
-                    <dd className="font-medium">{empresa.telefone}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-gray-500 dark:text-gray-400">E-mail</dt>
-                    <dd className="font-medium break-all">{empresa.email}</dd>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <dt className="text-gray-500 dark:text-gray-400">Responsável</dt>
-                    <dd className="font-medium">{empresa.responsavel}</dd>
-                  </div>
-                </dl>
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <dt className="text-gray-500 dark:text-gray-400">Razão social</dt>
+                      <dd className="font-medium">{empresaContrato.razaoSocial}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 dark:text-gray-400">Nome fantasia</dt>
+                      <dd className="font-medium">{empresaContrato.nomeFantasia}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 dark:text-gray-400">CNPJ</dt>
+                      <dd className="font-medium">{empresaContrato.cnpj}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 dark:text-gray-400">Cidade</dt>
+                      <dd className="font-medium">{empresaContrato.cidade}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 dark:text-gray-400">Bairro</dt>
+                      <dd className="font-medium">{empresaContrato.bairro}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 dark:text-gray-400">CEP</dt>
+                      <dd className="font-medium">{empresaContrato.cep}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 dark:text-gray-400">Telefone</dt>
+                      <dd className="font-medium">{empresaContrato.telefone}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-gray-500 dark:text-gray-400">E-mail</dt>
+                      <dd className="font-medium break-all">{empresaContrato.email}</dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="text-gray-500 dark:text-gray-400">Responsável</dt>
+                      <dd className="font-medium">{empresaContrato.responsavel}</dd>
+                    </div>
+                  </dl>
+                </>
               ) : (
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Dados da empresa não carregados. Confirme o link enviado ou preencha junto à empresa.

@@ -49,8 +49,25 @@ export interface Estagiario {
   respLegalNome?: string;
   respLegalCpf?: string;
   respLegalTelefone?: string;
+  empresaFilialId?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ClienteFilial {
+  id: string;
+  cnpj: string;
+  razaoSocial: string;
+  nomeFantasia: string;
+  telefone: string;
+  email: string;
+  cidade: string;
+  bairro: string;
+  cep: string;
+  endereco?: string;
+  uf?: string;
+  responsavel: string;
+  responsavelCargo?: string;
 }
 
 export interface User {
@@ -86,10 +103,37 @@ export interface Cliente {
   servico?: string; // Serviço prestado ao cliente
   status: 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo';
   motivoStatus?: string; // Motivo da alteração de status
+  formaCaptacao?: FormaCaptacao | null;
+  formaCaptacaoDetalhe?: string;
   estagiariosVinculados?: string[]; // Array de IDs dos estagiários vinculados
+  filiais?: ClienteFilial[];
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type FormaCaptacao =
+  | 'instagram'
+  | 'linkedin'
+  | 'whatsapp'
+  | 'trafego-pago'
+  | 'site'
+  | 'indicacao'
+  | 'outro';
+
+export const FORMA_CAPTACAO_OPTIONS: { value: FormaCaptacao; label: string }[] = [
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'linkedin', label: 'LinkedIn' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'trafego-pago', label: 'Tráfego Pago' },
+  { value: 'site', label: 'Site' },
+  { value: 'indicacao', label: 'Indicação' },
+  { value: 'outro', label: 'Outro' },
+];
+
+export const getFormaCaptacaoLabel = (value?: FormaCaptacao | null): string => {
+  if (!value) return '-';
+  return FORMA_CAPTACAO_OPTIONS.find((option) => option.value === value)?.label ?? value;
+};
 
 export interface VinculacaoEstagiario {
   id?: string;

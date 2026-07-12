@@ -92,7 +92,7 @@ export default function Login() {
               <label className="flex items-center">
                 <input
                   type="checkbox"
-                  className="mr-2 h-4 w-4 text-[#004085] focus:ring-[#004085] border-gray-300 rounded"
+                  className="mr-2 h-4 w-4 accent-[#004085] text-[#004085] focus:ring-2 focus:ring-[#004085] border-gray-300 rounded cursor-pointer"
                   disabled={loading}
                 />
                 <span className="text-sm text-gray-600">Lembrar de mim</span>

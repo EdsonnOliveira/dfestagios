@@ -110,6 +110,7 @@ export default function Mensalidades() {
         // Dados da mensalidade (principais)
         id: mensalidade.id,
         mensalidadeId: mensalidade.id,
+        clienteId: mensalidade.clienteId,
         statusMensalidade: statusCalculado,
         valorMensalidade: mensalidade.valor,
         dataVencimento: dataVencimento.toISOString(),
@@ -211,6 +212,7 @@ export default function Mensalidades() {
         // Dados da mensalidade (vazios, pois não há mensalidade)
         id: `sem_mensalidade_${cliente.id}`,
         mensalidadeId: '',
+        clienteId: cliente.id,
         statusMensalidade: 'sem_mensalidade' as const,
         valorMensalidade: 0,
         dataVencimento: '',
@@ -978,10 +980,11 @@ export default function Mensalidades() {
         { label: 'Valor Total', value: formatCurrency(valoresCalculados.total), color: [59, 130, 246] },
         { label: 'Valor Recebido', value: formatCurrency(valoresCalculados.recebido), color: [34, 197, 94] },
         { label: 'Valor a Receber', value: formatCurrency(valoresCalculados.aReceber), color: [251, 191, 36] },
-        { label: 'Valor Vencido', value: formatCurrency(valoresCalculados.vencido), color: [239, 68, 68] }
+        { label: 'Valor Vencido', value: formatCurrency(valoresCalculados.vencido), color: [239, 68, 68] },
+        { label: 'Total Mensal', value: formatCurrency(valoresCalculados.totalMensalPagantes), color: [99, 102, 241] },
       ];
       
-      const financeiroWidth = (contentWidth - 15) / 4;
+      const financeiroWidth = (contentWidth - 20) / 5;
       financeiroData.forEach((item, index) => {
         const x = margin + (index * (financeiroWidth + 5));
         
@@ -1190,19 +1193,73 @@ export default function Mensalidades() {
     }).format(valor);
   };
 
-  // Calcular valores totais
-  const valoresCalculados = {
-    total: clientesComStatus.reduce((acc, c) => acc + c.valorMensalidade, 0),
-    recebido: clientesComStatus
-      .filter(c => c.statusMensalidade === 'pago')
-      .reduce((acc, c) => acc + c.valorMensalidade, 0),
-    aReceber: clientesComStatus
-      .filter(c => c.statusMensalidade === 'aberto')
-      .reduce((acc, c) => acc + c.valorMensalidade, 0),
-    vencido: clientesComStatus
-      .filter(c => c.statusMensalidade === 'vencido')
-      .reduce((acc, c) => acc + c.valorMensalidade, 0)
+  const getBadgeCountClass = (value: number) =>
+    String(Math.abs(Math.trunc(value))).length >= 4
+      ? 'text-[9px] leading-none'
+      : 'text-sm leading-none';
+
+  const getCurrencyValueClass = (value: number) =>
+    String(Math.abs(Math.trunc(value))).length >= 4 ? 'text-sm' : 'text-lg';
+
+  const hasActiveFilters = Boolean(
+    filtroDataInicio ||
+      filtroDataFim ||
+      filtroCliente ||
+      filtroStatus ||
+      filtroFormaPagamento
+  );
+
+  const resetFilters = () => {
+    setFiltroDataInicio('');
+    setFiltroDataFim('');
+    setFiltroCliente('');
+    setFiltroStatus('');
+    setFiltroFormaPagamento('');
   };
+
+  const valoresCalculados = (() => {
+    const total = clientesComStatus.reduce((acc, c) => acc + c.valorMensalidade, 0);
+    const recebido = clientesComStatus
+      .filter((c) => c.statusMensalidade === 'pago')
+      .reduce((acc, c) => acc + c.valorMensalidade, 0);
+    const aReceber = clientesComStatus
+      .filter((c) => c.statusMensalidade === 'aberto')
+      .reduce((acc, c) => acc + c.valorMensalidade, 0);
+    const vencido = clientesComStatus
+      .filter((c) => c.statusMensalidade === 'vencido')
+      .reduce((acc, c) => acc + c.valorMensalidade, 0);
+
+    const valorPorClientePagante = new Map<string, number>();
+    mensalidades.forEach((mensalidade) => {
+      if (!mensalidade.clienteId || !(mensalidade.valor > 0)) return;
+      const current = valorPorClientePagante.get(mensalidade.clienteId);
+      if (current === undefined || mensalidade.valor > current) {
+        valorPorClientePagante.set(mensalidade.clienteId, mensalidade.valor);
+      }
+    });
+
+    clientes.forEach((cliente) => {
+      if (!cliente.id || !valorPorClientePagante.has(cliente.id)) return;
+      const valorCadastro =
+        parseFloat(String(cliente.valor || '').replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+      if (valorCadastro > 0) {
+        valorPorClientePagante.set(cliente.id, valorCadastro);
+      }
+    });
+
+    const totalMensalPagantes = Array.from(valorPorClientePagante.values()).reduce(
+      (acc, valor) => acc + valor,
+      0
+    );
+
+    return {
+      total,
+      recebido,
+      aReceber,
+      vencido,
+      totalMensalPagantes,
+    };
+  })();
 
   const abrirModalMulta = (cliente: Cliente) => {
     setClienteParaMulta(cliente);
@@ -1284,7 +1341,20 @@ export default function Mensalidades() {
 
           {/* Filtros */}
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 mb-6 transition-colors">
-            <h2 className="text-lg sm:text-xl font-bold text-[#004085] dark:text-blue-400 mb-4">Filtros</h2>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h2 className="text-lg sm:text-xl font-bold text-[#004085] dark:text-blue-400">
+                Filtros
+              </h2>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Resetar filtro
+                </button>
+              )}
+            </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               <div>
@@ -1431,21 +1501,6 @@ export default function Mensalidades() {
                 </button>
               </div>
             </div>
-
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={() => {
-                  setFiltroDataInicio('');
-                  setFiltroDataFim('');
-                  setFiltroCliente('');
-                  setFiltroStatus('');
-                  setFiltroFormaPagamento('');
-                }}
-                className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
-              >
-                Limpar Filtros
-              </button>
-            </div>
           </div>
 
           {/* Resumo - Quantidades */}
@@ -1455,7 +1510,9 @@ export default function Mensalidades() {
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                     <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-                      <span className="text-blue-600 dark:text-blue-400 font-bold">{clientesComStatus.length}</span>
+                      <span className={`text-blue-600 dark:text-blue-400 font-bold ${getBadgeCountClass(clientesComStatus.length)}`}>
+                        {clientesComStatus.length}
+                      </span>
                     </div>
                   </div>
                   <div className="ml-3">
@@ -1469,7 +1526,7 @@ export default function Mensalidades() {
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
                     <div className="w-8 h-8 bg-red-100 dark:bg-red-900 rounded-full flex items-center justify-center">
-                      <span className="text-red-600 dark:text-red-400 font-bold">
+                      <span className={`text-red-600 dark:text-red-400 font-bold ${getBadgeCountClass(clientesComStatus.filter(c => c.statusMensalidade === 'vencido').length)}`}>
                         {clientesComStatus.filter(c => c.statusMensalidade === 'vencido').length}
                       </span>
                   </div>
@@ -1485,7 +1542,7 @@ export default function Mensalidades() {
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
                     <div className="w-8 h-8 bg-yellow-100 dark:bg-yellow-900 rounded-full flex items-center justify-center">
-                      <span className="text-yellow-600 dark:text-yellow-400 font-bold">
+                      <span className={`text-yellow-600 dark:text-yellow-400 font-bold ${getBadgeCountClass(clientesComStatus.filter(c => c.statusMensalidade === 'aberto').length)}`}>
                         {clientesComStatus.filter(c => c.statusMensalidade === 'aberto').length}
                       </span>
                     </div>
@@ -1501,7 +1558,7 @@ export default function Mensalidades() {
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                     <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
-                      <span className="text-green-600 dark:text-green-400 font-bold">
+                      <span className={`text-green-600 dark:text-green-400 font-bold ${getBadgeCountClass(clientesComStatus.filter(c => c.statusMensalidade === 'pago').length)}`}>
                         {clientesComStatus.filter(c => c.statusMensalidade === 'pago').length}
                     </span>
                   </div>
@@ -1517,7 +1574,7 @@ export default function Mensalidades() {
                 <div className="flex items-center">
                   <div className="flex-shrink-0">
                     <div className="w-8 h-8 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
-                      <span className="text-gray-600 dark:text-gray-400 font-bold">
+                      <span className={`text-gray-600 dark:text-gray-400 font-bold ${getBadgeCountClass(clientesComStatus.filter(c => c.statusMensalidade === 'sem_mensalidade').length)}`}>
                         {clientesComStatus.filter(c => c.statusMensalidade === 'sem_mensalidade').length}
                       </span>
                     </div>
@@ -1533,7 +1590,7 @@ export default function Mensalidades() {
 
           {/* Resumo - Valores Monetários */}
           <div className="mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-4 transition-colors">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
@@ -1544,9 +1601,11 @@ export default function Mensalidades() {
                       </svg>
                     </div>
                   </div>
-                  <div className="ml-3">
+                  <div className="ml-3 min-w-0">
                     <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Valor Total</p>
-                    <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{formatCurrency(valoresCalculados.total)}</p>
+                    <p className={`font-semibold text-gray-900 dark:text-gray-100 truncate ${getCurrencyValueClass(valoresCalculados.total)}`}>
+                      {formatCurrency(valoresCalculados.total)}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1560,9 +1619,11 @@ export default function Mensalidades() {
                       </svg>
                   </div>
                 </div>
-                <div className="ml-3">
+                <div className="ml-3 min-w-0">
                     <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Recebido</p>
-                    <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{formatCurrency(valoresCalculados.recebido)}</p>
+                    <p className={`font-semibold text-gray-900 dark:text-gray-100 truncate ${getCurrencyValueClass(valoresCalculados.recebido)}`}>
+                      {formatCurrency(valoresCalculados.recebido)}
+                    </p>
                 </div>
               </div>
             </div>
@@ -1576,9 +1637,11 @@ export default function Mensalidades() {
                       </svg>
                     </div>
                   </div>
-                  <div className="ml-3">
+                  <div className="ml-3 min-w-0">
                     <p className="text-sm font-medium text-gray-500 dark:text-gray-400">A Receber</p>
-                    <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{formatCurrency(valoresCalculados.aReceber)}</p>
+                    <p className={`font-semibold text-gray-900 dark:text-gray-100 truncate ${getCurrencyValueClass(valoresCalculados.aReceber)}`}>
+                      {formatCurrency(valoresCalculados.aReceber)}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1592,9 +1655,30 @@ export default function Mensalidades() {
                       </svg>
                   </div>
                 </div>
-                <div className="ml-3">
+                <div className="ml-3 min-w-0">
                     <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Vencido</p>
-                    <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{formatCurrency(valoresCalculados.vencido)}</p>
+                    <p className={`font-semibold text-gray-900 dark:text-gray-100 truncate ${getCurrencyValueClass(valoresCalculados.vencido)}`}>
+                      {formatCurrency(valoresCalculados.vencido)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-4 transition-colors">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900 rounded-full flex items-center justify-center">
+                      <svg className="w-4 h-4 text-indigo-600 dark:text-indigo-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="ml-3 min-w-0">
+                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Mensal</p>
+                    <p className={`font-semibold text-gray-900 dark:text-gray-100 truncate ${getCurrencyValueClass(valoresCalculados.totalMensalPagantes)}`}>
+                      {formatCurrency(valoresCalculados.totalMensalPagantes)}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1697,7 +1781,7 @@ export default function Mensalidades() {
                           type="checkbox"
                           checked={parcelasSelecionaveis.length > 0 && selectedParcelasIds.size === parcelasSelecionaveis.length}
                           onChange={toggleSelectAllMensalidades}
-                          className="h-4 w-4 text-[#004085] focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded"
+                          className="h-4 w-4 accent-[#004085] text-[#004085] focus:ring-2 focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                         />
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -1738,7 +1822,7 @@ export default function Mensalidades() {
                               type="checkbox"
                               checked={selectedParcelasIds.has(cliente.mensalidadeId)}
                               onChange={() => toggleParcelaSelection(cliente.mensalidadeId)}
-                              className="h-4 w-4 text-[#004085] focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded"
+                              className="h-4 w-4 accent-[#004085] text-[#004085] focus:ring-2 focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                             />
                           ) : (
                             <span className="text-gray-400">-</span>

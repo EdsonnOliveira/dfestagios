@@ -12,7 +12,7 @@ import {
   displayNameFromStorageName
 } from '../services/driveStorageService';
 import { getSupabaseBrowserClient } from '../lib/supabaseClient';
-import { Cliente, Estagiario, EstagiarioWithCompanyEntry } from '../types/firebase';
+import { Cliente, ClienteFilial, Estagiario, EstagiarioWithCompanyEntry, FormaCaptacao, FORMA_CAPTACAO_OPTIONS, getFormaCaptacaoLabel } from '../types/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { isPanelAdminEmail } from '../constants/admin';
 import { fisqalService } from '../services/fisqalService';
@@ -27,6 +27,21 @@ import {
   parseValorServico,
 } from '../lib/nfseEmit';
 import { getNfseServicoOptions } from '../constants/nfseServicos';
+
+const emptyFilialForm = {
+  cnpj: '',
+  razaoSocial: '',
+  nomeFantasia: '',
+  telefone: '',
+  email: '',
+  endereco: '',
+  cidade: '',
+  bairro: '',
+  cep: '',
+  uf: '',
+  responsavel: '',
+  responsavelCargo: '',
+};
 
 function contractPreviewIframeSrc(drivePath: string, signedUrl: string): string {
   if (drivePath.toLowerCase().endsWith('.docx')) {
@@ -129,6 +144,15 @@ export default function ClienteDetalhes() {
   const [loadingAction, setLoadingAction] = useState(false);
   const [loadingCnpjLookup, setLoadingCnpjLookup] = useState(false);
   const formCnpjRef = useRef('');
+  const [filiais, setFiliais] = useState<ClienteFilial[]>([]);
+  const [showFilialForm, setShowFilialForm] = useState(false);
+  const [showFilialModal, setShowFilialModal] = useState(false);
+  const [editingFilialId, setEditingFilialId] = useState<string | null>(null);
+  const [filialForm, setFilialForm] = useState(emptyFilialForm);
+  const [loadingFilialCnpj, setLoadingFilialCnpj] = useState(false);
+  const [loadingFilialAction, setLoadingFilialAction] = useState(false);
+  const [showCopyFormularioModal, setShowCopyFormularioModal] = useState(false);
+  const [copyFormularioFilialId, setCopyFormularioFilialId] = useState('');
   const [formData, setFormData] = useState({
     cnpj: '',
     razaoSocial: '',
@@ -142,7 +166,9 @@ export default function ClienteDetalhes() {
     cep: '',
     responsavel: '',
     responsavelCargo: '',
-    status: 'ativo' as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo'
+    status: 'ativo' as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo',
+    formaCaptacao: '' as FormaCaptacao | '',
+    formaCaptacaoDetalhe: '',
   });
   
   const [formDataEstagiario, setFormDataEstagiario] = useState({
@@ -227,6 +253,244 @@ export default function ClienteDetalhes() {
       setLoadingCnpjLookup(false);
     }
   }, []);
+
+  const formatCnpjMask = (value: string) => {
+    const numericValue = value.replace(/\D/g, '').slice(0, 14);
+    let formattedValue = numericValue;
+    if (numericValue.length > 2) {
+      formattedValue = numericValue.substring(0, 2) + '.' + numericValue.substring(2);
+    }
+    if (numericValue.length > 5) {
+      formattedValue = formattedValue.substring(0, 6) + '.' + formattedValue.substring(6);
+    }
+    if (numericValue.length > 8) {
+      formattedValue = formattedValue.substring(0, 10) + '/' + formattedValue.substring(10);
+    }
+    if (numericValue.length > 12) {
+      formattedValue = formattedValue.substring(0, 15) + '-' + numericValue.substring(12, 14);
+    }
+    return formattedValue;
+  };
+
+  const formatCepMask = (value: string) => {
+    const numericValue = value.replace(/\D/g, '');
+    if (numericValue.length > 5) {
+      return numericValue.substring(0, 5) + '-' + numericValue.substring(5, 8);
+    }
+    return numericValue;
+  };
+
+  const formatTelefoneMask = (value: string) => {
+    const numericValue = value.replace(/\D/g, '');
+    let formattedValue = numericValue;
+    if (numericValue.length > 0) {
+      formattedValue = '(' + numericValue.substring(0, 2);
+    }
+    if (numericValue.length > 2) {
+      formattedValue += ') ' + numericValue.substring(2, 7);
+    }
+    if (numericValue.length > 7) {
+      formattedValue = formattedValue.substring(0, 10) + '-' + numericValue.substring(7, 11);
+    }
+    return formattedValue;
+  };
+
+  const handleFilialCnpjBlur = useCallback(async (e: FocusEvent<HTMLInputElement>) => {
+    const digits = e.currentTarget.value.replace(/\D/g, '');
+    if (digits.length !== 14) return;
+    setLoadingFilialCnpj(true);
+    try {
+      const mapped = await fetchCnpjLookup(digits);
+      if (!mapped) return;
+      setFilialForm((prev) => ({
+        ...prev,
+        ...mapped,
+        cnpj: prev.cnpj,
+        uf: prev.uf,
+        responsavelCargo: prev.responsavelCargo,
+      }));
+    } catch (err) {
+      console.error('Erro ao consultar CNPJ da filial:', err);
+    } finally {
+      setLoadingFilialCnpj(false);
+    }
+  }, []);
+
+  const resetFilialForm = () => {
+    setFilialForm(emptyFilialForm);
+    setEditingFilialId(null);
+    setShowFilialForm(false);
+  };
+
+  const handleAddFilial = () => {
+    setFilialForm(emptyFilialForm);
+    setEditingFilialId(null);
+    setShowFilialForm(true);
+  };
+
+  const handleEditFilial = (filial: ClienteFilial) => {
+    setFilialForm({
+      cnpj: filial.cnpj,
+      razaoSocial: filial.razaoSocial,
+      nomeFantasia: filial.nomeFantasia,
+      telefone: filial.telefone,
+      email: filial.email,
+      endereco: filial.endereco ?? '',
+      cidade: filial.cidade,
+      bairro: filial.bairro,
+      cep: filial.cep,
+      uf: filial.uf ?? '',
+      responsavel: filial.responsavel,
+      responsavelCargo: filial.responsavelCargo ?? '',
+    });
+    setEditingFilialId(filial.id);
+    setShowFilialForm(true);
+  };
+
+  const handleRemoveFilial = (filialId: string) => {
+    setFiliais((prev) => prev.filter((f) => f.id !== filialId));
+    if (editingFilialId === filialId) resetFilialForm();
+  };
+
+  const handleSaveFilial = () => {
+    if (
+      !filialForm.cnpj ||
+      !filialForm.razaoSocial ||
+      !filialForm.nomeFantasia ||
+      !filialForm.telefone ||
+      !filialForm.email ||
+      !filialForm.endereco ||
+      !filialForm.cidade ||
+      !filialForm.bairro ||
+      !filialForm.cep ||
+      !filialForm.responsavel
+    ) {
+      return;
+    }
+    const payload: ClienteFilial = {
+      id: editingFilialId ?? crypto.randomUUID(),
+      cnpj: filialForm.cnpj,
+      razaoSocial: filialForm.razaoSocial,
+      nomeFantasia: filialForm.nomeFantasia,
+      telefone: filialForm.telefone,
+      email: filialForm.email,
+      endereco: filialForm.endereco,
+      cidade: filialForm.cidade,
+      bairro: filialForm.bairro,
+      cep: filialForm.cep,
+      uf: filialForm.uf || undefined,
+      responsavel: filialForm.responsavel,
+      responsavelCargo: filialForm.responsavelCargo || undefined,
+    };
+    if (editingFilialId) {
+      setFiliais((prev) => prev.map((f) => (f.id === editingFilialId ? payload : f)));
+    } else {
+      setFiliais((prev) => [...prev, payload]);
+    }
+    resetFilialForm();
+  };
+
+  const buildFilialPayload = (): ClienteFilial | null => {
+    if (
+      !filialForm.cnpj ||
+      !filialForm.razaoSocial ||
+      !filialForm.nomeFantasia ||
+      !filialForm.telefone ||
+      !filialForm.email ||
+      !filialForm.endereco ||
+      !filialForm.cidade ||
+      !filialForm.bairro ||
+      !filialForm.cep ||
+      !filialForm.responsavel
+    ) {
+      return null;
+    }
+    return {
+      id: editingFilialId ?? crypto.randomUUID(),
+      cnpj: filialForm.cnpj,
+      razaoSocial: filialForm.razaoSocial,
+      nomeFantasia: filialForm.nomeFantasia,
+      telefone: filialForm.telefone,
+      email: filialForm.email,
+      endereco: filialForm.endereco,
+      cidade: filialForm.cidade,
+      bairro: filialForm.bairro,
+      cep: filialForm.cep,
+      uf: filialForm.uf || undefined,
+      responsavel: filialForm.responsavel,
+      responsavelCargo: filialForm.responsavelCargo || undefined,
+    };
+  };
+
+  const handleOpenFilialModal = () => {
+    setFilialForm(emptyFilialForm);
+    setEditingFilialId(null);
+    setShowFilialModal(true);
+  };
+
+  const handleEditFilialFromInfo = (filial: ClienteFilial) => {
+    setFilialForm({
+      cnpj: filial.cnpj,
+      razaoSocial: filial.razaoSocial,
+      nomeFantasia: filial.nomeFantasia,
+      telefone: filial.telefone,
+      email: filial.email,
+      endereco: filial.endereco ?? '',
+      cidade: filial.cidade,
+      bairro: filial.bairro,
+      cep: filial.cep,
+      uf: filial.uf ?? '',
+      responsavel: filial.responsavel,
+      responsavelCargo: filial.responsavelCargo ?? '',
+    });
+    setEditingFilialId(filial.id);
+    setShowFilialModal(true);
+  };
+
+  const handleCloseFilialModal = () => {
+    setShowFilialModal(false);
+    setFilialForm(emptyFilialForm);
+    setEditingFilialId(null);
+  };
+
+  const handlePersistFilialFromInfo = async () => {
+    if (!cliente?.id) return;
+    const payload = buildFilialPayload();
+    if (!payload) return;
+    const current = cliente.filiais ?? [];
+    const next = editingFilialId
+      ? current.map((f) => (f.id === editingFilialId ? payload : f))
+      : [...current, payload];
+    try {
+      setLoadingFilialAction(true);
+      await clientesService.update(cliente.id, { filiais: next });
+      setCliente((prev) => (prev ? { ...prev, filiais: next } : null));
+      const wasEditing = Boolean(editingFilialId);
+      handleCloseFilialModal();
+      toast.success(wasEditing ? 'Filial atualizada.' : 'Filial adicionada.');
+    } catch (error) {
+      console.error('Erro ao salvar filial:', error);
+      toast.error('Erro ao salvar filial. Tente novamente.');
+    } finally {
+      setLoadingFilialAction(false);
+    }
+  };
+
+  const handleRemoveFilialFromInfo = async (filialId: string) => {
+    if (!cliente?.id) return;
+    const next = (cliente.filiais ?? []).filter((f) => f.id !== filialId);
+    try {
+      setLoadingFilialAction(true);
+      await clientesService.update(cliente.id, { filiais: next });
+      setCliente((prev) => (prev ? { ...prev, filiais: next } : null));
+      toast.success('Filial removida.');
+    } catch (error) {
+      console.error('Erro ao remover filial:', error);
+      toast.error('Erro ao remover filial. Tente novamente.');
+    } finally {
+      setLoadingFilialAction(false);
+    }
+  };
 
   useEffect(() => {
     if (filtroEstagiario) {
@@ -575,8 +839,12 @@ export default function ClienteDetalhes() {
       cep: cliente.cep,
       responsavel: cliente.responsavel,
       responsavelCargo: cliente.responsavelCargo ?? '',
-      status: cliente.status
+      status: cliente.status,
+      formaCaptacao: cliente.formaCaptacao ?? '',
+      formaCaptacaoDetalhe: cliente.formaCaptacaoDetalhe ?? '',
     });
+    setFiliais(cliente.filiais ? [...cliente.filiais] : []);
+    resetFilialForm();
     setShowEditModal(true);
   };
 
@@ -585,13 +853,33 @@ export default function ClienteDetalhes() {
     
     try {
       setLoadingAction(true);
-      await clientesService.update(editingCliente.id!, formData);
+      const needsDetalhe =
+        formData.formaCaptacao === 'indicacao' || formData.formaCaptacao === 'outro';
+      const { formaCaptacao, formaCaptacaoDetalhe, ...restForm } = formData;
+      const detalheTrimmed = formaCaptacaoDetalhe.trim();
+      const updateData = {
+        ...restForm,
+        formaCaptacao: formaCaptacao || null,
+        formaCaptacaoDetalhe: needsDetalhe ? detalheTrimmed : '',
+        filiais,
+      };
+      await clientesService.update(editingCliente.id!, updateData);
       
-      // Atualizar o cliente local
-      setCliente(prev => prev ? { ...prev, ...formData } : null);
+      setCliente(prev =>
+        prev
+          ? {
+              ...prev,
+              ...updateData,
+              formaCaptacao: formaCaptacao || null,
+              formaCaptacaoDetalhe: needsDetalhe ? detalheTrimmed : '',
+            }
+          : null
+      );
       
       setShowEditModal(false);
       setEditingCliente(null);
+      setFiliais([]);
+      resetFilialForm();
     } catch (error) {
       console.error('Erro ao salvar cliente:', error);
       alert('Erro ao salvar cliente. Tente novamente.');
@@ -603,6 +891,8 @@ export default function ClienteDetalhes() {
   const handleCloseEditModal = () => {
     setShowEditModal(false);
     setEditingCliente(null);
+    setFiliais([]);
+    resetFilialForm();
     setFormData({
       cnpj: '',
       razaoSocial: '',
@@ -616,7 +906,9 @@ export default function ClienteDetalhes() {
       cep: '',
       responsavel: '',
       responsavelCargo: '',
-      status: 'ativo'
+      status: 'ativo',
+      formaCaptacao: '',
+      formaCaptacaoDetalhe: '',
     });
   };
 
@@ -858,7 +1150,6 @@ export default function ClienteDetalhes() {
   };
 
   const handleSalvarPlano = async () => {
-    console.log('formDataPlano', formDataPlano.dataPrimeiroVencimento);
     if (!formDataPlano.descricaoServico || !formDataPlano.dataPrimeiroVencimento || !formDataPlano.valorParcela) {
       alert('Por favor, preencha todos os campos obrigatórios.');
       return;
@@ -1365,14 +1656,31 @@ export default function ClienteDetalhes() {
     setMenuAberto(null);
   };
 
+  const handleOpenCopyFormularioModal = () => {
+    setCopyFormularioFilialId('');
+    setShowCopyFormularioModal(true);
+  };
+
+  const handleCloseCopyFormularioModal = () => {
+    setShowCopyFormularioModal(false);
+    setCopyFormularioFilialId('');
+  };
+
   const handleCopyFormularioCadastroLink = async () => {
     const clienteIdParam =
       typeof id === 'string' ? id : Array.isArray(id) ? id[0] : '';
     if (!clienteIdParam || typeof window === 'undefined') return;
-    const url = `${window.location.origin}/formulario-contrato-estagio/?clienteId=${encodeURIComponent(clienteIdParam)}`;
+    const params = new URLSearchParams({
+      clienteId: clienteIdParam,
+    });
+    if (copyFormularioFilialId) {
+      params.set('filialId', copyFormularioFilialId);
+    }
+    const url = `${window.location.origin}/formulario-contrato-estagio/?${params.toString()}`;
     try {
       await navigator.clipboard.writeText(url);
       toast.success('Link do formulário copiado para a área de transferência.');
+      handleCloseCopyFormularioModal();
     } catch {
       toast.error('Não foi possível copiar automaticamente.');
       toast(url, { duration: 10000 });
@@ -1871,12 +2179,19 @@ export default function ClienteDetalhes() {
                   {cliente.nomeFantasia}
                 </p>
               </div>
-              <div className="mt-4 sm:mt-0 flex space-x-3">
+              <div className="mt-4 sm:mt-0 flex flex-wrap gap-3">
                 <button
                   onClick={() => router.push('/clientes')}
                   className="bg-gray-600 dark:bg-slate-700 hover:bg-gray-700 dark:hover:bg-slate-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
                 >
                   Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenFilialModal}
+                  className="bg-slate-600 dark:bg-slate-600 hover:bg-slate-700 dark:hover:bg-slate-500 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                >
+                  Adicionar Filial
                 </button>
                 <button
                   onClick={handleEdit}
@@ -1948,7 +2263,7 @@ export default function ClienteDetalhes() {
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         CNPJ
                       </label>
-                      <p className="text-sm text-gray-900 dark:text-gray-100">{cliente.cnpj}</p>
+                      <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{cliente.cnpj}</p>
                     </div>
 
                     <div>
@@ -1969,7 +2284,18 @@ export default function ClienteDetalhes() {
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Telefone
                       </label>
-                      <p className="text-sm text-gray-900 dark:text-gray-100">{cliente.telefone}</p>
+                      {cliente.telefone ? (
+                        <a
+                          href={`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-gray-900 dark:text-gray-100 hover:text-green-600 dark:hover:text-green-400 hover:underline cursor-pointer transition-colors"
+                        >
+                          {cliente.telefone}
+                        </a>
+                      ) : (
+                        <p className="text-sm text-gray-900 dark:text-gray-100">-</p>
+                      )}
                     </div>
 
                     <div>
@@ -2007,6 +2333,18 @@ export default function ClienteDetalhes() {
                          cliente.status === 'em-andamento' ? 'Em andamento' :
                          cliente.status === 'bloqueado' ? 'Bloqueado' : 'Inativo'}
                       </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Forma de Captação
+                      </label>
+                      <p className="text-sm text-gray-900 dark:text-gray-100">
+                        {getFormaCaptacaoLabel(cliente.formaCaptacao)}
+                        {cliente.formaCaptacaoDetalhe?.trim()
+                          ? ` — ${cliente.formaCaptacaoDetalhe}`
+                          : ''}
+                      </p>
                     </div>
 
                     {cliente.motivoStatus && (
@@ -2092,6 +2430,88 @@ export default function ClienteDetalhes() {
                       <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold">{cliente.valor || 'R$ 0,00'}</p>
                     </div>
                   </div>
+
+                  <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                      <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                        Filiais ({cliente.filiais?.length ?? 0})
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={handleOpenFilialModal}
+                        disabled={loadingFilialAction}
+                        className="bg-[#004085] dark:bg-blue-600 hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-lg transition-colors self-start"
+                      >
+                        Adicionar Filial
+                      </button>
+                    </div>
+
+                    {(cliente.filiais?.length ?? 0) === 0 ? (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        Nenhuma filial cadastrada.
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                          <thead className="bg-gray-50 dark:bg-slate-700">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Nome Fantasia
+                              </th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                CNPJ
+                              </th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Cidade
+                              </th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Responsável
+                              </th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Ações
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
+                            {(cliente.filiais ?? []).map((filial) => (
+                              <tr key={filial.id}>
+                                <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                                  {filial.nomeFantasia}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                                  {filial.cnpj}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                                  {filial.cidade}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                                  {filial.responsavel}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-right whitespace-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditFilialFromInfo(filial)}
+                                    disabled={loadingFilialAction}
+                                    className="text-[#004085] dark:text-blue-400 hover:underline mr-3 disabled:opacity-50"
+                                  >
+                                    Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleRemoveFilialFromInfo(filial.id)}
+                                    disabled={loadingFilialAction}
+                                    className="text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+                                  >
+                                    Remover
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -2113,7 +2533,7 @@ export default function ClienteDetalhes() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => void handleCopyFormularioCadastroLink()}
+                        onClick={handleOpenCopyFormularioModal}
                         className="bg-amber-600 dark:bg-amber-700 hover:bg-amber-700 dark:hover:bg-amber-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
                       >
                         Copiar link do formulário
@@ -2437,7 +2857,7 @@ export default function ClienteDetalhes() {
                                   type="checkbox"
                                   checked={mensalidades.length > 0 && selectedParcelasIds.size === mensalidades.length}
                                   onChange={toggleSelectAllMensalidades}
-                                  className="h-4 w-4 text-[#004085] focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded"
+                                  className="h-4 w-4 accent-[#004085] text-[#004085] focus:ring-2 focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                                 />
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -2474,7 +2894,7 @@ export default function ClienteDetalhes() {
                                     type="checkbox"
                                     checked={selectedParcelasIds.has(mensalidade.id)}
                                     onChange={() => toggleParcelaSelection(mensalidade.id)}
-                                    className="h-4 w-4 text-[#004085] focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded"
+                                    className="h-4 w-4 accent-[#004085] text-[#004085] focus:ring-2 focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                                   />
                                 </td>
                                 <td className="px-6 py-4">
@@ -3754,6 +4174,320 @@ export default function ClienteDetalhes() {
           </div>
       </AnimatedModal>
 
+      <AnimatedModal open={showCopyFormularioModal} onClose={handleCloseCopyFormularioModal}>
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+              Selecionar filial do formulário
+            </h3>
+            <button
+              type="button"
+              onClick={handleCloseCopyFormularioModal}
+              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+            Escolha a unidade que já virá selecionada no link do formulário.
+          </p>
+          <div className="mb-6">
+            <label
+              htmlFor="copyFormularioFilial"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            >
+              Unidade / CNPJ do contrato *
+            </label>
+            <select
+              id="copyFormularioFilial"
+              value={copyFormularioFilialId}
+              onChange={(e) => setCopyFormularioFilialId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+            >
+              <option value="">
+                Matriz — {cliente?.nomeFantasia} ({cliente?.cnpj})
+              </option>
+              {(cliente?.filiais ?? []).map((filial) => (
+                <option key={filial.id} value={filial.id}>
+                  Filial — {filial.nomeFantasia} ({filial.cnpj})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={handleCloseCopyFormularioModal}
+              className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleCopyFormularioCadastroLink()}
+              className="px-4 py-2 bg-amber-600 dark:bg-amber-700 hover:bg-amber-700 dark:hover:bg-amber-600 text-white rounded-lg transition-colors"
+            >
+              Copiar link
+            </button>
+          </div>
+        </div>
+      </AnimatedModal>
+
+      {/* Modal de Filial (aba Informações) */}
+      <AnimatedModal open={showFilialModal} onClose={handleCloseFilialModal}>
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto transition-colors">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+              {editingFilialId ? 'Editar Filial' : 'Adicionar Filial'}
+            </h3>
+            <button
+              onClick={handleCloseFilialModal}
+              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                CNPJ *
+              </label>
+              <input
+                type="text"
+                value={filialForm.cnpj}
+                onChange={(e) =>
+                  setFilialForm({ ...filialForm, cnpj: formatCnpjMask(e.target.value) })
+                }
+                onBlur={(ev) => void handleFilialCnpjBlur(ev)}
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="00.000.000/0000-00"
+                maxLength={18}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Razão Social *
+              </label>
+              <input
+                type="text"
+                value={filialForm.razaoSocial}
+                onChange={(e) =>
+                  setFilialForm({ ...filialForm, razaoSocial: e.target.value })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="Razão Social da Filial"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Nome Fantasia *
+              </label>
+              <input
+                type="text"
+                value={filialForm.nomeFantasia}
+                onChange={(e) =>
+                  setFilialForm({ ...filialForm, nomeFantasia: e.target.value })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="Nome Fantasia da Filial"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Telefone *
+              </label>
+              <input
+                type="text"
+                value={filialForm.telefone}
+                onChange={(e) =>
+                  setFilialForm({
+                    ...filialForm,
+                    telefone: formatTelefoneMask(e.target.value),
+                  })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="(61) 99999-9999"
+                maxLength={15}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Email *
+              </label>
+              <input
+                type="email"
+                value={filialForm.email}
+                onChange={(e) =>
+                  setFilialForm({ ...filialForm, email: e.target.value })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="email@filial.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                UF
+              </label>
+              <input
+                type="text"
+                value={filialForm.uf}
+                onChange={(e) =>
+                  setFilialForm({
+                    ...filialForm,
+                    uf: e.target.value.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase(),
+                  })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="DF"
+                maxLength={2}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Endereço *
+              </label>
+              <input
+                type="text"
+                value={filialForm.endereco}
+                onChange={(e) =>
+                  setFilialForm({ ...filialForm, endereco: e.target.value })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="Logradouro, número, complemento"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Cidade *
+              </label>
+              <input
+                type="text"
+                value={filialForm.cidade}
+                onChange={(e) =>
+                  setFilialForm({ ...filialForm, cidade: e.target.value })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="Brasília"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Bairro *
+              </label>
+              <input
+                type="text"
+                value={filialForm.bairro}
+                onChange={(e) =>
+                  setFilialForm({ ...filialForm, bairro: e.target.value })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="Asa Sul"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                CEP *
+              </label>
+              <input
+                type="text"
+                value={filialForm.cep}
+                onChange={(e) =>
+                  setFilialForm({
+                    ...filialForm,
+                    cep: formatCepMask(e.target.value),
+                  })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="70000-000"
+                maxLength={9}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Responsável *
+              </label>
+              <input
+                type="text"
+                value={filialForm.responsavel}
+                onChange={(e) =>
+                  setFilialForm({ ...filialForm, responsavel: e.target.value })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="Nome do Responsável"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Cargo do responsável
+              </label>
+              <input
+                type="text"
+                value={filialForm.responsavelCargo}
+                onChange={(e) =>
+                  setFilialForm({ ...filialForm, responsavelCargo: e.target.value })
+                }
+                disabled={loadingFilialCnpj || loadingFilialAction}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                placeholder="Ex.: Diretor Administrativo"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-3 mt-6">
+            <button
+              type="button"
+              onClick={handleCloseFilialModal}
+              className="px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handlePersistFilialFromInfo()}
+              disabled={
+                loadingFilialCnpj ||
+                loadingFilialAction ||
+                !filialForm.cnpj ||
+                !filialForm.razaoSocial ||
+                !filialForm.nomeFantasia ||
+                !filialForm.telefone ||
+                !filialForm.email ||
+                !filialForm.endereco ||
+                !filialForm.cidade ||
+                !filialForm.bairro ||
+                !filialForm.cep ||
+                !filialForm.responsavel
+              }
+              className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {loadingFilialAction || loadingFilialCnpj ? (
+                <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              ) : editingFilialId ? (
+                'Atualizar'
+              ) : (
+                'Adicionar'
+              )}
+            </button>
+          </div>
+        </div>
+      </AnimatedModal>
+
       {/* Modal de Editar Cliente */}
       <AnimatedModal open={showEditModal} onClose={handleCloseEditModal}>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto transition-colors">
@@ -3966,6 +4700,361 @@ export default function ClienteDetalhes() {
                   <option value="inativo">Inativo</option>
                 </select>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Forma de Captação
+                </label>
+                <select
+                  value={formData.formaCaptacao}
+                  onChange={(e) => {
+                    const value = e.target.value as FormaCaptacao | '';
+                    setFormData({
+                      ...formData,
+                      formaCaptacao: value,
+                      formaCaptacaoDetalhe:
+                        value === 'indicacao' || value === 'outro'
+                          ? formData.formaCaptacaoDetalhe
+                          : '',
+                    });
+                  }}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                >
+                  <option value="">Selecione</option>
+                  {FORMA_CAPTACAO_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {formData.formaCaptacao === 'indicacao' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Quem *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.formaCaptacaoDetalhe}
+                    onChange={(e) =>
+                      setFormData({ ...formData, formaCaptacaoDetalhe: e.target.value })
+                    }
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                    placeholder="Nome de quem indicou"
+                  />
+                </div>
+              )}
+
+              {formData.formaCaptacao === 'outro' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Outro *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.formaCaptacaoDetalhe}
+                    onChange={(e) =>
+                      setFormData({ ...formData, formaCaptacaoDetalhe: e.target.value })
+                    }
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                    placeholder="Descreva a forma de captação"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 border-t border-gray-200 dark:border-gray-600 pt-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-bold text-[#004085] dark:text-blue-400">
+                  Filiais
+                </h4>
+                {!showFilialForm && (
+                  <button
+                    type="button"
+                    onClick={handleAddFilial}
+                    className="text-sm text-[#004085] dark:text-blue-400 hover:underline"
+                  >
+                    Adicionar filial
+                  </button>
+                )}
+              </div>
+
+              {filiais.length === 0 && !showFilialForm && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Nenhuma filial cadastrada.
+                </p>
+              )}
+
+              {filiais.length > 0 && (
+                <ul className="space-y-2">
+                  {filiais.map((filial) => (
+                    <li
+                      key={filial.id}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                          {filial.nomeFantasia}
+                        </p>
+                        <p className="text-gray-500 dark:text-gray-400">{filial.cnpj}</p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEditFilial(filial)}
+                          className="text-[#004085] dark:text-blue-400 hover:underline"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFilial(filial.id)}
+                          className="text-red-600 dark:text-red-400 hover:underline"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {showFilialForm && (
+                <div className="rounded-lg border border-gray-200 dark:border-gray-600 p-4 space-y-3 bg-gray-50 dark:bg-slate-900/40">
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {editingFilialId ? 'Editar filial' : 'Nova filial'}
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        CNPJ *
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.cnpj}
+                        onChange={(e) =>
+                          setFilialForm({ ...filialForm, cnpj: formatCnpjMask(e.target.value) })
+                        }
+                        onBlur={(ev) => void handleFilialCnpjBlur(ev)}
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="00.000.000/0000-00"
+                        maxLength={18}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Razão Social *
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.razaoSocial}
+                        onChange={(e) =>
+                          setFilialForm({ ...filialForm, razaoSocial: e.target.value })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="Razão Social da Filial"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Nome Fantasia *
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.nomeFantasia}
+                        onChange={(e) =>
+                          setFilialForm({ ...filialForm, nomeFantasia: e.target.value })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="Nome Fantasia da Filial"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Telefone *
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.telefone}
+                        onChange={(e) =>
+                          setFilialForm({
+                            ...filialForm,
+                            telefone: formatTelefoneMask(e.target.value),
+                          })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="(61) 99999-9999"
+                        maxLength={15}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Email *
+                      </label>
+                      <input
+                        type="email"
+                        value={filialForm.email}
+                        onChange={(e) =>
+                          setFilialForm({ ...filialForm, email: e.target.value })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="email@filial.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        UF
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.uf}
+                        onChange={(e) =>
+                          setFilialForm({
+                            ...filialForm,
+                            uf: e.target.value.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase(),
+                          })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="DF"
+                        maxLength={2}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Endereço *
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.endereco}
+                        onChange={(e) =>
+                          setFilialForm({ ...filialForm, endereco: e.target.value })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="Logradouro, número, complemento"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Cidade *
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.cidade}
+                        onChange={(e) =>
+                          setFilialForm({ ...filialForm, cidade: e.target.value })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="Brasília"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Bairro *
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.bairro}
+                        onChange={(e) =>
+                          setFilialForm({ ...filialForm, bairro: e.target.value })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="Asa Sul"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        CEP *
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.cep}
+                        onChange={(e) =>
+                          setFilialForm({
+                            ...filialForm,
+                            cep: formatCepMask(e.target.value),
+                          })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="70000-000"
+                        maxLength={9}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Responsável *
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.responsavel}
+                        onChange={(e) =>
+                          setFilialForm({ ...filialForm, responsavel: e.target.value })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="Nome do Responsável"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Cargo do responsável
+                      </label>
+                      <input
+                        type="text"
+                        value={filialForm.responsavelCargo}
+                        onChange={(e) =>
+                          setFilialForm({ ...filialForm, responsavelCargo: e.target.value })
+                        }
+                        disabled={loadingFilialCnpj}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                        placeholder="Ex.: Diretor Administrativo"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={resetFilialForm}
+                      className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveFilial}
+                      disabled={
+                        loadingFilialCnpj ||
+                        !filialForm.cnpj ||
+                        !filialForm.razaoSocial ||
+                        !filialForm.nomeFantasia ||
+                        !filialForm.telefone ||
+                        !filialForm.email ||
+                        !filialForm.endereco ||
+                        !filialForm.cidade ||
+                        !filialForm.bairro ||
+                        !filialForm.cep ||
+                        !filialForm.responsavel
+                      }
+                      className="px-3 py-1.5 text-sm bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {editingFilialId ? 'Atualizar filial' : 'Salvar filial'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end space-x-3 mt-6">
@@ -3977,7 +5066,7 @@ export default function ClienteDetalhes() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={loadingAction || loadingCnpjLookup || !formData.cnpj || !formData.razaoSocial || !formData.nomeFantasia || !formData.telefone || !formData.email || !formData.cidade || !formData.bairro || !formData.cep || !formData.responsavel}
+                disabled={loadingAction || loadingCnpjLookup || !formData.cnpj || !formData.razaoSocial || !formData.nomeFantasia || !formData.telefone || !formData.email || !formData.cidade || !formData.bairro || !formData.cep || !formData.responsavel || ((formData.formaCaptacao === 'indicacao' || formData.formaCaptacao === 'outro') && !formData.formaCaptacaoDetalhe.trim())}
                 className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {loadingAction || loadingCnpjLookup ? (
