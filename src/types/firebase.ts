@@ -107,8 +107,20 @@ export interface Cliente {
   formaCaptacaoDetalhe?: string;
   estagiariosVinculados?: string[]; // Array de IDs dos estagiários vinculados
   filiais?: ClienteFilial[];
+  termosAceite?: ClienteTermosAceite;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ClienteTermosAceite {
+  aceito: boolean;
+  nomeSignatario: string;
+  cargoSignatario?: string;
+  emailSignatario?: string;
+  aceitoEm: Date;
+  userAgent?: string;
+  pdfDrivePath?: string;
+  versaoTermos: string;
 }
 
 export type FormaCaptacao =

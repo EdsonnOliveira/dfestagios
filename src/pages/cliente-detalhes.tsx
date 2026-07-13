@@ -27,6 +27,15 @@ import {
   parseValorServico,
 } from '../lib/nfseEmit';
 import { getNfseServicoOptions } from '../constants/nfseServicos';
+import { VERSAO_TERMOS } from '../constants/termosContratacao';
+import {
+  calculateRescisao,
+  formatDatePtBr,
+} from '../services/rescisaoCalcService';
+import {
+  downloadRescisaoDocx,
+  generateRescisaoDocxBlob,
+} from '../services/rescisaoDocxService';
 
 const emptyFilialForm = {
   cnpj: '',
@@ -92,7 +101,14 @@ export default function ClienteDetalhes() {
   const [loadingVincular, setLoadingVincular] = useState(false);
   const [loadingCadastrar, setLoadingCadastrar] = useState(false);
   const [loadingMensalidade, setLoadingMensalidade] = useState(false);
-  const [activeTab, setActiveTab] = useState<'info' | 'estagiarios' | 'financeiro' | 'notaFiscal'>('info');
+  const [activeTab, setActiveTab] = useState<
+    'info' | 'estagiarios' | 'financeiro' | 'notaFiscal' | 'rescisao'
+  >('info');
+  const [rescisaoEstagiarioId, setRescisaoEstagiarioId] = useState('');
+  const [rescisaoDataSaida, setRescisaoDataSaida] = useState('');
+  const [rescisaoUltimoPagamento, setRescisaoUltimoPagamento] = useState('');
+  const [rescisaoDescontos, setRescisaoDescontos] = useState('');
+  const [generatingRescisao, setGeneratingRescisao] = useState(false);
   const [nfseEmissions, setNfseEmissions] = useState<NfseEmission[]>([]);
   const [loadingNfse, setLoadingNfse] = useState(true);
   const [showEmitNfseModal, setShowEmitNfseModal] = useState(false);
@@ -153,6 +169,7 @@ export default function ClienteDetalhes() {
   const [loadingFilialAction, setLoadingFilialAction] = useState(false);
   const [showCopyFormularioModal, setShowCopyFormularioModal] = useState(false);
   const [copyFormularioFilialId, setCopyFormularioFilialId] = useState('');
+  const [downloadingTermosAceite, setDownloadingTermosAceite] = useState(false);
   const [formData, setFormData] = useState({
     cnpj: '',
     razaoSocial: '',
@@ -190,20 +207,21 @@ export default function ClienteDetalhes() {
     formaPagamento: 'pix' as 'pix' | 'boleto'
   });
 
-  // Função removida - não utilizada
-  /*
   const toDate = (value: unknown): Date | null => {
     if (!value) return null;
     if (value instanceof Date) return value;
     if (typeof value === 'string') return new Date(value);
-    if (typeof value === 'object' && value !== null && 'toDate' in value && typeof (value as { toDate: () => Date }).toDate === 'function') {
+    if (
+      typeof value === 'object' &&
+      value !== null &&
+      'toDate' in value &&
+      typeof (value as { toDate: () => Date }).toDate === 'function'
+    ) {
       return (value as { toDate: () => Date }).toDate();
     }
     return null;
   };
-  */
 
-  // Função para formatar data sem problemas de timezone
   const formatarDataNascimento = (dataString: string | undefined): string => {
     if (!dataString) return '-';
     
@@ -1483,6 +1501,111 @@ export default function ClienteDetalhes() {
     }).format(valor);
   };
 
+  const estagiariosAtivosRescisao = useMemo(
+    () => estagiarios.filter((e) => e.status === 'ativo'),
+    [estagiarios]
+  );
+
+  const rescisaoEstagiarioSelecionado = useMemo(
+    () =>
+      estagiariosAtivosRescisao.find((e) => e.id === rescisaoEstagiarioId) ??
+      null,
+    [estagiariosAtivosRescisao, rescisaoEstagiarioId]
+  );
+
+  const rescisaoPreview = useMemo(() => {
+    if (!rescisaoEstagiarioSelecionado || !rescisaoDataSaida) return null;
+    const bolsa = rescisaoEstagiarioSelecionado.estagioValorBolsa ?? '';
+    const dataInicio = rescisaoEstagiarioSelecionado.estagioDataInicio ?? '';
+    if (!bolsa.trim() || !dataInicio.trim()) return null;
+    return calculateRescisao({
+      bolsa,
+      dataInicio,
+      dataSaida: rescisaoDataSaida,
+      dataUltimoPagamento: rescisaoUltimoPagamento,
+      descontos: rescisaoDescontos,
+    });
+  }, [
+    rescisaoEstagiarioSelecionado,
+    rescisaoDataSaida,
+    rescisaoUltimoPagamento,
+    rescisaoDescontos,
+  ]);
+
+  const handleSelectRescisaoEstagiario = useCallback((estagiarioId: string) => {
+    setRescisaoEstagiarioId(estagiarioId);
+    setRescisaoDataSaida('');
+    setRescisaoUltimoPagamento('');
+    setRescisaoDescontos('');
+  }, []);
+
+  const handleGerarRescisao = useCallback(async () => {
+    if (!cliente || !rescisaoEstagiarioSelecionado) {
+      toast.error('Selecione um estagiário ativo.');
+      return;
+    }
+    const bolsa = rescisaoEstagiarioSelecionado.estagioValorBolsa?.trim() ?? '';
+    const dataInicio =
+      rescisaoEstagiarioSelecionado.estagioDataInicio?.trim() ?? '';
+    if (!bolsa || !dataInicio) {
+      toast.error(
+        'Complete o contrato do estagiário (bolsa e data de início) antes de gerar a rescisão.'
+      );
+      return;
+    }
+    if (!rescisaoDataSaida.trim()) {
+      toast.error('Informe a data de saída.');
+      return;
+    }
+    const preview = calculateRescisao({
+      bolsa,
+      dataInicio,
+      dataSaida: rescisaoDataSaida,
+      dataUltimoPagamento: rescisaoUltimoPagamento,
+      descontos: rescisaoDescontos,
+    });
+    if (!preview) {
+      toast.error(
+        'Datas inválidas. A data de saída deve ser igual ou posterior à data de início e ao último pagamento.'
+      );
+      return;
+    }
+    try {
+      setGeneratingRescisao(true);
+      const blob = await generateRescisaoDocxBlob({
+        empresaRazaoSocial: cliente.razaoSocial,
+        empresaCnpj: cliente.cnpj,
+        empresaCidade: cliente.cidade,
+        estagiarioNome: rescisaoEstagiarioSelecionado.nome,
+        estagiarioCpf: formatCpfDisplay(
+          rescisaoEstagiarioSelecionado.cpf
+        ).replace(/^-$/, ''),
+        bolsa,
+        dataInicio,
+        dataSaida: rescisaoDataSaida,
+        dataUltimoPagamento: rescisaoUltimoPagamento,
+        descontos: rescisaoDescontos,
+      });
+      downloadRescisaoDocx(blob, rescisaoEstagiarioSelecionado.nome);
+      toast.success('Rescisão gerada com sucesso.');
+    } catch (error) {
+      console.error(error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível gerar a rescisão.'
+      );
+    } finally {
+      setGeneratingRescisao(false);
+    }
+  }, [
+    cliente,
+    rescisaoEstagiarioSelecionado,
+    rescisaoDataSaida,
+    rescisaoUltimoPagamento,
+    rescisaoDescontos,
+  ]);
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pago':
@@ -1684,6 +1807,53 @@ export default function ClienteDetalhes() {
     } catch {
       toast.error('Não foi possível copiar automaticamente.');
       toast(url, { duration: 10000 });
+    }
+  };
+
+  const handleCopyAceiteTermosLink = async () => {
+    const clienteIdParam =
+      typeof id === 'string' ? id : Array.isArray(id) ? id[0] : '';
+    if (!clienteIdParam || typeof window === 'undefined') return;
+    const url = `${window.location.origin}/aceite-termos?clienteId=${encodeURIComponent(clienteIdParam)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Link de aceite copiado para a área de transferência.');
+    } catch {
+      toast.error('Não foi possível copiar automaticamente.');
+      toast(url, { duration: 10000 });
+    }
+  };
+
+  const handleDownloadTermosAceite = async () => {
+    const path = cliente?.termosAceite?.pdfDrivePath?.trim();
+    if (!path) {
+      toast.error('Comprovante ainda não disponível.');
+      return;
+    }
+    if (!getSupabaseBrowserClient()) {
+      toast.error('Configure o Drive (Supabase) para baixar o comprovante.');
+      return;
+    }
+    setDownloadingTermosAceite(true);
+    try {
+      const url = await driveStorageService.getSignedDownloadUrl(path);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('download failed');
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl;
+      a.download = `Aceite_Termos_${(cliente?.nomeFantasia || cliente?.razaoSocial || 'Cliente').replace(/[^\w.\-()+ ]/g, '_')}.pdf`;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+    } catch (error) {
+      console.error(error);
+      toast.error('Não foi possível baixar o comprovante.');
+    } finally {
+      setDownloadingTermosAceite(false);
     }
   };
 
@@ -2237,6 +2407,16 @@ export default function ClienteDetalhes() {
                 >
                   Financeiro ({mensalidades.length})
                 </button>
+                <button
+                  onClick={() => setActiveTab('rescisao')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'rescisao'
+                      ? 'border-[#004085] dark:border-blue-400 text-[#004085] dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                  }`}
+                >
+                  Rescisão
+                </button>
                 {isAdmin && (
                   <button
                     onClick={() => setActiveTab('notaFiscal')}
@@ -2429,6 +2609,59 @@ export default function ClienteDetalhes() {
                       </label>
                       <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold">{cliente.valor || 'R$ 0,00'}</p>
                     </div>
+                  </div>
+
+                  <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                      <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                        Termos de contratação
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyAceiteTermosLink()}
+                          className="bg-amber-600 dark:bg-amber-700 hover:bg-amber-700 dark:hover:bg-amber-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                        >
+                          Copiar link de aceite
+                        </button>
+                        {cliente.termosAceite?.aceito &&
+                          cliente.termosAceite.versaoTermos === VERSAO_TERMOS &&
+                          cliente.termosAceite.pdfDrivePath && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDownloadTermosAceite()}
+                              disabled={downloadingTermosAceite}
+                              className="bg-[#004085] dark:bg-blue-600 hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                            >
+                              {downloadingTermosAceite
+                                ? 'Baixando...'
+                                : 'Baixar comprovante'}
+                            </button>
+                          )}
+                      </div>
+                    </div>
+                    {cliente.termosAceite?.aceito &&
+                    cliente.termosAceite.versaoTermos === VERSAO_TERMOS ? (
+                      <p className="text-sm text-green-700 dark:text-green-400">
+                        Aceito em{' '}
+                        {(() => {
+                          const d = toDate(cliente.termosAceite.aceitoEm);
+                          return d
+                            ? d.toLocaleString('pt-BR')
+                            : 'data registrada';
+                        })()}{' '}
+                        por {cliente.termosAceite.nomeSignatario}
+                        {cliente.termosAceite.cargoSignatario
+                          ? ` (${cliente.termosAceite.cargoSignatario})`
+                          : ''}
+                        .
+                      </p>
+                    ) : (
+                      <p className="text-sm text-amber-700 dark:text-amber-400">
+                        Pendente — envie o link para o cliente ler e aceitar os
+                        termos.
+                      </p>
+                    )}
                   </div>
 
                   <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
@@ -3079,6 +3312,253 @@ export default function ClienteDetalhes() {
                         <div className="text-center py-8">
                           <p className="text-gray-500 dark:text-gray-400">Nenhuma mensalidade encontrada para este cliente.</p>
                         </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'rescisao' && (
+                <div>
+                  <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400 mb-6">
+                    Rescisão de estágio
+                  </h2>
+
+                  {estagiariosAtivosRescisao.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-500 dark:text-gray-400">
+                        Nenhum estagiário ativo vinculado a este cliente.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Estagiário
+                        </label>
+                        <select
+                          value={rescisaoEstagiarioId}
+                          onChange={(e) =>
+                            handleSelectRescisaoEstagiario(e.target.value)
+                          }
+                          className="w-full max-w-xl px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                        >
+                          <option value="">Selecione um estagiário ativo</option>
+                          {estagiariosAtivosRescisao.map((estagiario) => (
+                            <option key={estagiario.id} value={estagiario.id}>
+                              {estagiario.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {rescisaoEstagiarioSelecionado && (
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Nome completo
+                              </label>
+                              <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold">
+                                {rescisaoEstagiarioSelecionado.nome}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                CPF
+                              </label>
+                              <p className="text-sm text-gray-900 dark:text-gray-100">
+                                {formatCpfDisplay(
+                                  rescisaoEstagiarioSelecionado.cpf
+                                )}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Valor da bolsa
+                              </label>
+                              <p className="text-sm text-gray-900 dark:text-gray-100">
+                                {rescisaoEstagiarioSelecionado.estagioValorBolsa ||
+                                  '—'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Data de início
+                              </label>
+                              <p className="text-sm text-gray-900 dark:text-gray-100">
+                                {rescisaoEstagiarioSelecionado.estagioDataInicio
+                                  ? formatDatePtBr(
+                                      rescisaoEstagiarioSelecionado.estagioDataInicio
+                                    )
+                                  : '—'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Razão social
+                              </label>
+                              <p className="text-sm text-gray-900 dark:text-gray-100">
+                                {cliente?.razaoSocial}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                CNPJ
+                              </label>
+                              <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold">
+                                {cliente?.cnpj}
+                              </p>
+                            </div>
+                          </div>
+
+                          {(!rescisaoEstagiarioSelecionado.estagioValorBolsa?.trim() ||
+                            !rescisaoEstagiarioSelecionado.estagioDataInicio?.trim()) && (
+                            <div className="rounded-lg border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+                              Complete o contrato do estagiário (bolsa e data de
+                              início) antes de gerar a rescisão.
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Data de saída
+                              </label>
+                              <input
+                                type="date"
+                                value={rescisaoDataSaida}
+                                onChange={(e) =>
+                                  setRescisaoDataSaida(e.target.value)
+                                }
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Data do último pagamento
+                              </label>
+                              <input
+                                type="date"
+                                value={rescisaoUltimoPagamento}
+                                onChange={(e) =>
+                                  setRescisaoUltimoPagamento(e.target.value)
+                                }
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                              />
+                              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                Opcional. Se vazio, calcula da data de início.
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Descontos
+                              </label>
+                              <input
+                                type="text"
+                                value={rescisaoDescontos}
+                                onChange={(e) =>
+                                  setRescisaoDescontos(e.target.value)
+                                }
+                                placeholder="R$ 0,00"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                              />
+                            </div>
+                          </div>
+
+                          {rescisaoPreview && (
+                            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-slate-700/50">
+                              <h3 className="text-sm font-semibold text-[#004085] dark:text-blue-400 mb-4">
+                                Prévia do cálculo
+                              </h3>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Dias trabalhados
+                                  </p>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {rescisaoPreview.diasTrabalhados}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Valor do dia
+                                  </p>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {rescisaoPreview.valorDiaFmt}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Saldo bolsa-auxílio
+                                  </p>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {rescisaoPreview.valorDiasTrabalhadosFmt}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Dias de férias
+                                  </p>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {rescisaoPreview.diasFerias}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Valor do dia férias
+                                  </p>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {rescisaoPreview.valorDiaFeriasFmt}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Proporcional férias
+                                  </p>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {rescisaoPreview.proporcionalFeriasFmt}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Descontos
+                                  </p>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {rescisaoPreview.descontosFmt}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Valor líquido
+                                  </p>
+                                  <p className="text-sm font-bold text-[#004085] dark:text-blue-400">
+                                    {rescisaoPreview.valorLiquidoFmt}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => void handleGerarRescisao()}
+                              disabled={
+                                generatingRescisao ||
+                                !rescisaoDataSaida ||
+                                !rescisaoPreview ||
+                                !rescisaoEstagiarioSelecionado.estagioValorBolsa?.trim() ||
+                                !rescisaoEstagiarioSelecionado.estagioDataInicio?.trim()
+                              }
+                              className="bg-[#004085] dark:bg-blue-600 hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                            >
+                              {generatingRescisao
+                                ? 'Gerando...'
+                                : 'Gerar rescisão'}
+                            </button>
+                          </div>
+                        </>
                       )}
                     </div>
                   )}
