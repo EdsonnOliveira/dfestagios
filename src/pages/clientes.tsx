@@ -160,6 +160,8 @@ export default function Clientes() {
   const [editingFilialId, setEditingFilialId] = useState<string | null>(null);
   const [filialForm, setFilialForm] = useState(emptyFilialForm);
   const [loadingFilialCnpj, setLoadingFilialCnpj] = useState(false);
+  const lastFilialCnpjFetched = useRef('');
+  const filialCnpjLookupSeq = useRef(0);
 
   const [formData, setFormData] = useState({
     cnpj: '',
@@ -245,40 +247,83 @@ export default function Clientes() {
     return formattedValue;
   };
 
-  const handleFilialCnpjBlur = useCallback(async (e: FocusEvent<HTMLInputElement>) => {
-    const digits = e.currentTarget.value.replace(/\D/g, '');
+  const lookupFilialCnpj = useCallback(async (cnpjValue: string) => {
+    const digits = cnpjValue.replace(/\D/g, '');
     if (digits.length !== 14) return;
+    if (lastFilialCnpjFetched.current === digits) return;
+    lastFilialCnpjFetched.current = digits;
+    const seq = ++filialCnpjLookupSeq.current;
     setLoadingFilialCnpj(true);
     try {
       const mapped = await fetchCnpjLookup(digits);
-      if (!mapped) return;
+      if (seq !== filialCnpjLookupSeq.current) return;
+      if (!mapped) {
+        lastFilialCnpjFetched.current = '';
+        return;
+      }
       setFilialForm((prev) => ({
         ...prev,
         ...mapped,
         cnpj: prev.cnpj,
-        uf: prev.uf,
         responsavelCargo: prev.responsavelCargo,
       }));
     } catch (err) {
+      if (seq !== filialCnpjLookupSeq.current) return;
+      lastFilialCnpjFetched.current = '';
       console.error('Erro ao consultar CNPJ da filial:', err);
     } finally {
-      setLoadingFilialCnpj(false);
+      if (seq === filialCnpjLookupSeq.current) {
+        setLoadingFilialCnpj(false);
+      }
     }
   }, []);
 
+  const handleFilialCnpjChange = useCallback(
+    (value: string) => {
+      const formattedValue = formatCnpjMask(value);
+      const digits = formattedValue.replace(/\D/g, '');
+      if (digits.length < 14) {
+        filialCnpjLookupSeq.current += 1;
+        lastFilialCnpjFetched.current = '';
+        setLoadingFilialCnpj(false);
+      }
+      setFilialForm((prev) => ({ ...prev, cnpj: formattedValue }));
+      if (digits.length === 14) {
+        void lookupFilialCnpj(formattedValue);
+      }
+    },
+    [lookupFilialCnpj]
+  );
+
+  const handleFilialCnpjBlur = useCallback(
+    (e: FocusEvent<HTMLInputElement>) => {
+      void lookupFilialCnpj(e.currentTarget.value);
+    },
+    [lookupFilialCnpj]
+  );
+
   const resetFilialForm = () => {
+    filialCnpjLookupSeq.current += 1;
+    lastFilialCnpjFetched.current = '';
+    setLoadingFilialCnpj(false);
     setFilialForm(emptyFilialForm);
     setEditingFilialId(null);
     setShowFilialForm(false);
   };
 
   const handleAddFilial = () => {
+    filialCnpjLookupSeq.current += 1;
+    lastFilialCnpjFetched.current = '';
+    setLoadingFilialCnpj(false);
     setFilialForm(emptyFilialForm);
     setEditingFilialId(null);
     setShowFilialForm(true);
   };
 
   const handleEditFilial = (filial: ClienteFilial) => {
+    filialCnpjLookupSeq.current += 1;
+    lastFilialCnpjFetched.current = filial.cnpj.replace(/\D/g, '');
+    setLoadingFilialCnpj(false);
     setFilialForm({
       cnpj: filial.cnpj,
       razaoSocial: filial.razaoSocial,
@@ -1907,10 +1952,8 @@ export default function Clientes() {
                         <input
                           type="text"
                           value={filialForm.cnpj}
-                          onChange={(e) =>
-                            setFilialForm({ ...filialForm, cnpj: formatCnpjMask(e.target.value) })
-                          }
-                          onBlur={(ev) => void handleFilialCnpjBlur(ev)}
+                          onChange={(e) => handleFilialCnpjChange(e.target.value)}
+                          onBlur={handleFilialCnpjBlur}
                           disabled={loadingFilialCnpj}
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
                           placeholder="00.000.000/0000-00"

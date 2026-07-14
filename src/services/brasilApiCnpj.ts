@@ -12,6 +12,7 @@ export interface BrasilApiCnpjPayload {
   municipio?: string;
   bairro?: string;
   cep?: string;
+  uf?: string;
   logradouro?: string;
   numero?: string;
   complemento?: string;
@@ -29,6 +30,7 @@ export interface CnpjLookupMapped {
   bairro: string;
   cep: string;
   endereco: string;
+  uf: string;
   responsavel: string;
 }
 
@@ -95,6 +97,7 @@ export async function fetchCnpjLookup(digits: string): Promise<CnpjLookupMapped 
     bairro: (data.bairro ?? '').trim(),
     cep: formatCepFromDigits(cepDigits),
     endereco,
+    uf: (data.uf ?? '').trim().slice(0, 2).toUpperCase(),
     responsavel: pickResponsavel(data.qsa),
   };
 }

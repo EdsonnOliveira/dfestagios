@@ -66,7 +66,7 @@ function buildTemplateData(
     dataAdmissao: calc.dataInicioFmt,
     dataDemissao: calc.dataSaidaFmt,
     bolsaAuxilio: calc.bolsaFmt,
-    feriasAnuais: calc.proporcionalFeriasFmt,
+    feriasAnuais: calc.bolsaFmt,
     diasBolsa: String(calc.diasTrabalhados),
     dataUltimoPagamento: ultimoFmt,
     saldoBolsa: calc.valorDiasTrabalhadosFmt,
