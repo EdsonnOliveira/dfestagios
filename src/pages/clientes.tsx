@@ -353,7 +353,6 @@ export default function Clientes() {
       !filialForm.razaoSocial ||
       !filialForm.nomeFantasia ||
       !filialForm.telefone ||
-      !filialForm.email ||
       !filialForm.endereco ||
       !filialForm.cidade ||
       !filialForm.bairro ||
@@ -373,9 +372,11 @@ export default function Clientes() {
       cidade: filialForm.cidade,
       bairro: filialForm.bairro,
       cep: filialForm.cep,
-      uf: filialForm.uf || undefined,
       responsavel: filialForm.responsavel,
-      responsavelCargo: filialForm.responsavelCargo || undefined,
+      ...(filialForm.uf.trim() ? { uf: filialForm.uf.trim() } : {}),
+      ...(filialForm.responsavelCargo.trim()
+        ? { responsavelCargo: filialForm.responsavelCargo.trim() }
+        : {}),
     };
     if (editingFilialId) {
       setFiliais((prev) => prev.map((f) => (f.id === editingFilialId ? payload : f)));
@@ -1696,7 +1697,7 @@ export default function Clientes() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Email *
+                    Email
                   </label>
                   <input
                     type="email"
@@ -2011,7 +2012,7 @@ export default function Clientes() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Email *
+                          Email
                         </label>
                         <input
                           type="email"
@@ -2155,7 +2156,6 @@ export default function Clientes() {
                           !filialForm.razaoSocial ||
                           !filialForm.nomeFantasia ||
                           !filialForm.telefone ||
-                          !filialForm.email ||
                           !filialForm.endereco ||
                           !filialForm.cidade ||
                           !filialForm.bairro ||
@@ -2204,7 +2204,6 @@ export default function Clientes() {
                       !formData.razaoSocial ||
                       !formData.nomeFantasia ||
                       !formData.telefone ||
-                      !formData.email ||
                       !formData.endereco ||
                       !formData.cidade ||
                       !formData.bairro ||

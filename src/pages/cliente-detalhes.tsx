@@ -423,7 +423,6 @@ export default function ClienteDetalhes() {
       !filialForm.razaoSocial ||
       !filialForm.nomeFantasia ||
       !filialForm.telefone ||
-      !filialForm.email ||
       !filialForm.endereco ||
       !filialForm.cidade ||
       !filialForm.bairro ||
@@ -443,9 +442,11 @@ export default function ClienteDetalhes() {
       cidade: filialForm.cidade,
       bairro: filialForm.bairro,
       cep: filialForm.cep,
-      uf: filialForm.uf || undefined,
       responsavel: filialForm.responsavel,
-      responsavelCargo: filialForm.responsavelCargo || undefined,
+      ...(filialForm.uf.trim() ? { uf: filialForm.uf.trim() } : {}),
+      ...(filialForm.responsavelCargo.trim()
+        ? { responsavelCargo: filialForm.responsavelCargo.trim() }
+        : {}),
     };
     if (editingFilialId) {
       setFiliais((prev) => prev.map((f) => (f.id === editingFilialId ? payload : f)));
@@ -461,7 +462,6 @@ export default function ClienteDetalhes() {
       !filialForm.razaoSocial ||
       !filialForm.nomeFantasia ||
       !filialForm.telefone ||
-      !filialForm.email ||
       !filialForm.endereco ||
       !filialForm.cidade ||
       !filialForm.bairro ||
@@ -481,9 +481,11 @@ export default function ClienteDetalhes() {
       cidade: filialForm.cidade,
       bairro: filialForm.bairro,
       cep: filialForm.cep,
-      uf: filialForm.uf || undefined,
       responsavel: filialForm.responsavel,
-      responsavelCargo: filialForm.responsavelCargo || undefined,
+      ...(filialForm.uf.trim() ? { uf: filialForm.uf.trim() } : {}),
+      ...(filialForm.responsavelCargo.trim()
+        ? { responsavelCargo: filialForm.responsavelCargo.trim() }
+        : {}),
     };
   };
 
@@ -4855,7 +4857,7 @@ export default function ClienteDetalhes() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Email *
+                Email
               </label>
               <input
                 type="email"
@@ -5001,7 +5003,6 @@ export default function ClienteDetalhes() {
                 !filialForm.razaoSocial ||
                 !filialForm.nomeFantasia ||
                 !filialForm.telefone ||
-                !filialForm.email ||
                 !filialForm.endereco ||
                 !filialForm.cidade ||
                 !filialForm.bairro ||
@@ -5101,7 +5102,7 @@ export default function ClienteDetalhes() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Email *
+                  Email
                 </label>
                 <input
                   type="email"
@@ -5429,7 +5430,7 @@ export default function ClienteDetalhes() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Email *
+                        Email
                       </label>
                       <input
                         type="email"
@@ -5573,7 +5574,6 @@ export default function ClienteDetalhes() {
                         !filialForm.razaoSocial ||
                         !filialForm.nomeFantasia ||
                         !filialForm.telefone ||
-                        !filialForm.email ||
                         !filialForm.endereco ||
                         !filialForm.cidade ||
                         !filialForm.bairro ||
@@ -5598,7 +5598,7 @@ export default function ClienteDetalhes() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={loadingAction || loadingCnpjLookup || !formData.cnpj || !formData.razaoSocial || !formData.nomeFantasia || !formData.telefone || !formData.email || !formData.cidade || !formData.bairro || !formData.cep || !formData.responsavel || ((formData.formaCaptacao === 'indicacao' || formData.formaCaptacao === 'outro') && !formData.formaCaptacaoDetalhe.trim())}
+                disabled={loadingAction || loadingCnpjLookup || !formData.cnpj || !formData.razaoSocial || !formData.nomeFantasia || !formData.telefone || !formData.cidade || !formData.bairro || !formData.cep || !formData.responsavel || ((formData.formaCaptacao === 'indicacao' || formData.formaCaptacao === 'outro') && !formData.formaCaptacaoDetalhe.trim())}
                 className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {loadingAction || loadingCnpjLookup ? (

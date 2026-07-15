@@ -2145,7 +2145,7 @@ export default function Mensalidades() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Email *
+                  Email
                 </label>
                 <input
                   type="email"
@@ -2270,7 +2270,7 @@ export default function Mensalidades() {
               </button>
               <button
                 onClick={handleSalvarCliente}
-                disabled={loadingCliente || !formDataCliente.cnpj || !formDataCliente.razaoSocial || !formDataCliente.telefone || !formDataCliente.email || !formDataCliente.cidade || !formDataCliente.bairro || !formDataCliente.cep || !formDataCliente.responsavel}
+                disabled={loadingCliente || !formDataCliente.cnpj || !formDataCliente.razaoSocial || !formDataCliente.telefone || !formDataCliente.cidade || !formDataCliente.bairro || !formDataCliente.cep || !formDataCliente.responsavel}
                 className="px-4 py-2 bg-[#004085] dark:bg-blue-600 text-white rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loadingCliente ? (
