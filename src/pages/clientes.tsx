@@ -143,6 +143,7 @@ export default function Clientes() {
   const [filtroEstagiario, setFiltroEstagiario] = useState('');
   const [filtroFilial, setFiltroFilial] = useState('');
   const [filtroResponsavel, setFiltroResponsavel] = useState('');
+  const [filtroCnpj, setFiltroCnpj] = useState('');
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
@@ -693,6 +694,7 @@ export default function Clientes() {
       if (filtroRazaoSocial) filtrosAplicados.push(`Razão Social: "${filtroRazaoSocial}"`);
       if (filtroNomeFantasia) filtrosAplicados.push(`Nome Fantasia: "${filtroNomeFantasia}"`);
       if (filtroResponsavel) filtrosAplicados.push(`Responsável: "${filtroResponsavel}"`);
+      if (filtroCnpj) filtrosAplicados.push(`CNPJ: "${filtroCnpj}"`);
       if (filtroCidade) filtrosAplicados.push(`Cidade: "${filtroCidade}"`);
       if (filtroBairro) filtrosAplicados.push(`Bairro: "${filtroBairro}"`);
       if (filtroStatus) {
@@ -886,6 +888,10 @@ export default function Clientes() {
       const matchResponsavel = cliente.responsavel
         .toLowerCase()
         .includes(filtroResponsavel.toLowerCase());
+      const cnpjDigits = cliente.cnpj.replace(/\D/g, '');
+      const filtroCnpjDigits = filtroCnpj.replace(/\D/g, '');
+      const matchCnpj =
+        filtroCnpjDigits === '' || cnpjDigits.includes(filtroCnpjDigits);
       const matchCidade =
         filtroCidade === '' ||
         normalizeLocationKey(cliente.cidade) === normalizeLocationKey(filtroCidade);
@@ -906,6 +912,7 @@ export default function Clientes() {
         matchRazaoSocial &&
         matchNomeFantasia &&
         matchResponsavel &&
+        matchCnpj &&
         matchCidade &&
         matchBairro &&
         matchStatus &&
@@ -1461,6 +1468,35 @@ export default function Clientes() {
                   placeholder="Buscar por responsável..."
                   value={filtroResponsavel}
                   onChange={(e) => setFiltroResponsavel(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  CNPJ
+                </label>
+                <input
+                  type="text"
+                  placeholder="Buscar por CNPJ..."
+                  value={filtroCnpj}
+                  onChange={(e) => {
+                    const numericValue = e.target.value.replace(/\D/g, '').slice(0, 14);
+                    let formattedValue = numericValue;
+                    if (numericValue.length > 2) {
+                      formattedValue = `${numericValue.substring(0, 2)}.${numericValue.substring(2)}`;
+                    }
+                    if (numericValue.length > 5) {
+                      formattedValue = `${formattedValue.substring(0, 6)}.${formattedValue.substring(6)}`;
+                    }
+                    if (numericValue.length > 8) {
+                      formattedValue = `${formattedValue.substring(0, 10)}/${formattedValue.substring(10)}`;
+                    }
+                    if (numericValue.length > 12) {
+                      formattedValue = `${formattedValue.substring(0, 15)}-${numericValue.substring(12, 14)}`;
+                    }
+                    setFiltroCnpj(formattedValue);
+                  }}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
                 />
               </div>

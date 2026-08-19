@@ -17,7 +17,7 @@ import {
   User as FirebaseUser
 } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
-import { Estagiario, EstagiarioWithCompanyEntry, Grupo, Cliente } from '../types/firebase';
+import { Estagiario, EstagiarioWithCompanyEntry, Grupo, Cliente, Entrevista, EntrevistaCandidato } from '../types/firebase';
 
 function parseFirestoreDate(value: unknown): Date | null {
   if (!value) return null;
@@ -508,4 +508,83 @@ export const vinculacoesService = {
       throw error;
     }
   }
+};
+
+export const entrevistasService = {
+  async add(entrevista: Omit<Entrevista, 'id' | 'createdAt' | 'updatedAt'>) {
+    const now = new Date();
+    const docRef = await addDoc(collection(db, 'entrevistas'), {
+      ...entrevista,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return docRef.id;
+  },
+
+  async getAll() {
+    const querySnapshot = await getDocs(collection(db, 'entrevistas'));
+    return querySnapshot.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+    })) as Entrevista[];
+  },
+
+  async getById(id: string): Promise<Entrevista | null> {
+    const docRef = doc(db, 'entrevistas', id);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    return { id: snap.id, ...snap.data() } as Entrevista;
+  },
+
+  async update(id: string, data: Partial<Entrevista>) {
+    const docRef = doc(db, 'entrevistas', id);
+    await updateDoc(docRef, {
+      ...data,
+      updatedAt: new Date(),
+    });
+  },
+
+  async delete(id: string) {
+    const docRef = doc(db, 'entrevistas', id);
+    await deleteDoc(docRef);
+  },
+};
+
+export const entrevistaCandidatosService = {
+  async add(
+    candidato: Omit<EntrevistaCandidato, 'id' | 'createdAt' | 'updatedAt'>
+  ) {
+    const now = new Date();
+    const docRef = await addDoc(collection(db, 'entrevistaCandidatos'), {
+      ...candidato,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return docRef.id;
+  },
+
+  async getByEntrevistaId(entrevistaId: string) {
+    const q = query(
+      collection(db, 'entrevistaCandidatos'),
+      where('entrevistaId', '==', entrevistaId)
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+    })) as EntrevistaCandidato[];
+  },
+
+  async update(id: string, data: Partial<EntrevistaCandidato>) {
+    const docRef = doc(db, 'entrevistaCandidatos', id);
+    await updateDoc(docRef, {
+      ...data,
+      updatedAt: new Date(),
+    });
+  },
+
+  async delete(id: string) {
+    const docRef = doc(db, 'entrevistaCandidatos', id);
+    await deleteDoc(docRef);
+  },
 };

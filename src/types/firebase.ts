@@ -160,3 +160,59 @@ export interface VinculacaoEstagiario {
 export type EstagiarioWithCompanyEntry = Estagiario & {
   companyEntryDate: Date | null;
 };
+
+export type EntrevistaTipoVaga = 'nova' | 'reposicao';
+
+export type EntrevistaStatus = 'agendada' | 'realizada' | 'cancelada';
+
+export type EntrevistaCandidatoStatus =
+  | 'interessado'
+  | 'selecionado'
+  | 'contrato_pendente'
+  | 'contrato_preenchido';
+
+export interface Entrevista {
+  id?: string;
+  clienteId: string;
+  empresaNome: string;
+  quantidadeVagas: number;
+  tipoVaga: EntrevistaTipoVaga;
+  endereco: string;
+  bairro: string;
+  cidade: string;
+  cep: string;
+  googleMapsLink?: string;
+  pontoReferencia?: string;
+  dataEntrevista: string;
+  horarioEntrevista: string;
+  tituloVaga: string;
+  horarioTrabalho: string;
+  valorBolsa: string;
+  atividades: string;
+  requisitos: string;
+  status: EntrevistaStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface EntrevistaCandidato {
+  id?: string;
+  entrevistaId: string;
+  clienteId: string;
+  nome: string;
+  telefone: string;
+  status: EntrevistaCandidatoStatus;
+  estagiarioId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export const ENTREVISTA_CANDIDATO_STATUS_LABELS: Record<
+  EntrevistaCandidatoStatus,
+  string
+> = {
+  interessado: 'Interessado',
+  selecionado: 'Selecionado',
+  contrato_pendente: 'Contrato pendente',
+  contrato_preenchido: 'Contrato preenchido',
+};

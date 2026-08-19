@@ -156,6 +156,12 @@ export default function PainelHeader() {
           {isPanelAdminEmail(user?.email) && (
             <>
               <button
+                onClick={() => handleNavigation('/entrevistas')}
+                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+              >
+                Entrevistas
+              </button>
+              <button
                 onClick={() => handleNavigation('/clientes')}
                 className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
               >
@@ -316,6 +322,15 @@ export default function PainelHeader() {
               </button>
               {isPanelAdminEmail(user?.email) && (
                 <>
+                  <button
+                    onClick={() => {
+                      handleNavigation('/entrevistas');
+                      closeMobileMenu();
+                    }}
+                    className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
+                  >
+                    Entrevistas
+                  </button>
                   <button
                     onClick={() => {
                       handleNavigation('/clientes');

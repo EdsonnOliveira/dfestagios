@@ -21,6 +21,12 @@ import { getSupabaseBrowserClient } from '../lib/supabaseClient';
 import { fetchCnpjInstituicaoEnsino } from '../services/brasilApiCnpj';
 import { fetchCepLookup } from '../services/viaCepService';
 import type { Cliente, Estagiario } from '../types/firebase';
+import {
+  ESTAGIO_FUNCAO_OPTIONS,
+  ESTAGIO_FUNCAO_OUTRA,
+  resolveEstagioFuncao,
+  splitEstagioFuncao
+} from '../constants/estagioFuncao';
 
 type Studying = 'sim' | 'nao' | '';
 
@@ -54,7 +60,8 @@ interface FormState {
   dataInicioEstagio: string;
   horarioEntrada: string;
   horarioSaida: string;
-  funcao: string;
+  funcaoSelect: string;
+  funcaoOutra: string;
   valorBolsa: string;
   estudando: Studying;
   nivelEnsino: EducationLevel;
@@ -84,7 +91,8 @@ const initialForm: FormState = {
   dataInicioEstagio: '',
   horarioEntrada: '',
   horarioSaida: '',
-  funcao: '',
+  funcaoSelect: '',
+  funcaoOutra: '',
   valorBolsa: '',
   estudando: '',
   nivelEnsino: '',
@@ -200,6 +208,7 @@ function formStateFromEstagiario(e: Estagiario): FormState {
   const respTelDigits = (e.respLegalTelefone || '').replace(/\D/g, '').slice(0, 11);
   const respCpfDigits = (e.respLegalCpf || '').replace(/\D/g, '').slice(0, 11);
   const ieCepDigits = (e.instituicaoCep || '').replace(/\D/g, '').slice(0, 8);
+  const funcaoParts = splitEstagioFuncao(e.curso || '');
 
   return {
     nomeCompleto: (e.nome || '').toUpperCase(),
@@ -216,7 +225,8 @@ function formStateFromEstagiario(e: Estagiario): FormState {
     dataInicioEstagio: e.estagioDataInicio || '',
     horarioEntrada: e.estagioHorarioEntrada || '',
     horarioSaida: e.estagioHorarioSaida || '',
-    funcao: (e.curso || '').toUpperCase(),
+    funcaoSelect: funcaoParts.funcaoSelect,
+    funcaoOutra: funcaoParts.funcaoOutra,
     valorBolsa: parseBolsaToFormDisplay(e.estagioValorBolsa),
     estudando: inferred.estudando,
     nivelEnsino: inferred.nivelEnsino,
@@ -514,7 +524,13 @@ export default function FormularioContratoEstagio() {
     if (!form.dataInicioEstagio) missing.push('Data de início do estágio');
     if (!form.horarioEntrada) missing.push('Horário de entrada');
     if (!form.horarioSaida) missing.push('Horário de saída');
-    if (!form.funcao.trim()) missing.push('Função');
+    if (!form.funcaoSelect) missing.push('Função');
+    else if (
+      form.funcaoSelect === ESTAGIO_FUNCAO_OUTRA &&
+      !form.funcaoOutra.trim()
+    ) {
+      missing.push('Função (descreva a função)');
+    }
     if (!form.valorBolsa.trim()) missing.push('Valor da bolsa');
     if (!form.estudando) missing.push('Está estudando?');
     if (form.estudando === 'sim') {
@@ -559,6 +575,7 @@ export default function FormularioContratoEstagio() {
 
     setSubmitting(true);
     try {
+      const funcaoFinal = resolveEstagioFuncao(form.funcaoSelect, form.funcaoOutra);
       const cpfDigits = form.cpf.replace(/\D/g, '');
       const telDigits = form.telefone.replace(/\D/g, '');
       const cepDigits = form.cep.replace(/\D/g, '');
@@ -603,7 +620,7 @@ export default function FormularioContratoEstagio() {
         estagioDataInicio: form.dataInicioEstagio,
         estagioHorarioEntrada: form.horarioEntrada,
         estagioHorarioSaida: form.horarioSaida,
-        estagioFuncao: form.funcao.trim(),
+        estagioFuncao: funcaoFinal,
         estagioValorBolsa: form.valorBolsa.trim(),
         estudandoSim: form.estudando === 'sim',
         instituicaoCnpj: form.uniCnpj.trim(),
@@ -632,7 +649,7 @@ export default function FormularioContratoEstagio() {
         uf: ufFinal,
         cep: cepDigits,
         grauInstrucao: grauInstrucaoFromForm(form.estudando, form.nivelEnsino),
-        curso: form.funcao.trim(),
+        curso: funcaoFinal,
         status: 'ativo' as const,
         estagioDataInicio: form.dataInicioEstagio,
         estagioValorBolsa: form.valorBolsa.trim(),
@@ -1064,18 +1081,44 @@ export default function FormularioContratoEstagio() {
                 </div>
               </div>
               <div>
-                <label className={labelClass} htmlFor="funcao">
+                <label className={labelClass} htmlFor="funcaoSelect">
                   Função {reqMark}
                 </label>
-                <input
-                  id="funcao"
+                <select
+                  id="funcaoSelect"
                   className={inputClass}
-                  value={form.funcao}
-                  onChange={(e) =>
-                    setField('funcao', e.target.value.toUpperCase())
-                  }
-                />
+                  value={form.funcaoSelect}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setField('funcaoSelect', value);
+                    if (value !== ESTAGIO_FUNCAO_OUTRA) {
+                      setField('funcaoOutra', '');
+                    }
+                  }}
+                >
+                  <option value="">Selecione</option>
+                  {ESTAGIO_FUNCAO_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
               </div>
+              {form.funcaoSelect === ESTAGIO_FUNCAO_OUTRA && (
+                <div>
+                  <label className={labelClass} htmlFor="funcaoOutra">
+                    Descreva a função {reqMark}
+                  </label>
+                  <input
+                    id="funcaoOutra"
+                    className={inputClass}
+                    value={form.funcaoOutra}
+                    onChange={(e) =>
+                      setField('funcaoOutra', e.target.value.toUpperCase())
+                    }
+                  />
+                </div>
+              )}
               <div>
                 <label className={labelClass} htmlFor="valorBolsa">
                   Valor da bolsa {reqMark}
