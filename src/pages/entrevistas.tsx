@@ -13,7 +13,9 @@ import {
   vinculacoesService,
 } from '../services/firebase';
 import {
+  buildEntrevistaConfirmacaoMessage,
   buildEntrevistaWhatsappMessage,
+  buildRelatorioDiario,
   getWeekStartMonday,
   getWeekdayDatesMonToFri,
   parseHorarioTrabalho,
@@ -25,6 +27,7 @@ import type {
   EntrevistaCandidato,
   EntrevistaCandidatoStatus,
   EntrevistaStatus,
+  EntrevistaTipoEntrevista,
   EntrevistaTipoVaga,
 } from '../types/firebase';
 import {
@@ -43,6 +46,8 @@ const emptyForm = {
   cep: '',
   googleMapsLink: '',
   pontoReferencia: '',
+  responsavelEntrevista: '',
+  tipoEntrevista: 'presencial' as EntrevistaTipoEntrevista,
   dataEntrevista: '',
   horarioEntrevista: '',
   tituloVaga: '',
@@ -95,6 +100,12 @@ export default function EntrevistasPage() {
   const [loadingCandidatos, setLoadingCandidatos] = useState(false);
   const [novoCandidatoNome, setNovoCandidatoNome] = useState('');
   const [novoCandidatoTelefone, setNovoCandidatoTelefone] = useState('');
+  const [editingCandidato, setEditingCandidato] = useState<EntrevistaCandidato | null>(
+    null
+  );
+  const [editCandidatoNome, setEditCandidatoNome] = useState('');
+  const [editCandidatoTelefone, setEditCandidatoTelefone] = useState('');
+  const [allCandidatos, setAllCandidatos] = useState<EntrevistaCandidato[]>([]);
 
   const weekDays = useMemo(() => getWeekdayDatesMonToFri(weekStart), [weekStart]);
 
@@ -123,6 +134,14 @@ export default function EntrevistasPage() {
       ]);
       setEntrevistas(entrevistasData);
       setClientes(clientesData);
+      const candidatosLists = await Promise.all(
+        entrevistasData.map((entrevista) =>
+          entrevista.id
+            ? entrevistaCandidatosService.getByEntrevistaId(entrevista.id)
+            : Promise.resolve([])
+        )
+      );
+      setAllCandidatos(candidatosLists.flat());
     } catch (error) {
       console.error(error);
       toast.error('Erro ao carregar entrevistas.');
@@ -162,6 +181,22 @@ export default function EntrevistasPage() {
     [selectedEntrevista]
   );
 
+  const confirmacaoMessage = useMemo(
+    () =>
+      selectedEntrevista ? buildEntrevistaConfirmacaoMessage(selectedEntrevista) : '',
+    [selectedEntrevista]
+  );
+
+  const relatorioDiario = useMemo(() => {
+    const map = new Map<string, EntrevistaCandidato[]>();
+    allCandidatos.forEach((candidato) => {
+      const list = map.get(candidato.entrevistaId) ?? [];
+      list.push(candidato);
+      map.set(candidato.entrevistaId, list);
+    });
+    return buildRelatorioDiario(new Date(), entrevistas, map);
+  }, [entrevistas, allCandidatos]);
+
   const handleClienteChange = (clienteId: string) => {
     const cliente = clientes.find((item) => item.id === clienteId);
     setFormData((prev) => ({
@@ -195,6 +230,8 @@ export default function EntrevistasPage() {
       cep: entrevista.cep,
       googleMapsLink: entrevista.googleMapsLink ?? '',
       pontoReferencia: entrevista.pontoReferencia ?? '',
+      responsavelEntrevista: entrevista.responsavelEntrevista ?? '',
+      tipoEntrevista: entrevista.tipoEntrevista ?? 'presencial',
       dataEntrevista: entrevista.dataEntrevista,
       horarioEntrevista: entrevista.horarioEntrevista,
       tituloVaga: entrevista.tituloVaga,
@@ -214,14 +251,15 @@ export default function EntrevistasPage() {
   };
 
   const handleSaveEntrevista = async () => {
-    if (
-      !formData.clienteId ||
-      !formData.dataEntrevista ||
-      !formData.tituloVaga.trim() ||
-      !formData.horarioEntrevista.trim()
-    ) {
-      toast.error('Preencha cliente, data, título da vaga e horário da entrevista.');
+    if (!formData.clienteId || !formData.tituloVaga.trim()) {
+      toast.error('Preencha cliente e título da vaga.');
       return;
+    }
+    if (formData.tipoEntrevista !== 'captacao') {
+      if (!formData.dataEntrevista || !formData.horarioEntrevista.trim()) {
+        toast.error('Preencha data e horário da entrevista.');
+        return;
+      }
     }
     const cliente = clientes.find((item) => item.id === formData.clienteId);
     if (!cliente) {
@@ -239,8 +277,14 @@ export default function EntrevistasPage() {
       cep: formData.cep.trim(),
       googleMapsLink: formData.googleMapsLink.trim(),
       pontoReferencia: formData.pontoReferencia.trim(),
-      dataEntrevista: formData.dataEntrevista,
-      horarioEntrevista: formData.horarioEntrevista.trim(),
+      responsavelEntrevista: formData.responsavelEntrevista.trim(),
+      tipoEntrevista: formData.tipoEntrevista,
+      dataEntrevista:
+        formData.dataEntrevista.trim() || toIsoDate(new Date()),
+      horarioEntrevista:
+        formData.tipoEntrevista === 'captacao'
+          ? formData.horarioEntrevista.trim() || 'Á combinar'
+          : formData.horarioEntrevista.trim(),
       tituloVaga: formData.tituloVaga.trim(),
       horarioTrabalho: formData.horarioTrabalho.trim(),
       valorBolsa: formData.valorBolsa.trim(),
@@ -292,6 +336,9 @@ export default function EntrevistasPage() {
       );
       await entrevistasService.delete(entrevista.id);
       setEntrevistas((prev) => prev.filter((item) => item.id !== entrevista.id));
+      setAllCandidatos((prev) =>
+        prev.filter((item) => item.entrevistaId !== entrevista.id)
+      );
       if (selectedEntrevista?.id === entrevista.id) {
         setSelectedEntrevista(null);
         setCandidatos([]);
@@ -356,6 +403,28 @@ export default function EntrevistasPage() {
     }
   };
 
+  const handleCopyConfirmacao = async () => {
+    if (!confirmacaoMessage || typeof window === 'undefined') return;
+    try {
+      await navigator.clipboard.writeText(confirmacaoMessage);
+      toast.success('Mensagem de confirmação copiada.');
+    } catch {
+      toast.error('Não foi possível copiar.');
+      toast(confirmacaoMessage, { duration: 10000 });
+    }
+  };
+
+  const handleCopyRelatorio = async () => {
+    if (!relatorioDiario || typeof window === 'undefined') return;
+    try {
+      await navigator.clipboard.writeText(relatorioDiario);
+      toast.success('Relatório copiado.');
+    } catch {
+      toast.error('Não foi possível copiar.');
+      toast(relatorioDiario, { duration: 10000 });
+    }
+  };
+
   const handleAddCandidato = async () => {
     if (!selectedEntrevista?.id || !novoCandidatoNome.trim() || !novoCandidatoTelefone.trim()) {
       toast.error('Informe nome e telefone do candidato.');
@@ -383,12 +452,85 @@ export default function EntrevistasPage() {
           updatedAt: new Date(),
         },
       ]);
+      setAllCandidatos((prev) => [
+        ...prev,
+        {
+          id,
+          entrevistaId: selectedEntrevista.id!,
+          clienteId: selectedEntrevista.clienteId,
+          nome: novoCandidatoNome.trim(),
+          telefone: novoCandidatoTelefone.replace(/\D/g, ''),
+          status: 'interessado',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
       setNovoCandidatoNome('');
       setNovoCandidatoTelefone('');
       toast.success('Candidato adicionado.');
     } catch (error) {
       console.error(error);
       toast.error('Erro ao adicionar candidato.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleDeleteCandidato = async (candidato: EntrevistaCandidato) => {
+    if (!candidato.id || !selectedEntrevista?.id) return;
+    if (!confirm(`Excluir candidato ${candidato.nome}?`)) return;
+    try {
+      setLoadingAction(true);
+      await entrevistaCandidatosService.delete(candidato.id);
+      setCandidatos((prev) => prev.filter((item) => item.id !== candidato.id));
+      setAllCandidatos((prev) => prev.filter((item) => item.id !== candidato.id));
+      if (editingCandidato?.id === candidato.id) {
+        setEditingCandidato(null);
+        setEditCandidatoNome('');
+        setEditCandidatoTelefone('');
+      }
+      toast.success('Candidato excluído.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao excluir candidato.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleStartEditCandidato = (candidato: EntrevistaCandidato) => {
+    setEditingCandidato(candidato);
+    setEditCandidatoNome(candidato.nome);
+    setEditCandidatoTelefone(maskPhone(candidato.telefone));
+  };
+
+  const handleCancelEditCandidato = () => {
+    setEditingCandidato(null);
+    setEditCandidatoNome('');
+    setEditCandidatoTelefone('');
+  };
+
+  const handleSaveEditCandidato = async () => {
+    if (!editingCandidato?.id || !editCandidatoNome.trim() || !editCandidatoTelefone.trim()) {
+      toast.error('Informe nome e telefone do candidato.');
+      return;
+    }
+    try {
+      setLoadingAction(true);
+      const payload = {
+        nome: editCandidatoNome.trim(),
+        telefone: editCandidatoTelefone.replace(/\D/g, ''),
+      };
+      await entrevistaCandidatosService.update(editingCandidato.id, payload);
+      const updateItem = (item: EntrevistaCandidato) =>
+        item.id === editingCandidato.id ? { ...item, ...payload } : item;
+      setCandidatos((prev) => prev.map(updateItem));
+      setAllCandidatos((prev) => prev.map(updateItem));
+      handleCancelEditCandidato();
+      toast.success('Candidato atualizado.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao atualizar candidato.');
     } finally {
       setLoadingAction(false);
     }
@@ -527,6 +669,13 @@ export default function EntrevistasPage() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => void handleCopyRelatorio()}
+                  className="px-3 py-2 rounded-lg border border-green-600 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20"
+                >
+                  Copiar relatório de hoje
+                </button>
+                <button
+                  type="button"
                   onClick={() => openCreateModal()}
                   className="bg-[#004085] hover:bg-[#0056B3] text-white font-medium py-2 px-4 rounded-lg transition-colors"
                 >
@@ -658,7 +807,26 @@ export default function EntrevistasPage() {
                 </select>
               </div>
               <div>
-                <label className={labelClass}>Data da entrevista *</label>
+                <label className={labelClass}>Tipo de entrevista *</label>
+                <select
+                  value={formData.tipoEntrevista}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      tipoEntrevista: e.target.value as EntrevistaTipoEntrevista,
+                    })
+                  }
+                  className={inputClass}
+                >
+                  <option value="presencial">Presencial</option>
+                  <option value="online">Online</option>
+                  <option value="captacao">Captação</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>
+                  Data da entrevista {formData.tipoEntrevista !== 'captacao' ? '*' : ''}
+                </label>
                 <input
                   type="date"
                   value={formData.dataEntrevista}
@@ -669,7 +837,9 @@ export default function EntrevistasPage() {
                 />
               </div>
               <div>
-                <label className={labelClass}>Horário da entrevista *</label>
+                <label className={labelClass}>
+                  Horário da entrevista {formData.tipoEntrevista !== 'captacao' ? '*' : ''}
+                </label>
                 <input
                   type="text"
                   placeholder="09h ou 14h"
@@ -787,6 +957,18 @@ export default function EntrevistasPage() {
                 />
               </div>
               <div className="sm:col-span-2">
+                <label className={labelClass}>Responsável pela entrevista</label>
+                <input
+                  type="text"
+                  placeholder="Nome de quem o estagiário deve procurar"
+                  value={formData.responsavelEntrevista}
+                  onChange={(e) =>
+                    setFormData({ ...formData, responsavelEntrevista: e.target.value })
+                  }
+                  className={inputClass}
+                />
+              </div>
+              <div className="sm:col-span-2">
                 <label className={labelClass}>Ponto de referência</label>
                 <input
                   type="text"
@@ -887,6 +1069,12 @@ export default function EntrevistasPage() {
                   </p>
                 </div>
                 <div>
+                  <p className="font-semibold text-gray-700 dark:text-gray-200">Responsável</p>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    {selectedEntrevista.responsavelEntrevista?.trim() || '-'}
+                  </p>
+                </div>
+                <div>
                   <p className="font-semibold text-gray-700 dark:text-gray-200">Ponto de referência</p>
                   <p className="text-gray-600 dark:text-gray-300">
                     {selectedEntrevista.pontoReferencia?.trim() || '-'}
@@ -919,8 +1107,26 @@ export default function EntrevistasPage() {
                     Copiar
                   </button>
                 </div>
-                <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200 font-sans">
+                <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200 font-sans leading-relaxed">
                   {whatsappMessage}
+                </pre>
+              </div>
+
+              <div className="mt-5 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <h3 className="font-bold text-[#004085] dark:text-blue-400">
+                    Mensagem de entrevista confirmada
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyConfirmacao()}
+                    className="px-3 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm"
+                  >
+                    Copiar
+                  </button>
+                </div>
+                <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200 font-sans leading-relaxed">
+                  {confirmacaoMessage}
                 </pre>
               </div>
 
@@ -968,42 +1174,94 @@ export default function EntrevistasPage() {
                         key={candidato.id}
                         className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2"
                       >
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-gray-100">
-                            {candidato.nome}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {maskPhone(candidato.telefone)}
-                          </p>
-                          <p className="text-xs mt-1 text-[#004085] dark:text-blue-400">
-                            {ENTREVISTA_CANDIDATO_STATUS_LABELS[candidato.status]}
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void handleSelectCandidato(candidato)}
-                            disabled={loadingAction || candidato.status === 'contrato_preenchido'}
-                            className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50"
-                          >
-                            Selecionar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleGenerateContractLink(candidato)}
-                            disabled={
-                              loadingAction ||
-                              (candidato.status !== 'selecionado' &&
-                                candidato.status !== 'contrato_pendente' &&
-                                candidato.status !== 'contrato_preenchido')
-                            }
-                            className="px-3 py-1.5 rounded-lg bg-[#004085] hover:bg-[#0056B3] text-white text-sm disabled:opacity-50"
-                          >
-                            {candidato.status === 'contrato_preenchido'
-                              ? 'Contrato preenchido'
-                              : 'Gerar link contrato'}
-                          </button>
-                        </div>
+                        {editingCandidato?.id === candidato.id ? (
+                          <div className="flex-1 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-2">
+                            <input
+                              type="text"
+                              value={editCandidatoNome}
+                              onChange={(e) => setEditCandidatoNome(e.target.value)}
+                              className={inputClass}
+                            />
+                            <input
+                              type="text"
+                              value={editCandidatoTelefone}
+                              onChange={(e) =>
+                                setEditCandidatoTelefone(maskPhone(e.target.value))
+                              }
+                              className={inputClass}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveEditCandidato()}
+                              disabled={loadingAction}
+                              className="px-3 py-1.5 rounded-lg bg-[#004085] hover:bg-[#0056B3] text-white text-sm disabled:opacity-50"
+                            >
+                              Salvar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelEditCandidato}
+                              className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div>
+                              <p className="font-medium text-gray-900 dark:text-gray-100">
+                                {candidato.nome}
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                {maskPhone(candidato.telefone)}
+                              </p>
+                              <p className="text-xs mt-1 text-[#004085] dark:text-blue-400">
+                                {ENTREVISTA_CANDIDATO_STATUS_LABELS[candidato.status]}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditCandidato(candidato)}
+                                disabled={loadingAction}
+                                className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteCandidato(candidato)}
+                                disabled={loadingAction}
+                                className="px-3 py-1.5 rounded-lg border border-red-300 text-red-600 text-sm disabled:opacity-50"
+                              >
+                                Excluir
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleSelectCandidato(candidato)}
+                                disabled={loadingAction || candidato.status === 'contrato_preenchido'}
+                                className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50"
+                              >
+                                Selecionar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleGenerateContractLink(candidato)}
+                                disabled={
+                                  loadingAction ||
+                                  (candidato.status !== 'selecionado' &&
+                                    candidato.status !== 'contrato_pendente' &&
+                                    candidato.status !== 'contrato_preenchido')
+                                }
+                                className="px-3 py-1.5 rounded-lg bg-[#004085] hover:bg-[#0056B3] text-white text-sm disabled:opacity-50"
+                              >
+                                {candidato.status === 'contrato_preenchido'
+                                  ? 'Contrato preenchido'
+                                  : 'Gerar link contrato'}
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>

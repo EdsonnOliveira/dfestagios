@@ -163,6 +163,8 @@ export type EstagiarioWithCompanyEntry = Estagiario & {
 
 export type EntrevistaTipoVaga = 'nova' | 'reposicao';
 
+export type EntrevistaTipoEntrevista = 'presencial' | 'online' | 'captacao';
+
 export type EntrevistaStatus = 'agendada' | 'realizada' | 'cancelada';
 
 export type EntrevistaCandidatoStatus =
@@ -183,6 +185,8 @@ export interface Entrevista {
   cep: string;
   googleMapsLink?: string;
   pontoReferencia?: string;
+  responsavelEntrevista?: string;
+  tipoEntrevista?: EntrevistaTipoEntrevista;
   dataEntrevista: string;
   horarioEntrevista: string;
   tituloVaga: string;

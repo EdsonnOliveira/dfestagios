@@ -1,12 +1,12 @@
-import type { Entrevista } from '../types/firebase';
+import type { Entrevista, EntrevistaCandidato, EntrevistaTipoEntrevista } from '../types/firebase';
 
 const WEEKDAY_LABELS = [
   'Domingo',
-  'Segunda-feira',
-  'Terça-feira',
-  'Quarta-feira',
-  'Quinta-feira',
-  'Sexta-feira',
+  'Segunda Feira',
+  'Terça Feira',
+  'Quarta Feira',
+  'Quinta Feira',
+  'Sexta Feira',
   'Sábado',
 ] as const;
 
@@ -25,30 +25,185 @@ function formatRequisitos(requisitos: string): string {
     .map((line) => line.trim())
     .filter(Boolean);
   if (lines.length === 0) return '';
-  return lines.map((line) => `• ${line.replace(/^[-•]\s*/, '')}`).join('\n');
+  return lines.map((line) => `- ${line.replace(/^[-•]\s*/, '')}`).join('\n');
+}
+
+function getLocalLabel(entrevista: Entrevista): string {
+  return [entrevista.bairro, entrevista.cidade].filter(Boolean).join(', ') || entrevista.cidade;
+}
+
+function buildInterviewSection(
+  entrevista: Entrevista,
+  tipoEntrevista: EntrevistaTipoEntrevista
+): string[] {
+  const local = getLocalLabel(entrevista);
+
+  if (tipoEntrevista === 'captacao') {
+    return [
+      '',
+      '📅 *Entrevista:*',
+      '',
+      '*Data:* Á combinar',
+      '',
+      '*Horário:* Á combinar',
+      '',
+      `*Local:* ${local}`,
+      '',
+      '➡ Caso atenda aos requisitos e tenha interesse na vaga, *me confirme* aqui que vamos enviar seu currículo para a responsável da empresa e ela entrará em contato para analisar seu perfil e agendar a entrevista.',
+    ];
+  }
+
+  const dataEntrevista = formatInterviewDate(entrevista.dataEntrevista);
+  const horario = entrevista.horarioEntrevista.trim();
+
+  if (tipoEntrevista === 'online') {
+    return [
+      '',
+      '📅 *Entrevista:* Online via Google Meet',
+      '',
+      `*Data:* ${dataEntrevista}`,
+      '',
+      `*Horário:* ${horario}`,
+      '',
+      '*Local:* A entrevista será On-line pelo Google Meet',
+      '',
+      '➡ Caso atenda aos requisitos e consiga comparecer no horário informado, *me confirme* aqui que vamos confirmar sua presença na entrevista.',
+    ];
+  }
+
+  return [
+    '',
+    '📅 *Entrevista:*',
+    '',
+    `*Data:* ${dataEntrevista}`,
+    '',
+    `*Horário:* ${horario}`,
+    '',
+    `*Local:* ${local}`,
+    '',
+    '➡ Caso atenda aos requisitos e consiga comparecer no horário informado, *me confirme* aqui que vamos te enviar a localização e os dados da entrevista.',
+  ];
 }
 
 export function buildEntrevistaWhatsappMessage(entrevista: Entrevista): string {
-  const local = [entrevista.bairro, entrevista.cidade].filter(Boolean).join(', ');
+  const tipoEntrevista = entrevista.tipoEntrevista ?? 'presencial';
+  const local = getLocalLabel(entrevista);
   const requisitosBlock = formatRequisitos(entrevista.requisitos);
-  const dataEntrevista = formatInterviewDate(entrevista.dataEntrevista);
 
   const parts = [
     `*Vaga de Estágio Disponível:* ${entrevista.tituloVaga.trim()}`,
-    `📍 Local: ${local || entrevista.cidade}`,
-    `⏰ Horário: ${entrevista.horarioTrabalho.trim()}`,
-    `💰 Bolsa: ${entrevista.valorBolsa.trim()}`,
-    `Atividades: ${entrevista.atividades.trim()}`,
-    'Requisitos:',
+    '',
+    `📍 *Local:* ${local}`,
+    '',
+    `⏰ *Horário:* ${entrevista.horarioTrabalho.trim()}`,
+    '',
+    `💰 *Bolsa:* ${entrevista.valorBolsa.trim()}`,
+    '',
+    '*Atividades:*',
+    '',
+    entrevista.atividades.trim(),
+    '',
+    '*Requisitos:*',
+    '',
     requisitosBlock,
-    '📅 Entrevista:',
-    `Data: ${dataEntrevista}`,
-    `Horário: ${entrevista.horarioEntrevista.trim()}`,
-    `Local: ${local || entrevista.cidade}`,
-    'Caso atenda aos requisitos e consiga comparecer no horário informado *me confirme* aqui.',
+    ...buildInterviewSection(entrevista, tipoEntrevista),
   ];
 
-  return parts.filter(Boolean).join('\n');
+  return parts.filter((line) => line !== undefined).join('\n');
+}
+
+export function buildEntrevistaConfirmacaoMessage(entrevista: Entrevista): string {
+  const dataEntrevista = formatInterviewDate(entrevista.dataEntrevista);
+  const horario = entrevista.horarioEntrevista.trim();
+  const endereco = [entrevista.endereco, entrevista.bairro, entrevista.cidade]
+    .filter(Boolean)
+    .join(', ');
+  const responsavel = entrevista.responsavelEntrevista?.trim() || '-';
+  const mapsLink = entrevista.googleMapsLink?.trim() || '';
+
+  const parts = [
+    '📢 ENTREVISTA CONFIRMADA! ✅',
+    '',
+    'Olá! Temos uma ótima notícia: seu perfil foi selecionado e sua entrevista está confirmada. 🎯',
+    '',
+    `📌 Empresa: ${entrevista.empresaNome}`,
+    `👤 Responsável pela entrevista: ${responsavel}`,
+    '',
+    `📅 Data: ${dataEntrevista}`,
+    `⏰ Horário: ${horario}`,
+    '',
+    `📍 Endereço: ${endereco || '-'}`,
+    '',
+    '📝 Importante:',
+    '• Leve seu currículo atualizado;',
+    '• Chegue com alguns minutos de antecedência;',
+    '• Ao chegar, informe que você foi encaminhado(a) pela DF ESTÁGIOS.',
+  ];
+
+  if (mapsLink) {
+    parts.push('', '📍 Localização:', mapsLink);
+  }
+
+  parts.push(
+    '',
+    'Boa sorte na entrevista! 🤞✨',
+    'DF ESTÁGIOS — conectando você às melhores oportunidades!'
+  );
+
+  return parts.join('\n');
+}
+
+function getWeekdayShortFromIso(isoDate: string): string {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  if (!year || !month || !day) return '';
+  const date = new Date(year, month - 1, day);
+  const labels = [
+    'Domingo',
+    'Segunda-feira',
+    'Terça-feira',
+    'Quarta-feira',
+    'Quinta-feira',
+    'Sexta-feira',
+    'Sábado',
+  ];
+  return labels[date.getDay()] ?? '';
+}
+
+export function buildRelatorioDiario(
+  date: Date,
+  entrevistas: Entrevista[],
+  candidatosByEntrevistaId: Map<string, EntrevistaCandidato[]>
+): string {
+  const isoToday = toIsoDate(date);
+  const formattedDate = date.toLocaleDateString('pt-BR');
+  const todayEntrevistas = entrevistas.filter((item) => {
+    const createdAt = item.createdAt instanceof Date ? item.createdAt : new Date(item.createdAt);
+    return toIsoDate(createdAt) === isoToday;
+  });
+
+  const lines = todayEntrevistas.map((entrevista) => {
+    const candidatos = candidatosByEntrevistaId.get(entrevista.id ?? '') ?? [];
+    const count = candidatos.length;
+    const tipoEntrevista = entrevista.tipoEntrevista ?? 'presencial';
+
+    if (tipoEntrevista === 'captacao') {
+      return `${entrevista.empresaNome}: ${count} candidato${count === 1 ? '' : 's'} agendado${count === 1 ? '' : 's'} - Captação`;
+    }
+
+    const weekday = getWeekdayShortFromIso(entrevista.dataEntrevista);
+    const horario = entrevista.horarioEntrevista.trim();
+    const onlineSuffix = tipoEntrevista === 'online' ? ' (Online)' : '';
+
+    return `${entrevista.empresaNome}: ${count} candidato${count === 1 ? '' : 's'} agendado${count === 1 ? '' : 's'} - ${weekday} às ${horario}${onlineSuffix}`;
+  });
+
+  return [
+    'RELATÓRIO DIÁRIO',
+    formattedDate,
+    '',
+    'ENTREVISTAS',
+    ...lines,
+  ].join('\n');
 }
 
 export function getWeekStartMonday(date: Date): Date {
@@ -79,9 +234,7 @@ export function parseHorarioTrabalho(horarioTrabalho: string): {
   entrada: string;
   saida: string;
 } {
-  const match = horarioTrabalho.match(
-    /(\d{1,2}:\d{2}).*?(\d{1,2}:\d{2})/
-  );
+  const match = horarioTrabalho.match(/(\d{1,2}:\d{2}).*?(\d{1,2}:\d{2})/);
   if (!match) {
     return { entrada: '', saida: '' };
   }
