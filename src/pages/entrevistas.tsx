@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import toast from 'react-hot-toast';
 import PainelHeader from '../components/PainelHeader';
@@ -16,6 +16,7 @@ import {
   buildEntrevistaConfirmacaoMessage,
   buildEntrevistaWhatsappMessage,
   buildRelatorioDiario,
+  getDataCalendario,
   getWeekStartMonday,
   getWeekdayDatesMonToFri,
   parseHorarioTrabalho,
@@ -36,6 +37,15 @@ import {
 
 const WEEKDAY_SHORT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'] as const;
 
+type ContratoFiltro = 'todos' | 'pendente' | 'assinado';
+
+interface ContratoLinkItem {
+  candidato: EntrevistaCandidato;
+  entrevista: Entrevista;
+  status: EntrevistaCandidatoStatus;
+  link: string;
+}
+
 const emptyForm = {
   clienteId: '',
   quantidadeVagas: '1',
@@ -48,6 +58,7 @@ const emptyForm = {
   pontoReferencia: '',
   responsavelEntrevista: '',
   tipoEntrevista: 'presencial' as EntrevistaTipoEntrevista,
+  dataCalendario: '',
   dataEntrevista: '',
   horarioEntrevista: '',
   tituloVaga: '',
@@ -106,6 +117,15 @@ export default function EntrevistasPage() {
   const [editCandidatoNome, setEditCandidatoNome] = useState('');
   const [editCandidatoTelefone, setEditCandidatoTelefone] = useState('');
   const [allCandidatos, setAllCandidatos] = useState<EntrevistaCandidato[]>([]);
+  const [showContratosModal, setShowContratosModal] = useState(false);
+  const [showTodasModal, setShowTodasModal] = useState(false);
+  const [todasSearch, setTodasSearch] = useState('');
+  const [contratoFiltro, setContratoFiltro] = useState<ContratoFiltro>('todos');
+  const [contratoLinks, setContratoLinks] = useState<ContratoLinkItem[]>([]);
+  const [loadingContratos, setLoadingContratos] = useState(false);
+  const [draggingEntrevistaId, setDraggingEntrevistaId] = useState<string | null>(null);
+  const [dropTargetIso, setDropTargetIso] = useState<string | null>(null);
+  const skipClickAfterDragRef = useRef(false);
 
   const weekDays = useMemo(() => getWeekdayDatesMonToFri(weekStart), [weekStart]);
 
@@ -159,10 +179,11 @@ export default function EntrevistasPage() {
     const map = new Map<string, Entrevista[]>();
     weekDays.forEach((day) => map.set(toIsoDate(day), []));
     entrevistas.forEach((entrevista) => {
-      if (!weekIsoSet.has(entrevista.dataEntrevista)) return;
-      const list = map.get(entrevista.dataEntrevista) ?? [];
+      const calIso = getDataCalendario(entrevista);
+      if (!weekIsoSet.has(calIso)) return;
+      const list = map.get(calIso) ?? [];
       list.push(entrevista);
-      map.set(entrevista.dataEntrevista, list);
+      map.set(calIso, list);
     });
     map.forEach((list, key) => {
       list.sort((a, b) => a.empresaNome.localeCompare(b.empresaNome, 'pt-BR'));
@@ -187,15 +208,34 @@ export default function EntrevistasPage() {
     [selectedEntrevista]
   );
 
-  const relatorioDiario = useMemo(() => {
+  const candidatosByEntrevistaId = useMemo(() => {
     const map = new Map<string, EntrevistaCandidato[]>();
     allCandidatos.forEach((candidato) => {
       const list = map.get(candidato.entrevistaId) ?? [];
       list.push(candidato);
       map.set(candidato.entrevistaId, list);
     });
-    return buildRelatorioDiario(new Date(), entrevistas, map);
-  }, [entrevistas, allCandidatos]);
+    return map;
+  }, [allCandidatos]);
+
+  const filteredTodasEntrevistas = useMemo(() => {
+    const term = todasSearch.trim().toLowerCase();
+    const sorted = [...entrevistas].sort((a, b) => {
+      const aDate = getDataCalendario(a);
+      const bDate = getDataCalendario(b);
+      return bDate.localeCompare(aDate, 'pt-BR');
+    });
+    if (!term) return sorted;
+    return sorted.filter((item) => item.empresaNome.toLowerCase().includes(term));
+  }, [entrevistas, todasSearch]);
+
+  const filteredContratoLinks = useMemo(() => {
+    if (contratoFiltro === 'todos') return contratoLinks;
+    if (contratoFiltro === 'pendente') {
+      return contratoLinks.filter((item) => item.status === 'contrato_pendente');
+    }
+    return contratoLinks.filter((item) => item.status === 'contrato_preenchido');
+  }, [contratoLinks, contratoFiltro]);
 
   const handleClienteChange = (clienteId: string) => {
     const cliente = clientes.find((item) => item.id === clienteId);
@@ -210,10 +250,12 @@ export default function EntrevistasPage() {
   };
 
   const openCreateModal = (isoDate?: string) => {
+    const defaultDate = isoDate ?? toIsoDate(new Date());
     setEditingEntrevista(null);
     setFormData({
       ...emptyForm,
-      dataEntrevista: isoDate ?? toIsoDate(new Date()),
+      dataCalendario: defaultDate,
+      dataEntrevista: defaultDate,
     });
     setShowFormModal(true);
   };
@@ -232,6 +274,7 @@ export default function EntrevistasPage() {
       pontoReferencia: entrevista.pontoReferencia ?? '',
       responsavelEntrevista: entrevista.responsavelEntrevista ?? '',
       tipoEntrevista: entrevista.tipoEntrevista ?? 'presencial',
+      dataCalendario: getDataCalendario(entrevista),
       dataEntrevista: entrevista.dataEntrevista,
       horarioEntrevista: entrevista.horarioEntrevista,
       tituloVaga: entrevista.tituloVaga,
@@ -253,6 +296,10 @@ export default function EntrevistasPage() {
   const handleSaveEntrevista = async () => {
     if (!formData.clienteId || !formData.tituloVaga.trim()) {
       toast.error('Preencha cliente e título da vaga.');
+      return;
+    }
+    if (!formData.dataCalendario.trim()) {
+      toast.error('Preencha a data no calendário.');
       return;
     }
     if (formData.tipoEntrevista !== 'captacao') {
@@ -279,6 +326,10 @@ export default function EntrevistasPage() {
       pontoReferencia: formData.pontoReferencia.trim(),
       responsavelEntrevista: formData.responsavelEntrevista.trim(),
       tipoEntrevista: formData.tipoEntrevista,
+      dataCalendario:
+        formData.dataCalendario.trim() ||
+        formData.dataEntrevista.trim() ||
+        toIsoDate(new Date()),
       dataEntrevista:
         formData.dataEntrevista.trim() || toIsoDate(new Date()),
       horarioEntrevista:
@@ -414,15 +465,113 @@ export default function EntrevistasPage() {
     }
   };
 
-  const handleCopyRelatorio = async () => {
-    if (!relatorioDiario || typeof window === 'undefined') return;
+  const handleCopyRelatorioDia = async (iso: string) => {
+    const relatorio = buildRelatorioDiario(iso, entrevistas, candidatosByEntrevistaId);
+    if (typeof window === 'undefined') return;
     try {
-      await navigator.clipboard.writeText(relatorioDiario);
+      await navigator.clipboard.writeText(relatorio);
       toast.success('Relatório copiado.');
     } catch {
       toast.error('Não foi possível copiar.');
-      toast(relatorioDiario, { duration: 10000 });
+      toast(relatorio, { duration: 10000 });
     }
+  };
+
+  const loadContratoLinks = useCallback(async () => {
+    setLoadingContratos(true);
+    try {
+      const linked = allCandidatos.filter(
+        (candidato) =>
+          Boolean(candidato.estagiarioId) ||
+          candidato.status === 'contrato_pendente' ||
+          candidato.status === 'contrato_preenchido'
+      );
+      const items = await Promise.all(
+        linked.map(async (candidato) => {
+          const entrevista = entrevistas.find((item) => item.id === candidato.entrevistaId);
+          if (!entrevista?.id) return null;
+          let status = candidato.status;
+          if (candidato.estagiarioId) {
+            const estagiario = await estagiariosService.getById(candidato.estagiarioId);
+            const hasContract = Boolean(estagiario?.contratoPdfDrivePath?.trim());
+            status = resolveCandidatoStatus(candidato, hasContract);
+          }
+          const link = candidato.estagiarioId
+            ? `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(entrevista.clienteId)}&estagiarioId=${encodeURIComponent(candidato.estagiarioId)}`
+            : '';
+          return {
+            candidato: { ...candidato, status },
+            entrevista,
+            status,
+            link,
+          } satisfies ContratoLinkItem;
+        })
+      );
+      setContratoLinks(items.filter((item): item is ContratoLinkItem => item !== null));
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao carregar links de contrato.');
+    } finally {
+      setLoadingContratos(false);
+    }
+  }, [allCandidatos, entrevistas]);
+
+  const openContratosModal = () => {
+    setShowContratosModal(true);
+    void loadContratoLinks();
+  };
+
+  const handleCopyContratoLink = async (link: string) => {
+    if (!link || typeof window === 'undefined') return;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success('Link copiado.');
+    } catch {
+      toast.error('Não foi possível copiar.');
+    }
+  };
+
+  const handleMoveEntrevista = async (entrevistaId: string, targetIso: string) => {
+    const entrevista = entrevistas.find((item) => item.id === entrevistaId);
+    if (!entrevista?.id || getDataCalendario(entrevista) === targetIso) {
+      setDraggingEntrevistaId(null);
+      setDropTargetIso(null);
+      return;
+    }
+    try {
+      setLoadingAction(true);
+      await entrevistasService.update(entrevista.id, { dataCalendario: targetIso });
+      setEntrevistas((prev) =>
+        prev.map((item) =>
+          item.id === entrevista.id ? { ...item, dataCalendario: targetIso } : item
+        )
+      );
+      if (selectedEntrevista?.id === entrevista.id) {
+        setSelectedEntrevista({ ...selectedEntrevista, dataCalendario: targetIso });
+      }
+      toast.success('Entrevista movida no calendário.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao mover entrevista.');
+    } finally {
+      setLoadingAction(false);
+      setDraggingEntrevistaId(null);
+      setDropTargetIso(null);
+    }
+  };
+
+  const handleEntrevistaCardClick = (entrevista: Entrevista) => {
+    if (skipClickAfterDragRef.current) {
+      skipClickAfterDragRef.current = false;
+      return;
+    }
+    void openDetailModal(entrevista);
+  };
+
+  const handleOpenTodasEntrevista = async (entrevista: Entrevista) => {
+    setShowTodasModal(false);
+    setTodasSearch('');
+    await openDetailModal(entrevista);
   };
 
   const handleAddCandidato = async () => {
@@ -644,6 +793,9 @@ export default function EntrevistasPage() {
                 <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
                   Semana de {weekLabel}
                 </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Segure e arraste a entrevista para outro dia da semana
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -669,10 +821,17 @@ export default function EntrevistasPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void handleCopyRelatorio()}
-                  className="px-3 py-2 rounded-lg border border-green-600 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20"
+                  onClick={openContratosModal}
+                  className="px-3 py-2 rounded-lg border border-[#004085] text-[#004085] dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                 >
-                  Copiar relatório de hoje
+                  Links de contrato
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTodasModal(true)}
+                  className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700"
+                >
+                  Todas as entrevistas
                 </button>
                 <button
                   type="button"
@@ -700,7 +859,39 @@ export default function EntrevistasPage() {
                   return (
                     <div
                       key={iso}
-                      className="bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 min-h-[420px] flex flex-col"
+                      className={`bg-white dark:bg-slate-800 rounded-lg shadow-lg border min-h-[420px] flex flex-col transition-colors ${
+                        dropTargetIso === iso
+                          ? 'border-[#004085] dark:border-blue-400 bg-blue-50/50 dark:bg-blue-900/10'
+                          : 'border-gray-200 dark:border-gray-700'
+                      }`}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        setDropTargetIso(iso);
+                      }}
+                      onDragEnter={(e) => {
+                        e.preventDefault();
+                        setDropTargetIso(iso);
+                      }}
+                      onDragLeave={(e) => {
+                        const related = e.relatedTarget as Node | null;
+                        if (related && e.currentTarget.contains(related)) return;
+                        if (dropTargetIso === iso) setDropTargetIso(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        skipClickAfterDragRef.current = true;
+                        const id =
+                          draggingEntrevistaId ||
+                          e.dataTransfer.getData('text/plain') ||
+                          e.dataTransfer.getData('text/entrevista-id');
+                        if (id) void handleMoveEntrevista(id, iso);
+                        else {
+                          setDraggingEntrevistaId(null);
+                          setDropTargetIso(null);
+                        }
+                      }}
                     >
                       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                         <div>
@@ -717,26 +908,83 @@ export default function EntrevistasPage() {
                             {day.getDate()}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => openCreateModal(iso)}
-                          className="text-xs text-[#004085] dark:text-blue-400 hover:underline"
-                        >
-                          + Nova
-                        </button>
+                        <div className="flex flex-col items-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void handleCopyRelatorioDia(iso)}
+                            className="text-xs text-green-700 dark:text-green-400 hover:underline"
+                          >
+                            Copiar relatório
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openCreateModal(iso)}
+                            className="text-xs text-[#004085] dark:text-blue-400 hover:underline"
+                          >
+                            + Nova
+                          </button>
+                        </div>
                       </div>
-                      <div className="p-3 space-y-2 flex-1">
+                      <div
+                        className="p-3 space-y-2 flex-1 min-h-[80px]"
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          setDropTargetIso(iso);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          skipClickAfterDragRef.current = true;
+                          const id =
+                            draggingEntrevistaId ||
+                            e.dataTransfer.getData('text/plain') ||
+                            e.dataTransfer.getData('text/entrevista-id');
+                          if (id) void handleMoveEntrevista(id, iso);
+                        }}
+                      >
                         {dayEntrevistas.length === 0 ? (
-                          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
+                          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8 pointer-events-none">
                             Sem entrevistas
                           </p>
                         ) : (
                           dayEntrevistas.map((entrevista) => (
-                            <button
+                            <div
                               key={entrevista.id}
-                              type="button"
-                              onClick={() => void openDetailModal(entrevista)}
-                              className="w-full text-left rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-slate-700/60 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 transition-colors"
+                              draggable
+                              onDragStart={(e) => {
+                                if (!entrevista.id) return;
+                                skipClickAfterDragRef.current = false;
+                                setDraggingEntrevistaId(entrevista.id);
+                                e.dataTransfer.setData('text/plain', entrevista.id);
+                                e.dataTransfer.setData('text/entrevista-id', entrevista.id);
+                                e.dataTransfer.effectAllowed = 'move';
+                                if (e.dataTransfer.setDragImage && e.currentTarget instanceof HTMLElement) {
+                                  e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
+                                }
+                              }}
+                              onDragEnd={() => {
+                                setDraggingEntrevistaId(null);
+                                setDropTargetIso(null);
+                                skipClickAfterDragRef.current = true;
+                                window.setTimeout(() => {
+                                  skipClickAfterDragRef.current = false;
+                                }, 200);
+                              }}
+                              onClick={() => handleEntrevistaCardClick(entrevista)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  handleEntrevistaCardClick(entrevista);
+                                }
+                              }}
+                              role="button"
+                              tabIndex={0}
+                              className={`w-full text-left rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-slate-700/60 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 transition-colors cursor-grab active:cursor-grabbing select-none touch-none ${
+                                draggingEntrevistaId === entrevista.id
+                                  ? 'opacity-40 ring-2 ring-[#004085] dark:ring-blue-400'
+                                  : ''
+                              }`}
                             >
                               <p className="font-semibold text-sm text-gray-900 dark:text-gray-100 uppercase truncate">
                                 {entrevista.empresaNome}
@@ -745,7 +993,7 @@ export default function EntrevistasPage() {
                                 {entrevista.quantidadeVagas} vaga(s) ·{' '}
                                 {entrevista.tipoVaga === 'nova' ? 'Nova' : 'Reposição'}
                               </p>
-                            </button>
+                            </div>
                           ))
                         )}
                       </div>
@@ -822,6 +1070,17 @@ export default function EntrevistasPage() {
                   <option value="online">Online</option>
                   <option value="captacao">Captação</option>
                 </select>
+              </div>
+              <div>
+                <label className={labelClass}>Data no calendário *</label>
+                <input
+                  type="date"
+                  value={formData.dataCalendario}
+                  onChange={(e) =>
+                    setFormData({ ...formData, dataCalendario: e.target.value })
+                  }
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>
@@ -1269,6 +1528,131 @@ export default function EntrevistasPage() {
               </div>
             </div>
           )}
+        </AnimatedModal>
+
+        <AnimatedModal
+          open={showContratosModal}
+          onClose={() => {
+            setShowContratosModal(false);
+            setContratoFiltro('todos');
+          }}
+        >
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6">
+            <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400 mb-4">
+              Links de contrato
+            </h2>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {(
+                [
+                  ['todos', 'Todos'],
+                  ['pendente', 'Pendente assinatura'],
+                  ['assinado', 'Assinado'],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setContratoFiltro(value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm border ${
+                    contratoFiltro === value
+                      ? 'bg-[#004085] text-white border-[#004085]'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {loadingContratos ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">Carregando...</p>
+            ) : filteredContratoLinks.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Nenhum link de contrato encontrado.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {filteredContratoLinks.map((item) => (
+                  <div
+                    key={item.candidato.id}
+                    className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2"
+                  >
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-gray-100">
+                        {item.entrevista.empresaNome}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        {item.candidato.nome}
+                      </p>
+                      <p className="text-xs mt-1 text-[#004085] dark:text-blue-400">
+                        {ENTREVISTA_CANDIDATO_STATUS_LABELS[item.status]}
+                      </p>
+                    </div>
+                    {item.link && (
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyContratoLink(item.link)}
+                        className="px-3 py-1.5 rounded-lg bg-[#004085] hover:bg-[#0056B3] text-white text-sm shrink-0"
+                      >
+                        Copiar link
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </AnimatedModal>
+
+        <AnimatedModal
+          open={showTodasModal}
+          onClose={() => {
+            setShowTodasModal(false);
+            setTodasSearch('');
+          }}
+        >
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
+            <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400 mb-4">
+              Todas as entrevistas
+            </h2>
+            <input
+              type="text"
+              placeholder="Buscar por nome da empresa..."
+              value={todasSearch}
+              onChange={(e) => setTodasSearch(e.target.value)}
+              className={`${inputClass} mb-4`}
+            />
+            {filteredTodasEntrevistas.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Nenhuma entrevista encontrada.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {filteredTodasEntrevistas.map((entrevista) => (
+                  <button
+                    key={entrevista.id}
+                    type="button"
+                    onClick={() => void handleOpenTodasEntrevista(entrevista)}
+                    className="w-full text-left rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    <p className="font-semibold text-gray-900 dark:text-gray-100 uppercase">
+                      {entrevista.empresaNome}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Calendário:{' '}
+                      {new Date(getDataCalendario(entrevista) + 'T12:00:00').toLocaleDateString(
+                        'pt-BR'
+                      )}{' '}
+                      · Entrevista:{' '}
+                      {new Date(entrevista.dataEntrevista + 'T12:00:00').toLocaleDateString(
+                        'pt-BR'
+                      )}{' '}
+                      · {entrevista.tituloVaga}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </AnimatedModal>
       </AdminRoute>
     </ProtectedRoute>

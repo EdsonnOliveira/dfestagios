@@ -187,6 +187,7 @@ export interface Entrevista {
   pontoReferencia?: string;
   responsavelEntrevista?: string;
   tipoEntrevista?: EntrevistaTipoEntrevista;
+  dataCalendario?: string;
   dataEntrevista: string;
   horarioEntrevista: string;
   tituloVaga: string;

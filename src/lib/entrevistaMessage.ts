@@ -153,6 +153,10 @@ export function buildEntrevistaConfirmacaoMessage(entrevista: Entrevista): strin
   return parts.join('\n');
 }
 
+export function getDataCalendario(entrevista: Entrevista): string {
+  return entrevista.dataCalendario?.trim() || entrevista.dataEntrevista;
+}
+
 function getWeekdayShortFromIso(isoDate: string): string {
   const [year, month, day] = isoDate.split('-').map(Number);
   if (!year || !month || !day) return '';
@@ -170,18 +174,19 @@ function getWeekdayShortFromIso(isoDate: string): string {
 }
 
 export function buildRelatorioDiario(
-  date: Date,
+  isoDate: string,
   entrevistas: Entrevista[],
   candidatosByEntrevistaId: Map<string, EntrevistaCandidato[]>
 ): string {
-  const isoToday = toIsoDate(date);
+  const [year, month, day] = isoDate.split('-').map(Number);
+  const date =
+    year && month && day ? new Date(year, month - 1, day) : new Date(isoDate);
   const formattedDate = date.toLocaleDateString('pt-BR');
-  const todayEntrevistas = entrevistas.filter((item) => {
-    const createdAt = item.createdAt instanceof Date ? item.createdAt : new Date(item.createdAt);
-    return toIsoDate(createdAt) === isoToday;
-  });
+  const dayEntrevistas = entrevistas.filter(
+    (item) => getDataCalendario(item) === isoDate
+  );
 
-  const lines = todayEntrevistas.map((entrevista) => {
+  const lines = dayEntrevistas.map((entrevista) => {
     const candidatos = candidatosByEntrevistaId.get(entrevista.id ?? '') ?? [];
     const count = candidatos.length;
     const tipoEntrevista = entrevista.tipoEntrevista ?? 'presencial';
