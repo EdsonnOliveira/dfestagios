@@ -24,8 +24,7 @@ import type { Cliente, Estagiario } from '../types/firebase';
 import {
   ESTAGIO_FUNCAO_OPTIONS,
   ESTAGIO_FUNCAO_OUTRA,
-  resolveEstagioFuncao,
-  splitEstagioFuncao
+  resolveEstagioFuncao
 } from '../constants/estagioFuncao';
 
 type Studying = 'sim' | 'nao' | '';
@@ -172,78 +171,6 @@ function parseBolsaToFormDisplay(raw: string | undefined): string {
   return raw.trim();
 }
 
-function inferEstudandoFromEstagiario(e: Estagiario): {
-  estudando: Studying;
-  nivelEnsino: EducationLevel;
-} {
-  const hasIe =
-    Boolean(e.instituicaoEnsinoNome?.trim()) ||
-    (e.instituicaoEnsinoCnpj || '').replace(/\D/g, '').length === 14;
-  const g = (e.grauInstrucao || 'medio').toLowerCase();
-  if (g.includes('pos')) {
-    return { estudando: 'sim', nivelEnsino: 'superior' };
-  }
-  const nivelMap: Record<string, EducationLevel> = {
-    superior: 'superior',
-    medio: 'medio',
-    tecnico: 'tecnico',
-    fundamental: 'fundamental'
-  };
-  if (!hasIe) {
-    return { estudando: 'nao', nivelEnsino: '' };
-  }
-  return {
-    estudando: 'sim',
-    nivelEnsino: nivelMap[g] || 'medio'
-  };
-}
-
-function formStateFromEstagiario(e: Estagiario): FormState {
-  const inferred = inferEstudandoFromEstagiario(e);
-  const end =
-    [e.endereco, e.complemento].filter(Boolean).join(', ') || e.endereco || '';
-  const cepDigits = (e.cep || '').replace(/\D/g, '').slice(0, 8);
-  const ieDigits = (e.instituicaoEnsinoCnpj || '').replace(/\D/g, '').slice(0, 14);
-  const uniTelDigits = (e.instituicaoTelefone || '').replace(/\D/g, '').slice(0, 11);
-  const respTelDigits = (e.respLegalTelefone || '').replace(/\D/g, '').slice(0, 11);
-  const respCpfDigits = (e.respLegalCpf || '').replace(/\D/g, '').slice(0, 11);
-  const ieCepDigits = (e.instituicaoCep || '').replace(/\D/g, '').slice(0, 8);
-  const funcaoParts = splitEstagioFuncao(e.curso || '');
-
-  return {
-    nomeCompleto: (e.nome || '').toUpperCase(),
-    rg: e.rg || '',
-    cpf: e.cpf ? maskCpf(e.cpf.replace(/\D/g, '').slice(0, 11)) : '',
-    dataNascimento: e.dataNascimento || '',
-    email: e.email || '',
-    enderecoCompleto: end,
-    bairro: e.bairro || '',
-    cep: cepDigits ? maskCep(cepDigits) : '',
-    telefone: e.telefone1
-      ? maskPhone(e.telefone1.replace(/\D/g, '').slice(0, 11))
-      : '',
-    dataInicioEstagio: e.estagioDataInicio || '',
-    horarioEntrada: e.estagioHorarioEntrada || '',
-    horarioSaida: e.estagioHorarioSaida || '',
-    funcaoSelect: funcaoParts.funcaoSelect,
-    funcaoOutra: funcaoParts.funcaoOutra,
-    valorBolsa: parseBolsaToFormDisplay(e.estagioValorBolsa),
-    estudando: inferred.estudando,
-    nivelEnsino: inferred.nivelEnsino,
-    uniCnpj: ieDigits.length ? maskCnpj(ieDigits) : '',
-    uniNome: e.instituicaoEnsinoNome || '',
-    uniCep: ieCepDigits ? maskCep(ieCepDigits) : '',
-    uniEndereco: e.instituicaoEndereco || '',
-    uniTelefone: uniTelDigits ? maskPhone(uniTelDigits) : '',
-    uniReitor: e.instituicaoReitor || '',
-    respNome: (e.respLegalNome || '').toUpperCase(),
-    respCpf: respCpfDigits ? maskCpf(respCpfDigits) : '',
-    respTelefone: respTelDigits ? maskPhone(respTelDigits) : '',
-    cidade: e.cidade || '',
-    uf: e.uf || ''
-  };
-}
-
 function grauInstrucaoFromForm(
   estudando: Studying,
   nivel: EducationLevel
@@ -335,12 +262,10 @@ export default function FormularioContratoEstagio() {
         if (cancelled) return;
         if (c) setEmpresa(c);
         if (e) {
-          const ieDigits = (e.instituicaoEnsinoCnpj || '')
-            .replace(/\D/g, '')
-            .slice(0, 14);
-          lastUniCnpjFetched.current =
-            ieDigits.length === 14 ? ieDigits : '';
-          setForm(formStateFromEstagiario(e));
+          setForm((prev) => ({
+            ...prev,
+            valorBolsa: parseBolsaToFormDisplay(e.estagioValorBolsa)
+          }));
           const savedFilialId = e.empresaFilialId?.trim() ?? '';
           const filialExists = Boolean(
             savedFilialId &&
@@ -738,13 +663,7 @@ export default function FormularioContratoEstagio() {
           ? 'Contrato atualizado com sucesso.'
           : 'Cadastro concluído com sucesso.'
       );
-      if (estagiarioIdEdit) {
-        void router.push(
-          `/cliente-detalhes?id=${encodeURIComponent(clienteIdRaw)}`
-        );
-      } else {
-        void router.push('/');
-      }
+      void router.push('/');
     } catch (err) {
       console.error(err);
       toast.error(
