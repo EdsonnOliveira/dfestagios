@@ -17,6 +17,7 @@ import {
 } from '../services/tceDocxService';
 import { driveStorageService } from '../services/driveStorageService';
 import { getSupabaseBrowserClient } from '../lib/supabaseClient';
+import { useAuth } from '../hooks/useAuth';
 import { fetchCnpjInstituicaoEnsino } from '../services/brasilApiCnpj';
 import { fetchCepLookup } from '../services/viaCepService';
 import type { Cliente, Estagiario } from '../types/firebase';
@@ -288,6 +289,7 @@ const reqMark = (
 
 export default function FormularioContratoEstagio() {
   const router = useRouter();
+  const { user } = useAuth();
   const [empresa, setEmpresa] = useState<Cliente | null>(null);
   const [selectedFilialId, setSelectedFilialId] = useState('');
   const [loadError, setLoadError] = useState(false);
@@ -695,7 +697,13 @@ export default function FormularioContratoEstagio() {
           ? 'Contrato atualizado com sucesso.'
           : 'Cadastro concluído com sucesso.'
       );
-      void router.push('/');
+      if (user) {
+        void router.push(
+          `/cliente-detalhes?id=${encodeURIComponent(clienteIdRaw)}`
+        );
+      } else {
+        void router.push('/');
+      }
     } catch (err) {
       console.error(err);
       toast.error(
