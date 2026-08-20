@@ -6,7 +6,6 @@ import {
   useCallback,
   useRef,
   type FocusEvent,
-  type KeyboardEvent
 } from 'react';
 import Head from 'next/head';
 import toast from 'react-hot-toast';
@@ -24,7 +23,8 @@ import type { Cliente, Estagiario } from '../types/firebase';
 import {
   ESTAGIO_FUNCAO_OPTIONS,
   ESTAGIO_FUNCAO_OUTRA,
-  resolveEstagioFuncao
+  resolveEstagioFuncao,
+  splitEstagioFuncao,
 } from '../constants/estagioFuncao';
 
 type Studying = 'sim' | 'nao' | '';
@@ -164,11 +164,78 @@ const BOLSA_MAX_DIGITS = 12;
 
 function parseBolsaToFormDisplay(raw: string | undefined): string {
   if (!raw?.trim()) return '';
-  const digits = raw.replace(/\D/g, '').slice(0, BOLSA_MAX_DIGITS);
+  const trimmed = raw.trim();
+  const withoutCurrency = trimmed.replace(/^R\$\s?/i, '');
+  if (/[a-zA-Z+]/.test(withoutCurrency)) {
+    return trimmed;
+  }
+  const digits = trimmed.replace(/\D/g, '').slice(0, BOLSA_MAX_DIGITS);
   if (digits.length > 0) {
     return formatBolsaBrlFromDigits(digits);
   }
-  return raw.trim();
+  return trimmed;
+}
+
+function estagiarioToFormState(estagiario: Estagiario): FormState {
+  const { funcaoSelect, funcaoOutra } = splitEstagioFuncao(estagiario.curso ?? '');
+  const hasInstituicao = Boolean(
+    estagiario.instituicaoEnsinoNome?.trim() ||
+      estagiario.instituicaoEnsinoCnpj?.trim()
+  );
+  let estudando: Studying = '';
+  let nivelEnsino: EducationLevel = '';
+  if (hasInstituicao) {
+    estudando = 'sim';
+    const grau = estagiario.grauInstrucao?.toLowerCase() ?? '';
+    if (
+      grau === 'superior' ||
+      grau === 'medio' ||
+      grau === 'tecnico' ||
+      grau === 'fundamental'
+    ) {
+      nivelEnsino = grau;
+    }
+  } else if (estagiario.grauInstrucao === 'medio') {
+    estudando = 'nao';
+  }
+
+  return {
+    ...initialForm,
+    nomeCompleto: estagiario.nome ?? '',
+    rg: estagiario.rg ?? '',
+    cpf: estagiario.cpf ? maskCpf(estagiario.cpf) : '',
+    dataNascimento: estagiario.dataNascimento ?? '',
+    email: estagiario.email ?? '',
+    enderecoCompleto: estagiario.endereco ?? '',
+    bairro: estagiario.bairro ?? '',
+    cep: estagiario.cep ? maskCep(estagiario.cep) : '',
+    telefone: estagiario.telefone1 ? maskPhone(estagiario.telefone1) : '',
+    dataInicioEstagio: estagiario.estagioDataInicio ?? '',
+    horarioEntrada: estagiario.estagioHorarioEntrada ?? '',
+    horarioSaida: estagiario.estagioHorarioSaida ?? '',
+    funcaoSelect,
+    funcaoOutra,
+    valorBolsa: parseBolsaToFormDisplay(estagiario.estagioValorBolsa),
+    estudando,
+    nivelEnsino,
+    uniCnpj: estagiario.instituicaoEnsinoCnpj
+      ? maskCnpj(estagiario.instituicaoEnsinoCnpj)
+      : '',
+    uniNome: estagiario.instituicaoEnsinoNome ?? '',
+    uniCep: estagiario.instituicaoCep ? maskCep(estagiario.instituicaoCep) : '',
+    uniEndereco: estagiario.instituicaoEndereco ?? '',
+    uniTelefone: estagiario.instituicaoTelefone
+      ? maskPhone(estagiario.instituicaoTelefone)
+      : '',
+    uniReitor: estagiario.instituicaoReitor ?? '',
+    respNome: estagiario.respLegalNome ?? '',
+    respCpf: estagiario.respLegalCpf ? maskCpf(estagiario.respLegalCpf) : '',
+    respTelefone: estagiario.respLegalTelefone
+      ? maskPhone(estagiario.respLegalTelefone)
+      : '',
+    cidade: estagiario.cidade ?? '',
+    uf: estagiario.uf ?? '',
+  };
 }
 
 function grauInstrucaoFromForm(
@@ -262,10 +329,7 @@ export default function FormularioContratoEstagio() {
         if (cancelled) return;
         if (c) setEmpresa(c);
         if (e) {
-          setForm((prev) => ({
-            ...prev,
-            valorBolsa: parseBolsaToFormDisplay(e.estagioValorBolsa)
-          }));
+          setForm(estagiarioToFormState(e));
           const savedFilialId = e.empresaFilialId?.trim() ?? '';
           const filialExists = Boolean(
             savedFilialId &&
@@ -341,38 +405,6 @@ export default function FormularioContratoEstagio() {
 
   const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((p) => ({ ...p, [key]: value }));
-  };
-
-  const handleValorBolsaChange = (value: string) => {
-    const digits = value.replace(/\D/g, '').slice(0, BOLSA_MAX_DIGITS);
-    setField('valorBolsa', formatBolsaBrlFromDigits(digits));
-  };
-
-  const handleValorBolsaKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const allowedNav = new Set([
-      'Backspace',
-      'Delete',
-      'Tab',
-      'Escape',
-      'Enter',
-      'ArrowLeft',
-      'ArrowRight',
-      'ArrowUp',
-      'ArrowDown',
-      'Home',
-      'End'
-    ]);
-    if (allowedNav.has(e.key)) return;
-    if (/^\d$/.test(e.key)) return;
-    e.preventDefault();
-  };
-
-  const handleValorBolsaBlur = () => {
-    setForm((p) => {
-      const digits = p.valorBolsa.replace(/\D/g, '').slice(0, BOLSA_MAX_DIGITS);
-      return { ...p, valorBolsa: formatBolsaBrlFromDigits(digits) };
-    });
   };
 
   const handleCepBlur = useCallback(async () => {
@@ -1047,14 +1079,10 @@ export default function FormularioContratoEstagio() {
                   type="text"
                   className={inputClass}
                   value={form.valorBolsa}
-                  onChange={(e) => handleValorBolsaChange(e.target.value)}
-                  onKeyDown={handleValorBolsaKeyDown}
-                  onBlur={handleValorBolsaBlur}
-                  placeholder="R$ 0,00"
-                  inputMode="numeric"
+                  onChange={(e) => setField('valorBolsa', e.target.value)}
+                  placeholder="Ex: R$ 700,00 ou 700 + transporte"
                   autoComplete="off"
                   spellCheck={false}
-                  aria-label="Valor da bolsa em reais; digite apenas números"
                 />
               </div>
             </section>

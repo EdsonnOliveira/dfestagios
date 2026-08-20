@@ -194,6 +194,7 @@ export interface Entrevista {
   tituloVaga: string;
   horarioTrabalho: string;
   valorBolsa: string;
+  beneficios?: string;
   atividades: string;
   requisitos: string;
   status: EntrevistaStatus;

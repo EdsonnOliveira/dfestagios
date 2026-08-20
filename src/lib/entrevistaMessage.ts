@@ -98,6 +98,9 @@ export function buildEntrevistaWhatsappMessage(entrevista: Entrevista): string {
     `⏰ *Horário:* ${entrevista.horarioTrabalho.trim()}`,
     '',
     `💰 *Bolsa:* ${entrevista.valorBolsa.trim()}`,
+    ...(entrevista.beneficios?.trim()
+      ? ['', `🎁 *Benefícios:* ${entrevista.beneficios.trim()}`]
+      : []),
     '',
     '*Atividades:*',
     '',

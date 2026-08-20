@@ -66,6 +66,7 @@ const emptyForm = {
   tituloVaga: '',
   horarioTrabalho: '',
   valorBolsa: '',
+  beneficios: '',
   atividades: '',
   requisitos: '',
   status: 'agendada' as EntrevistaStatus,
@@ -84,6 +85,13 @@ function maskPhone(value: string): string {
   if (n.length <= 6) return `(${n.slice(0, 2)}) ${n.slice(2)}`;
   if (n.length <= 10) return `(${n.slice(0, 2)}) ${n.slice(2, 6)}-${n.slice(6)}`;
   return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
+}
+
+function buildWhatsAppUrl(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (!digits) return '';
+  const withCountry = digits.startsWith('55') ? digits : `55${digits}`;
+  return `https://wa.me/${withCountry}`;
 }
 
 function getClienteDisplayName(cliente: Cliente): string {
@@ -461,6 +469,7 @@ export default function EntrevistasPage() {
       tituloVaga: entrevista.tituloVaga,
       horarioTrabalho: entrevista.horarioTrabalho,
       valorBolsa: entrevista.valorBolsa,
+      beneficios: entrevista.beneficios ?? '',
       atividades: entrevista.atividades,
       requisitos: entrevista.requisitos,
       status: entrevista.status,
@@ -523,6 +532,7 @@ export default function EntrevistasPage() {
       tituloVaga: formData.tituloVaga.trim(),
       horarioTrabalho: formData.horarioTrabalho.trim(),
       valorBolsa: formData.valorBolsa.trim(),
+      beneficios: formData.beneficios.trim(),
       atividades: formData.atividades.trim(),
       requisitos: formData.requisitos.trim(),
       status: formData.status,
@@ -549,6 +559,49 @@ export default function EntrevistasPage() {
     } catch (error) {
       console.error(error);
       toast.error('Erro ao salvar entrevista.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleDuplicateEntrevista = async (entrevista: Entrevista) => {
+    if (!entrevista.id) return;
+    try {
+      setLoadingAction(true);
+      const payload = {
+        clienteId: entrevista.clienteId,
+        filialId: entrevista.filialId ?? '',
+        empresaNome: entrevista.empresaNome,
+        quantidadeVagas: entrevista.quantidadeVagas,
+        tipoVaga: entrevista.tipoVaga,
+        endereco: entrevista.endereco,
+        bairro: entrevista.bairro,
+        cidade: entrevista.cidade,
+        cep: entrevista.cep,
+        googleMapsLink: entrevista.googleMapsLink ?? '',
+        pontoReferencia: entrevista.pontoReferencia ?? '',
+        responsavelEntrevista: entrevista.responsavelEntrevista ?? '',
+        tipoEntrevista: entrevista.tipoEntrevista ?? 'presencial',
+        dataCalendario: getDataCalendario(entrevista),
+        dataEntrevista: entrevista.dataEntrevista,
+        horarioEntrevista: entrevista.horarioEntrevista,
+        tituloVaga: entrevista.tituloVaga,
+        horarioTrabalho: entrevista.horarioTrabalho,
+        valorBolsa: entrevista.valorBolsa,
+        beneficios: entrevista.beneficios ?? '',
+        atividades: entrevista.atividades,
+        requisitos: entrevista.requisitos,
+        status: 'agendada' as EntrevistaStatus,
+      };
+      const id = await entrevistasService.add(payload);
+      setEntrevistas((prev) => [
+        ...prev,
+        { id, ...payload, createdAt: new Date(), updatedAt: new Date() },
+      ]);
+      toast.success('Entrevista duplicada.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao duplicar entrevista.');
     } finally {
       setLoadingAction(false);
     }
@@ -918,7 +971,6 @@ export default function EntrevistasPage() {
           grauInstrucao: 'medio',
           curso: selectedEntrevista.tituloVaga.trim(),
           status: 'ativo',
-          estagioValorBolsa: selectedEntrevista.valorBolsa.trim(),
           estagioHorarioEntrada: horarios.entrada,
           estagioHorarioSaida: horarios.saida,
           ...(selectedEntrevista.filialId
@@ -1179,13 +1231,44 @@ export default function EntrevistasPage() {
                                   : ''
                               }`}
                             >
-                              <p className="font-semibold text-sm text-gray-900 dark:text-gray-100 uppercase truncate">
-                                {entrevista.empresaNome}
-                              </p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                {entrevista.quantidadeVagas} vaga(s) ·{' '}
-                                {entrevista.tipoVaga === 'nova' ? 'Nova' : 'Reposição'}
-                              </p>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-semibold text-sm text-gray-900 dark:text-gray-100 uppercase truncate">
+                                    {entrevista.empresaNome}
+                                  </p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    {entrevista.quantidadeVagas} vaga(s) ·{' '}
+                                    {entrevista.tipoVaga === 'nova' ? 'Nova' : 'Reposição'}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  title="Duplicar entrevista"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    skipClickAfterDragRef.current = true;
+                                    void handleDuplicateEntrevista(entrevista);
+                                  }}
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  disabled={loadingAction}
+                                  className="shrink-0 p-1 rounded text-gray-500 dark:text-gray-400 hover:text-[#004085] dark:hover:text-blue-400 hover:bg-gray-200 dark:hover:bg-slate-600 disabled:opacity-50"
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    className="w-4 h-4"
+                                    aria-hidden="true"
+                                  >
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                  </svg>
+                                </button>
+                              </div>
                             </div>
                           ))
                         )}
@@ -1427,9 +1510,22 @@ export default function EntrevistasPage() {
                 <label className={labelClass}>Valor da bolsa</label>
                 <input
                   type="text"
+                  placeholder="Ex: 700,00"
                   value={formData.valorBolsa}
                   onChange={(e) =>
                     setFormData({ ...formData, valorBolsa: e.target.value })
+                  }
+                  className={inputClass}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className={labelClass}>Benefícios</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Transporte + Alimentação no local"
+                  value={formData.beneficios}
+                  onChange={(e) =>
+                    setFormData({ ...formData, beneficios: e.target.value })
                   }
                   className={inputClass}
                 />
@@ -1597,6 +1693,14 @@ export default function EntrevistasPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleDuplicateEntrevista(selectedEntrevista)}
+                    disabled={loadingAction}
+                    className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50"
+                  >
+                    Duplicar
+                  </button>
                   <button
                     type="button"
                     onClick={() => openEditModal(selectedEntrevista)}
@@ -1768,7 +1872,19 @@ export default function EntrevistasPage() {
                                 {candidato.nome}
                               </p>
                               <p className="text-xs text-gray-500 dark:text-gray-400">
-                                {maskPhone(candidato.telefone)}
+                                {buildWhatsAppUrl(candidato.telefone) ? (
+                                  <a
+                                    href={buildWhatsAppUrl(candidato.telefone)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-green-700 dark:text-green-400 hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {maskPhone(candidato.telefone)}
+                                  </a>
+                                ) : (
+                                  maskPhone(candidato.telefone)
+                                )}
                               </p>
                               <p className="text-xs mt-1 text-[#004085] dark:text-blue-400">
                                 {ENTREVISTA_CANDIDATO_STATUS_LABELS[candidato.status]}
