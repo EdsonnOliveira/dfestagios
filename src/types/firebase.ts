@@ -176,6 +176,7 @@ export type EntrevistaCandidatoStatus =
 export interface Entrevista {
   id?: string;
   clienteId: string;
+  filialId?: string;
   empresaNome: string;
   quantidadeVagas: number;
   tipoVaga: EntrevistaTipoVaga;

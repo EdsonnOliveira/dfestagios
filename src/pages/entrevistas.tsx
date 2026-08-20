@@ -24,6 +24,7 @@ import {
 } from '../lib/entrevistaMessage';
 import type {
   Cliente,
+  ClienteFilial,
   Entrevista,
   EntrevistaCandidato,
   EntrevistaCandidatoStatus,
@@ -48,6 +49,7 @@ interface ContratoLinkItem {
 
 const emptyForm = {
   clienteId: '',
+  filialId: '',
   quantidadeVagas: '1',
   tipoVaga: 'nova' as EntrevistaTipoVaga,
   endereco: '',
@@ -84,6 +86,105 @@ function maskPhone(value: string): string {
   return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
 }
 
+function getClienteDisplayName(cliente: Cliente): string {
+  return cliente.nomeFantasia?.trim() || cliente.razaoSocial;
+}
+
+function getFilialDisplayName(filial: ClienteFilial): string {
+  return filial.nomeFantasia?.trim() || filial.razaoSocial;
+}
+
+function resolveEmpresaNome(cliente: Cliente, filialId: string): string {
+  if (filialId) {
+    const filial = cliente.filiais?.find((item) => item.id === filialId);
+    if (filial) return getFilialDisplayName(filial);
+  }
+  return getClienteDisplayName(cliente);
+}
+
+function getClienteEnderecoFields(
+  cliente: Cliente,
+  filialId: string
+): Pick<typeof emptyForm, 'endereco' | 'bairro' | 'cidade' | 'cep'> {
+  if (filialId) {
+    const filial = cliente.filiais?.find((item) => item.id === filialId);
+    if (filial) {
+      return {
+        endereco: filial.endereco ?? '',
+        bairro: filial.bairro,
+        cidade: filial.cidade,
+        cep: filial.cep,
+      };
+    }
+  }
+  return {
+    endereco: cliente.endereco ?? '',
+    bairro: cliente.bairro,
+    cidade: cliente.cidade,
+    cep: cliente.cep,
+  };
+}
+
+function matchesSearchTerm(value: string, term: string): boolean {
+  const normalized = term.trim().toLowerCase();
+  if (!normalized) return false;
+  const cnpjDigits = term.replace(/\D/g, '');
+  const fieldValue = value.trim().toLowerCase();
+  if (fieldValue.includes(normalized)) return true;
+  if (cnpjDigits.length >= 4 && value.replace(/\D/g, '').includes(cnpjDigits)) {
+    return true;
+  }
+  return false;
+}
+
+function matchesClienteMatrizSearch(cliente: Cliente, term: string): boolean {
+  const fields = [
+    getClienteDisplayName(cliente),
+    cliente.razaoSocial,
+    cliente.nomeFantasia,
+    cliente.cnpj,
+    cliente.cidade,
+    cliente.bairro,
+  ];
+  return fields.some((field) => matchesSearchTerm(field, term));
+}
+
+function matchesFilialSearch(filial: ClienteFilial, term: string): boolean {
+  const fields = [
+    getFilialDisplayName(filial),
+    filial.razaoSocial,
+    filial.nomeFantasia,
+    filial.cnpj,
+    filial.cidade,
+    filial.bairro,
+  ];
+  return fields.some((field) => matchesSearchTerm(field, term));
+}
+
+type ClienteSearchOption =
+  | { type: 'matriz'; cliente: Cliente }
+  | { type: 'filial'; cliente: Cliente; filial: ClienteFilial };
+
+function buildClienteSearchOptions(clientes: Cliente[], term: string): ClienteSearchOption[] {
+  const normalized = term.trim();
+  if (!normalized) return [];
+  const options: ClienteSearchOption[] = [];
+  const sorted = [...clientes].sort((a, b) =>
+    getClienteDisplayName(a).localeCompare(getClienteDisplayName(b), 'pt-BR')
+  );
+  sorted.forEach((cliente) => {
+    if (matchesClienteMatrizSearch(cliente, normalized)) {
+      options.push({ type: 'matriz', cliente });
+    }
+    (cliente.filiais ?? []).forEach((filial) => {
+      if (matchesFilialSearch(filial, normalized)) {
+        options.push({ type: 'filial', cliente, filial });
+      }
+    });
+  });
+  return options;
+}
+
 function resolveCandidatoStatus(
   candidato: EntrevistaCandidato,
   hasContract: boolean
@@ -104,6 +205,9 @@ export default function EntrevistasPage() {
     null
   );
   const [formData, setFormData] = useState(emptyForm);
+  const [clienteSearch, setClienteSearch] = useState('');
+  const [clienteDropdownOpen, setClienteDropdownOpen] = useState(false);
+  const clienteSearchRef = useRef<HTMLDivElement>(null);
   const [selectedEntrevista, setSelectedEntrevista] = useState<Entrevista | null>(
     null
   );
@@ -174,6 +278,19 @@ export default function EntrevistasPage() {
     void loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        clienteSearchRef.current &&
+        !clienteSearchRef.current.contains(event.target as Node)
+      ) {
+        setClienteDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const entrevistasByDay = useMemo(() => {
     const weekIsoSet = new Set(weekDays.map((day) => toIsoDate(day)));
     const map = new Map<string, Entrevista[]>();
@@ -196,6 +313,16 @@ export default function EntrevistasPage() {
     () => clientes.find((cliente) => cliente.id === formData.clienteId) ?? null,
     [clientes, formData.clienteId]
   );
+
+  const clienteSearchOptions = useMemo(
+    () => buildClienteSearchOptions(clientes, clienteSearch),
+    [clientes, clienteSearch]
+  );
+
+  const selectedFilial = useMemo(() => {
+    if (!selectedCliente || !formData.filialId) return null;
+    return selectedCliente.filiais?.find((filial) => filial.id === formData.filialId) ?? null;
+  }, [selectedCliente, formData.filialId]);
 
   const whatsappMessage = useMemo(
     () => (selectedEntrevista ? buildEntrevistaWhatsappMessage(selectedEntrevista) : ''),
@@ -237,21 +364,62 @@ export default function EntrevistasPage() {
     return contratoLinks.filter((item) => item.status === 'contrato_preenchido');
   }, [contratoLinks, contratoFiltro]);
 
-  const handleClienteChange = (clienteId: string) => {
+  const applyClienteSelection = (clienteId: string, filialId: string, searchLabel: string) => {
     const cliente = clientes.find((item) => item.id === clienteId);
+    if (!cliente) return;
+    const enderecoFields = getClienteEnderecoFields(cliente, filialId);
     setFormData((prev) => ({
       ...prev,
       clienteId,
-      endereco: cliente?.endereco ?? prev.endereco,
-      bairro: cliente?.bairro ?? prev.bairro,
-      cidade: cliente?.cidade ?? prev.cidade,
-      cep: cliente?.cep ?? prev.cep,
+      filialId,
+      ...enderecoFields,
     }));
+    setClienteSearch(searchLabel);
+    setClienteDropdownOpen(false);
+  };
+
+  const handleClienteChange = (clienteId: string) => {
+    const cliente = clientes.find((item) => item.id === clienteId);
+    if (!cliente) return;
+    applyClienteSelection(clienteId, '', getClienteDisplayName(cliente));
+  };
+
+  const handleClienteFilialChange = (clienteId: string, filialId: string) => {
+    const cliente = clientes.find((item) => item.id === clienteId);
+    if (!cliente) return;
+    const filial = cliente.filiais?.find((item) => item.id === filialId);
+    if (!filial) return;
+    applyClienteSelection(
+      clienteId,
+      filialId,
+      `${getFilialDisplayName(filial)} — ${getClienteDisplayName(cliente)}`
+    );
+  };
+
+  const handleFilialChange = (filialId: string) => {
+    const cliente = clientes.find((item) => item.id === formData.clienteId);
+    if (!cliente) return;
+    const enderecoFields = getClienteEnderecoFields(cliente, filialId);
+    setFormData((prev) => ({
+      ...prev,
+      filialId,
+      ...enderecoFields,
+    }));
+    if (filialId) {
+      const filial = cliente.filiais?.find((item) => item.id === filialId);
+      if (filial) {
+        setClienteSearch(`${getFilialDisplayName(filial)} — ${getClienteDisplayName(cliente)}`);
+      }
+    } else {
+      setClienteSearch(getClienteDisplayName(cliente));
+    }
   };
 
   const openCreateModal = (isoDate?: string) => {
     const defaultDate = isoDate ?? toIsoDate(new Date());
     setEditingEntrevista(null);
+    setClienteSearch('');
+    setClienteDropdownOpen(false);
     setFormData({
       ...emptyForm,
       dataCalendario: defaultDate,
@@ -261,9 +429,22 @@ export default function EntrevistasPage() {
   };
 
   const openEditModal = (entrevista: Entrevista) => {
+    const cliente = clientes.find((item) => item.id === entrevista.clienteId);
+    const filial = entrevista.filialId
+      ? cliente?.filiais?.find((item) => item.id === entrevista.filialId)
+      : null;
     setEditingEntrevista(entrevista);
+    setClienteSearch(
+      filial && cliente
+        ? `${getFilialDisplayName(filial)} — ${getClienteDisplayName(cliente)}`
+        : cliente
+          ? getClienteDisplayName(cliente)
+          : entrevista.empresaNome
+    );
+    setClienteDropdownOpen(false);
     setFormData({
       clienteId: entrevista.clienteId,
+      filialId: entrevista.filialId ?? '',
       quantidadeVagas: String(entrevista.quantidadeVagas),
       tipoVaga: entrevista.tipoVaga,
       endereco: entrevista.endereco,
@@ -290,6 +471,8 @@ export default function EntrevistasPage() {
   const closeFormModal = () => {
     setShowFormModal(false);
     setEditingEntrevista(null);
+    setClienteSearch('');
+    setClienteDropdownOpen(false);
     setFormData(emptyForm);
   };
 
@@ -315,7 +498,8 @@ export default function EntrevistasPage() {
     }
     const payload = {
       clienteId: formData.clienteId,
-      empresaNome: cliente.nomeFantasia?.trim() || cliente.razaoSocial,
+      filialId: formData.filialId,
+      empresaNome: resolveEmpresaNome(cliente, formData.filialId),
       quantidadeVagas: Math.max(1, parseInt(formData.quantidadeVagas, 10) || 1),
       tipoVaga: formData.tipoVaga,
       endereco: formData.endereco.trim(),
@@ -496,8 +680,11 @@ export default function EntrevistasPage() {
             const hasContract = Boolean(estagiario?.contratoPdfDrivePath?.trim());
             status = resolveCandidatoStatus(candidato, hasContract);
           }
+          const filialQuery = entrevista.filialId
+            ? `&filialId=${encodeURIComponent(entrevista.filialId)}`
+            : '';
           const link = candidato.estagiarioId
-            ? `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(entrevista.clienteId)}&estagiarioId=${encodeURIComponent(candidato.estagiarioId)}`
+            ? `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(entrevista.clienteId)}&estagiarioId=${encodeURIComponent(candidato.estagiarioId)}${filialQuery}`
             : '';
           return {
             candidato: { ...candidato, status },
@@ -734,6 +921,9 @@ export default function EntrevistasPage() {
           estagioValorBolsa: selectedEntrevista.valorBolsa.trim(),
           estagioHorarioEntrada: horarios.entrada,
           estagioHorarioSaida: horarios.saida,
+          ...(selectedEntrevista.filialId
+            ? { empresaFilialId: selectedEntrevista.filialId }
+            : {}),
         });
         await vinculacoesService.vincularEstagiario(
           selectedEntrevista.clienteId,
@@ -744,7 +934,10 @@ export default function EntrevistasPage() {
           status: 'contrato_pendente',
         });
       }
-      const url = `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(selectedEntrevista.clienteId)}&estagiarioId=${encodeURIComponent(estagiarioId)}`;
+      const filialQuery = selectedEntrevista.filialId
+        ? `&filialId=${encodeURIComponent(selectedEntrevista.filialId)}`
+        : '';
+      const url = `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(selectedEntrevista.clienteId)}&estagiarioId=${encodeURIComponent(estagiarioId)}${filialQuery}`;
       await navigator.clipboard.writeText(url);
       await refreshCandidatos(selectedEntrevista.id);
       toast.success('Link do contrato copiado.');
@@ -1011,21 +1204,119 @@ export default function EntrevistasPage() {
               {editingEntrevista ? 'Editar entrevista' : 'Nova entrevista'}
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
+              <div className="sm:col-span-2" ref={clienteSearchRef}>
                 <label className={labelClass}>Cliente *</label>
-                <select
-                  value={formData.clienteId}
-                  onChange={(e) => handleClienteChange(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">Selecione</option>
-                  {clientes.map((cliente) => (
-                    <option key={cliente.id} value={cliente.id}>
-                      {cliente.nomeFantasia || cliente.razaoSocial}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Digite para buscar empresa..."
+                    value={clienteSearch}
+                    onChange={(e) => {
+                      setClienteSearch(e.target.value);
+                      setClienteDropdownOpen(true);
+                      if (!e.target.value.trim()) {
+                        setFormData((prev) => ({
+                          ...prev,
+                          clienteId: '',
+                          filialId: '',
+                        }));
+                      }
+                    }}
+                    onFocus={() => setClienteDropdownOpen(true)}
+                    className={inputClass}
+                  />
+                  {clienteDropdownOpen && (
+                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 shadow-lg">
+                      {!clienteSearch.trim() ? (
+                        <p className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                          Digite o nome, CNPJ ou cidade da empresa ou filial.
+                        </p>
+                      ) : clienteSearchOptions.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                          Nenhuma empresa encontrada.
+                        </p>
+                      ) : (
+                        clienteSearchOptions.map((option) => {
+                          if (option.type === 'matriz') {
+                            const { cliente } = option;
+                            const filiaisCount = cliente.filiais?.length ?? 0;
+                            const isSelected =
+                              formData.clienteId === cliente.id && !formData.filialId;
+                            return (
+                              <button
+                                key={`matriz-${cliente.id}`}
+                                type="button"
+                                onClick={() => {
+                                  if (cliente.id) handleClienteChange(cliente.id);
+                                }}
+                                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-600 border-b border-gray-100 dark:border-gray-600 last:border-b-0 ${
+                                  isSelected
+                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-[#004085] dark:text-blue-400'
+                                    : 'text-gray-900 dark:text-gray-100'
+                                }`}
+                              >
+                                <span className="font-medium uppercase">
+                                  {getClienteDisplayName(cliente)}
+                                </span>
+                                <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                  Matriz · {cliente.cnpj}
+                                  {filiaisCount > 0
+                                    ? ` · ${filiaisCount} filial${filiaisCount === 1 ? '' : 'is'}`
+                                    : ''}
+                                </span>
+                              </button>
+                            );
+                          }
+                          const { cliente, filial } = option;
+                          const isSelected =
+                            formData.clienteId === cliente.id &&
+                            formData.filialId === filial.id;
+                          return (
+                            <button
+                              key={`filial-${cliente.id}-${filial.id}`}
+                              type="button"
+                              onClick={() => {
+                                if (cliente.id) handleClienteFilialChange(cliente.id, filial.id);
+                              }}
+                              className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-600 border-b border-gray-100 dark:border-gray-600 last:border-b-0 ${
+                                isSelected
+                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-[#004085] dark:text-blue-400'
+                                  : 'text-gray-900 dark:text-gray-100'
+                              }`}
+                            >
+                              <span className="font-medium uppercase">
+                                {getFilialDisplayName(filial)}
+                              </span>
+                              <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                Filial · {filial.cnpj} · {getClienteDisplayName(cliente)}
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
+              {selectedCliente && (selectedCliente.filiais?.length ?? 0) > 0 && (
+                <div className="sm:col-span-2">
+                  <label className={labelClass}>Unidade da vaga *</label>
+                  <select
+                    value={formData.filialId}
+                    onChange={(e) => handleFilialChange(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">
+                      Matriz — {getClienteDisplayName(selectedCliente)} ({selectedCliente.cnpj})
+                    </option>
+                    {(selectedCliente.filiais ?? []).map((filial) => (
+                      <option key={filial.id} value={filial.id}>
+                        Filial — {getFilialDisplayName(filial)} ({filial.cnpj})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className={labelClass}>Quantidade de vagas *</label>
                 <input
@@ -1264,7 +1555,12 @@ export default function EntrevistasPage() {
             </div>
             {selectedCliente && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-4">
-                Empresa selecionada: {selectedCliente.nomeFantasia || selectedCliente.razaoSocial}
+                Empresa selecionada: {resolveEmpresaNome(selectedCliente, formData.filialId)}
+                {selectedFilial
+                  ? ` (Filial — ${selectedFilial.cnpj})`
+                  : formData.clienteId
+                    ? ` (Matriz — ${selectedCliente.cnpj})`
+                    : ''}
               </p>
             )}
             <div className="flex justify-end gap-2 mt-6">
