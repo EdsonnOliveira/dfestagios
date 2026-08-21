@@ -116,6 +116,29 @@ export function buildEntrevistaWhatsappMessage(entrevista: Entrevista): string {
 }
 
 export function buildEntrevistaConfirmacaoMessage(entrevista: Entrevista): string {
+  const tipoEntrevista = entrevista.tipoEntrevista ?? 'presencial';
+
+  if (tipoEntrevista === 'captacao') {
+    const local = getLocalLabel(entrevista);
+
+    return [
+      '📢 SEU CURRÍCULO FOI SELECIONADO! 🎉',
+      '',
+      `Olá! Temos uma ótima notícia! 😊 Seu currículo foi selecionado para a próxima etapa do processo seletivo da ${entrevista.empresaNome}.`,
+      '',
+      `📌 Empresa: ${entrevista.empresaNome}`,
+      `📍 Local: ${local}`,
+      '',
+      'Agora, seu currículo será encaminhado para a proprietária da empresa, que fará a análise do seu perfil.',
+      '',
+      '👉 Caso seu perfil seja aprovado por ela, a própria proprietária entrará em contato para agendar uma entrevista presencial e passar todas as informações sobre a próxima etapa.',
+      '',
+      'Fique atento ao telefone e boa sorte! 🤞✨',
+      '',
+      'DF ESTÁGIOS — conectando você às melhores oportunidades! 💙',
+    ].join('\n');
+  }
+
   const dataEntrevista = formatInterviewDate(entrevista.dataEntrevista);
   const horario = entrevista.horarioEntrevista.trim();
   const endereco = [entrevista.endereco, entrevista.bairro, entrevista.cidade]
