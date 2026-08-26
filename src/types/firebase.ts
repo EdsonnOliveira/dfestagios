@@ -198,6 +198,7 @@ export interface Entrevista {
   atividades: string;
   requisitos: string;
   status: EntrevistaStatus;
+  duplicatedFromId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -210,6 +211,18 @@ export interface EntrevistaCandidato {
   telefone: string;
   status: EntrevistaCandidatoStatus;
   estagiarioId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ClienteContratoLink {
+  id?: string;
+  clienteId: string;
+  estagiarioId: string;
+  nome: string;
+  telefone: string;
+  filialId?: string;
+  status: EntrevistaCandidatoStatus;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -17,7 +17,7 @@ import {
   User as FirebaseUser
 } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
-import { Estagiario, EstagiarioWithCompanyEntry, Grupo, Cliente, Entrevista, EntrevistaCandidato } from '../types/firebase';
+import { Estagiario, EstagiarioWithCompanyEntry, Grupo, Cliente, Entrevista, EntrevistaCandidato, ClienteContratoLink } from '../types/firebase';
 
 function parseFirestoreDate(value: unknown): Date | null {
   if (!value) return null;
@@ -586,5 +586,35 @@ export const entrevistaCandidatosService = {
   async delete(id: string) {
     const docRef = doc(db, 'entrevistaCandidatos', id);
     await deleteDoc(docRef);
+  },
+};
+
+export const clienteContratoLinksService = {
+  async add(
+    link: Omit<ClienteContratoLink, 'id' | 'createdAt' | 'updatedAt'>
+  ) {
+    const now = new Date();
+    const docRef = await addDoc(collection(db, 'clienteContratoLinks'), {
+      ...link,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return docRef.id;
+  },
+
+  async getAll() {
+    const querySnapshot = await getDocs(collection(db, 'clienteContratoLinks'));
+    return querySnapshot.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+    })) as ClienteContratoLink[];
+  },
+
+  async update(id: string, data: Partial<ClienteContratoLink>) {
+    const docRef = doc(db, 'clienteContratoLinks', id);
+    await updateDoc(docRef, {
+      ...data,
+      updatedAt: new Date(),
+    });
   },
 };

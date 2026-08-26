@@ -86,6 +86,26 @@ export function formatCurrencyBr(value: number): string {
   }).format(value);
 }
 
+export function formatBolsaDisplay(value: string | undefined): string {
+  if (!value?.trim()) return '-';
+  const trimmed = value.trim();
+  const withoutCurrency = trimmed.replace(/^R\$\s?/i, '');
+  if (/[a-zA-Z+]/.test(withoutCurrency)) {
+    return trimmed;
+  }
+  const amount = parseMoneyBr(trimmed);
+  if (amount > 0) {
+    return formatCurrencyBr(amount);
+  }
+  return trimmed;
+}
+
+export function formatBolsaInputFromDigits(digits: string): string {
+  if (!digits) return '';
+  const numberValue = parseInt(digits, 10) / 100;
+  return formatCurrencyBr(numberValue);
+}
+
 export function calculateRescisao(
   input: RescisaoCalcInput
 ): RescisaoCalcResult | null {

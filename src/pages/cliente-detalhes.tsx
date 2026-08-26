@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import PainelHeader from '../components/PainelHeader';
 import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
-import { clientesService, estagiariosService, vinculacoesService } from '../services/firebase';
+import { clientesService, estagiariosService, vinculacoesService, clienteContratoLinksService } from '../services/firebase';
 import { mensalidadesService, Mensalidade } from '../services/mensalidadesService';
 import { fetchCnpjLookup } from '../services/brasilApiCnpj';
 import {
@@ -31,6 +31,7 @@ import { VERSAO_TERMOS } from '../constants/termosContratacao';
 import {
   calculateRescisao,
   formatDatePtBr,
+  formatBolsaDisplay,
 } from '../services/rescisaoCalcService';
 import {
   downloadRescisaoDocx,
@@ -68,6 +69,15 @@ function formatCpfDisplay(value: string | undefined): string {
   if (n.length <= 6) return `${n.slice(0, 3)}.${n.slice(3)}`;
   if (n.length <= 9) return `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6)}`;
   return `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6, 9)}-${n.slice(9)}`;
+}
+
+function maskPhoneInput(value: string): string {
+  const n = value.replace(/\D/g, '').slice(0, 11);
+  if (n.length === 0) return '';
+  if (n.length <= 2) return `(${n}`;
+  if (n.length <= 6) return `(${n.slice(0, 2)}) ${n.slice(2)}`;
+  if (n.length <= 10) return `(${n.slice(0, 2)}) ${n.slice(2, 6)}-${n.slice(6)}`;
+  return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
 }
 
 function formatPhoneDisplay(value: string | undefined): string {
@@ -171,6 +181,9 @@ export default function ClienteDetalhes() {
   const filialCnpjLookupSeq = useRef(0);
   const [showCopyFormularioModal, setShowCopyFormularioModal] = useState(false);
   const [copyFormularioFilialId, setCopyFormularioFilialId] = useState('');
+  const [copyFormularioNome, setCopyFormularioNome] = useState('');
+  const [copyFormularioTelefone, setCopyFormularioTelefone] = useState('');
+  const [loadingCopyFormularioLink, setLoadingCopyFormularioLink] = useState(false);
   const [downloadingTermosAceite, setDownloadingTermosAceite] = useState(false);
   const [formData, setFormData] = useState({
     cnpj: '',
@@ -1839,32 +1852,65 @@ export default function ClienteDetalhes() {
 
   const handleOpenCopyFormularioModal = () => {
     setCopyFormularioFilialId('');
+    setCopyFormularioNome('');
+    setCopyFormularioTelefone('');
     setShowCopyFormularioModal(true);
   };
 
   const handleCloseCopyFormularioModal = () => {
     setShowCopyFormularioModal(false);
     setCopyFormularioFilialId('');
+    setCopyFormularioNome('');
+    setCopyFormularioTelefone('');
   };
 
   const handleCopyFormularioCadastroLink = async () => {
     const clienteIdParam =
       typeof id === 'string' ? id : Array.isArray(id) ? id[0] : '';
     if (!clienteIdParam || typeof window === 'undefined') return;
-    const params = new URLSearchParams({
-      clienteId: clienteIdParam,
-    });
-    if (copyFormularioFilialId) {
-      params.set('filialId', copyFormularioFilialId);
+    if (!copyFormularioNome.trim() || !copyFormularioTelefone.trim()) {
+      toast.error('Informe o nome e o telefone do estagiário.');
+      return;
     }
-    const url = `${window.location.origin}/formulario-contrato-estagio/?${params.toString()}`;
     try {
+      setLoadingCopyFormularioLink(true);
+      const estagiarioId = await estagiariosService.add({
+        nome: copyFormularioNome.trim(),
+        telefone1: copyFormularioTelefone.replace(/\D/g, ''),
+        email: '',
+        uf: 'DF',
+        cidade: '',
+        bairro: '',
+        endereco: '',
+        grauInstrucao: 'medio',
+        status: 'ativo',
+        ...(copyFormularioFilialId ? { empresaFilialId: copyFormularioFilialId } : {}),
+      });
+      await vinculacoesService.vincularEstagiario(clienteIdParam, estagiarioId);
+      await clienteContratoLinksService.add({
+        clienteId: clienteIdParam,
+        estagiarioId,
+        nome: copyFormularioNome.trim(),
+        telefone: copyFormularioTelefone.replace(/\D/g, ''),
+        filialId: copyFormularioFilialId || undefined,
+        status: 'contrato_pendente',
+      });
+      const params = new URLSearchParams({
+        clienteId: clienteIdParam,
+        estagiarioId,
+      });
+      if (copyFormularioFilialId) {
+        params.set('filialId', copyFormularioFilialId);
+      }
+      const url = `${window.location.origin}/formulario-contrato-estagio?${params.toString()}`;
       await navigator.clipboard.writeText(url);
       toast.success('Link do formulário copiado para a área de transferência.');
       handleCloseCopyFormularioModal();
-    } catch {
-      toast.error('Não foi possível copiar automaticamente.');
-      toast(url, { duration: 10000 });
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao gerar link do formulário.');
+    } finally {
+      setLoadingCopyFormularioLink(false);
     }
   };
 
@@ -2906,9 +2952,7 @@ export default function ClienteDetalhes() {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {estagiario.estagioValorBolsa?.trim()
-                                      ? estagiario.estagioValorBolsa
-                                      : '-'}
+                                    {formatBolsaDisplay(estagiario.estagioValorBolsa)}
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -4731,6 +4775,37 @@ export default function ClienteDetalhes() {
           <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
             Escolha a unidade que já virá selecionada no link do formulário.
           </p>
+          <div className="mb-4">
+            <label
+              htmlFor="copyFormularioNome"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            >
+              Nome do estagiário *
+            </label>
+            <input
+              id="copyFormularioNome"
+              type="text"
+              value={copyFormularioNome}
+              onChange={(e) => setCopyFormularioNome(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+            />
+          </div>
+          <div className="mb-4">
+            <label
+              htmlFor="copyFormularioTelefone"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            >
+              Telefone do estagiário *
+            </label>
+            <input
+              id="copyFormularioTelefone"
+              type="text"
+              inputMode="tel"
+              value={copyFormularioTelefone}
+              onChange={(e) => setCopyFormularioTelefone(maskPhoneInput(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+            />
+          </div>
           <div className="mb-6">
             <label
               htmlFor="copyFormularioFilial"
@@ -4765,9 +4840,10 @@ export default function ClienteDetalhes() {
             <button
               type="button"
               onClick={() => void handleCopyFormularioCadastroLink()}
-              className="px-4 py-2 bg-amber-600 dark:bg-amber-700 hover:bg-amber-700 dark:hover:bg-amber-600 text-white rounded-lg transition-colors"
+              disabled={loadingCopyFormularioLink}
+              className="px-4 py-2 bg-amber-600 dark:bg-amber-700 hover:bg-amber-700 dark:hover:bg-amber-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Copiar link
+              {loadingCopyFormularioLink ? 'Gerando...' : 'Copiar link'}
             </button>
           </div>
         </div>

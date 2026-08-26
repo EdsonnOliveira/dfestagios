@@ -27,6 +27,7 @@ import {
   resolveEstagioFuncao,
   splitEstagioFuncao,
 } from '../constants/estagioFuncao';
+import { formatBolsaInputFromDigits } from '../services/rescisaoCalcService';
 
 type Studying = 'sim' | 'nao' | '';
 
@@ -168,17 +169,32 @@ function parseBolsaToFormDisplay(raw: string | undefined): string {
   const trimmed = raw.trim();
   const withoutCurrency = trimmed.replace(/^R\$\s?/i, '');
   if (/[a-zA-Z+]/.test(withoutCurrency)) {
-    return trimmed;
+    return '';
   }
   const digits = trimmed.replace(/\D/g, '').slice(0, BOLSA_MAX_DIGITS);
   if (digits.length > 0) {
     return formatBolsaBrlFromDigits(digits);
   }
-  return trimmed;
+  return '';
+}
+
+function isFreshContractLinkEstagiario(estagiario: Estagiario): boolean {
+  return (
+    !estagiario.cpf?.trim() &&
+    !estagiario.rg?.trim() &&
+    !estagiario.contratoPdfDrivePath?.trim() &&
+    !estagiario.estagioDataInicio?.trim()
+  );
 }
 
 function estagiarioToFormState(estagiario: Estagiario): FormState {
-  const { funcaoSelect, funcaoOutra } = splitEstagioFuncao(estagiario.curso ?? '');
+  if (isFreshContractLinkEstagiario(estagiario)) {
+    return { ...initialForm };
+  }
+  const hasFuncao = Boolean(estagiario.curso?.trim());
+  const { funcaoSelect, funcaoOutra } = hasFuncao
+    ? splitEstagioFuncao(estagiario.curso ?? '')
+    : { funcaoSelect: '', funcaoOutra: '' };
   const hasInstituicao = Boolean(
     estagiario.instituicaoEnsinoNome?.trim() ||
       estagiario.instituicaoEnsinoCnpj?.trim()
@@ -196,8 +212,6 @@ function estagiarioToFormState(estagiario: Estagiario): FormState {
     ) {
       nivelEnsino = grau;
     }
-  } else if (estagiario.grauInstrucao === 'medio') {
-    estudando = 'nao';
   }
 
   return {
@@ -407,6 +421,11 @@ export default function FormularioContratoEstagio() {
 
   const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((p) => ({ ...p, [key]: value }));
+  };
+
+  const handleValorBolsaChange = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, BOLSA_MAX_DIGITS);
+    setField('valorBolsa', formatBolsaInputFromDigits(digits));
   };
 
   const handleCepBlur = useCallback(async () => {
@@ -1087,8 +1106,8 @@ export default function FormularioContratoEstagio() {
                   type="text"
                   className={inputClass}
                   value={form.valorBolsa}
-                  onChange={(e) => setField('valorBolsa', e.target.value)}
-                  placeholder="Ex: R$ 700,00 ou 700 + transporte"
+                  onChange={(e) => handleValorBolsaChange(e.target.value)}
+                  placeholder="Ex: R$ 700,00"
                   autoComplete="off"
                   spellCheck={false}
                 />

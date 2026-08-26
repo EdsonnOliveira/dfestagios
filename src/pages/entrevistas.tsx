@@ -7,6 +7,7 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import AdminRoute from '../components/AdminRoute';
 import {
   clientesService,
+  clienteContratoLinksService,
   entrevistaCandidatosService,
   entrevistasService,
   estagiariosService,
@@ -19,7 +20,6 @@ import {
   getDataCalendario,
   getWeekStartMonday,
   getWeekdayDatesMonToFri,
-  parseHorarioTrabalho,
   toIsoDate,
 } from '../lib/entrevistaMessage';
 import type {
@@ -41,8 +41,9 @@ const WEEKDAY_SHORT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'] as const;
 type ContratoFiltro = 'todos' | 'pendente' | 'assinado';
 
 interface ContratoLinkItem {
-  candidato: EntrevistaCandidato;
-  entrevista: Entrevista;
+  id: string;
+  empresaNome: string;
+  candidatoNome: string;
   status: EntrevistaCandidatoStatus;
   link: string;
 }
@@ -238,6 +239,7 @@ export default function EntrevistasPage() {
   const [draggingEntrevistaId, setDraggingEntrevistaId] = useState<string | null>(null);
   const [dropTargetIso, setDropTargetIso] = useState<string | null>(null);
   const skipClickAfterDragRef = useRef(false);
+  const candidatosRequestRef = useRef(0);
 
   const weekDays = useMemo(() => getWeekdayDatesMonToFri(weekStart), [weekStart]);
 
@@ -592,12 +594,40 @@ export default function EntrevistasPage() {
         atividades: entrevista.atividades,
         requisitos: entrevista.requisitos,
         status: 'agendada' as EntrevistaStatus,
+        duplicatedFromId: entrevista.id,
       };
       const id = await entrevistasService.add(payload);
+      const candidatosOrigem = await entrevistaCandidatosService.getByEntrevistaId(
+        entrevista.id
+      );
+      const novosCandidatos = await Promise.all(
+        candidatosOrigem.map(async (candidato) => {
+          const novoId = await entrevistaCandidatosService.add({
+            entrevistaId: id,
+            clienteId: candidato.clienteId,
+            nome: candidato.nome,
+            telefone: candidato.telefone,
+            status: 'interessado',
+          });
+          return {
+            id: novoId,
+            entrevistaId: id,
+            clienteId: candidato.clienteId,
+            nome: candidato.nome,
+            telefone: candidato.telefone,
+            status: 'interessado' as const,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+        })
+      );
       setEntrevistas((prev) => [
         ...prev,
         { id, ...payload, createdAt: new Date(), updatedAt: new Date() },
       ]);
+      if (novosCandidatos.length > 0) {
+        setAllCandidatos((prev) => [...prev, ...novosCandidatos]);
+      }
       toast.success('Entrevista duplicada.');
     } catch (error) {
       console.error(error);
@@ -641,6 +671,7 @@ export default function EntrevistasPage() {
   };
 
   const refreshCandidatos = useCallback(async (entrevistaId: string) => {
+    const requestId = ++candidatosRequestRef.current;
     setLoadingCandidatos(true);
     try {
       const list = await entrevistaCandidatosService.getByEntrevistaId(entrevistaId);
@@ -657,17 +688,21 @@ export default function EntrevistasPage() {
           return { ...candidato, status };
         })
       );
+      if (requestId !== candidatosRequestRef.current) return;
       setCandidatos(enriched);
     } catch (error) {
       console.error(error);
       toast.error('Erro ao carregar candidatos.');
     } finally {
-      setLoadingCandidatos(false);
+      if (requestId === candidatosRequestRef.current) {
+        setLoadingCandidatos(false);
+      }
     }
   }, []);
 
   const openDetailModal = async (entrevista: Entrevista) => {
     setSelectedEntrevista(entrevista);
+    setCandidatos([]);
     if (entrevista.id) {
       await refreshCandidatos(entrevista.id);
     }
@@ -723,38 +758,74 @@ export default function EntrevistasPage() {
           candidato.status === 'contrato_pendente' ||
           candidato.status === 'contrato_preenchido'
       );
-      const items = await Promise.all(
-        linked.map(async (candidato) => {
-          const entrevista = entrevistas.find((item) => item.id === candidato.entrevistaId);
-          if (!entrevista?.id) return null;
-          let status = candidato.status;
-          if (candidato.estagiarioId) {
-            const estagiario = await estagiariosService.getById(candidato.estagiarioId);
-            const hasContract = Boolean(estagiario?.contratoPdfDrivePath?.trim());
-            status = resolveCandidatoStatus(candidato, hasContract);
+      const [entrevistaItems, clienteLinksData] = await Promise.all([
+        Promise.all(
+          linked.map(async (candidato) => {
+            const entrevista = entrevistas.find((item) => item.id === candidato.entrevistaId);
+            if (!entrevista?.id || !candidato.id) return null;
+            let status = candidato.status;
+            if (candidato.estagiarioId) {
+              const estagiario = await estagiariosService.getById(candidato.estagiarioId);
+              const hasContract = Boolean(estagiario?.contratoPdfDrivePath?.trim());
+              status = resolveCandidatoStatus(candidato, hasContract);
+            }
+            const filialQuery = entrevista.filialId
+              ? `&filialId=${encodeURIComponent(entrevista.filialId)}`
+              : '';
+            const link = candidato.estagiarioId
+              ? `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(entrevista.clienteId)}&estagiarioId=${encodeURIComponent(candidato.estagiarioId)}${filialQuery}`
+              : '';
+            return {
+              id: `entrevista-${candidato.id}`,
+              empresaNome: entrevista.empresaNome,
+              candidatoNome: candidato.nome,
+              status,
+              link,
+            } satisfies ContratoLinkItem;
+          })
+        ),
+        clienteContratoLinksService.getAll(),
+      ]);
+      const trackedEstagiarioIds = new Set(
+        linked.map((candidato) => candidato.estagiarioId).filter(Boolean) as string[]
+      );
+      const clienteItems = await Promise.all(
+        clienteLinksData.map(async (clienteLink) => {
+          if (!clienteLink.id || trackedEstagiarioIds.has(clienteLink.estagiarioId)) {
+            return null;
           }
-          const filialQuery = entrevista.filialId
-            ? `&filialId=${encodeURIComponent(entrevista.filialId)}`
+          const cliente = clientes.find((item) => item.id === clienteLink.clienteId);
+          if (!cliente) return null;
+          const estagiario = await estagiariosService.getById(clienteLink.estagiarioId);
+          const hasContract = Boolean(estagiario?.contratoPdfDrivePath?.trim());
+          const status: EntrevistaCandidatoStatus = hasContract
+            ? 'contrato_preenchido'
+            : 'contrato_pendente';
+          const filialQuery = clienteLink.filialId
+            ? `&filialId=${encodeURIComponent(clienteLink.filialId)}`
             : '';
-          const link = candidato.estagiarioId
-            ? `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(entrevista.clienteId)}&estagiarioId=${encodeURIComponent(candidato.estagiarioId)}${filialQuery}`
-            : '';
+          const link = `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(clienteLink.clienteId)}&estagiarioId=${encodeURIComponent(clienteLink.estagiarioId)}${filialQuery}`;
           return {
-            candidato: { ...candidato, status },
-            entrevista,
+            id: `cliente-${clienteLink.id}`,
+            empresaNome: cliente.nomeFantasia || cliente.razaoSocial,
+            candidatoNome: clienteLink.nome,
             status,
             link,
           } satisfies ContratoLinkItem;
         })
       );
-      setContratoLinks(items.filter((item): item is ContratoLinkItem => item !== null));
+      setContratoLinks(
+        [...entrevistaItems, ...clienteItems].filter(
+          (item): item is ContratoLinkItem => item !== null
+        )
+      );
     } catch (error) {
       console.error(error);
       toast.error('Erro ao carregar links de contrato.');
     } finally {
       setLoadingContratos(false);
     }
-  }, [allCandidatos, entrevistas]);
+  }, [allCandidatos, entrevistas, clientes]);
 
   const openContratosModal = () => {
     setShowContratosModal(true);
@@ -957,7 +1028,6 @@ export default function EntrevistasPage() {
     }
     try {
       setLoadingAction(true);
-      const horarios = parseHorarioTrabalho(selectedEntrevista.horarioTrabalho);
       let estagiarioId = candidato.estagiarioId;
       if (!estagiarioId) {
         estagiarioId = await estagiariosService.add({
@@ -965,14 +1035,11 @@ export default function EntrevistasPage() {
           telefone1: candidato.telefone.replace(/\D/g, ''),
           email: '',
           uf: 'DF',
-          cidade: selectedEntrevista.cidade,
-          bairro: selectedEntrevista.bairro,
-          endereco: selectedEntrevista.endereco,
+          cidade: '',
+          bairro: '',
+          endereco: '',
           grauInstrucao: 'medio',
-          curso: selectedEntrevista.tituloVaga.trim(),
           status: 'ativo',
-          estagioHorarioEntrada: horarios.entrada,
-          estagioHorarioSaida: horarios.saida,
           ...(selectedEntrevista.filialId
             ? { empresaFilialId: selectedEntrevista.filialId }
             : {}),
@@ -985,6 +1052,13 @@ export default function EntrevistasPage() {
           estagiarioId,
           status: 'contrato_pendente',
         });
+        setAllCandidatos((prev) =>
+          prev.map((item) =>
+            item.id === candidato.id
+              ? { ...item, estagiarioId, status: 'contrato_pendente' }
+              : item
+          )
+        );
       }
       const filialQuery = selectedEntrevista.filialId
         ? `&filialId=${encodeURIComponent(selectedEntrevista.filialId)}`
@@ -1985,15 +2059,15 @@ export default function EntrevistasPage() {
               <div className="space-y-2">
                 {filteredContratoLinks.map((item) => (
                   <div
-                    key={item.candidato.id}
+                    key={item.id}
                     className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2"
                   >
                     <div>
                       <p className="font-medium text-gray-900 dark:text-gray-100">
-                        {item.entrevista.empresaNome}
+                        {item.empresaNome}
                       </p>
                       <p className="text-sm text-gray-600 dark:text-gray-300">
-                        {item.candidato.nome}
+                        {item.candidatoNome}
                       </p>
                       <p className="text-xs mt-1 text-[#004085] dark:text-blue-400">
                         {ENTREVISTA_CANDIDATO_STATUS_LABELS[item.status]}
