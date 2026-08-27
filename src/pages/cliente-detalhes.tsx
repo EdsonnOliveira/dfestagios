@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import PainelHeader from '../components/PainelHeader';
 import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
-import { clientesService, estagiariosService, vinculacoesService, clienteContratoLinksService } from '../services/firebase';
+import { clientesService, estagiariosService, vinculacoesService, clienteContratoLinksService, cancelContratoLinkTracking } from '../services/firebase';
 import { mensalidadesService, Mensalidade } from '../services/mensalidadesService';
 import { fetchCnpjLookup } from '../services/brasilApiCnpj';
 import {
@@ -1540,10 +1540,8 @@ export default function ClienteDetalhes() {
     try {
       setLoadingVincular(true);
       if (id) {
-        // Desvincular no banco de dados
         await vinculacoesService.desvincularEstagiario(id as string, estagiarioId);
-        
-        // Atualizar a lista local
+        await cancelContratoLinkTracking(id as string, estagiarioId);
         setEstagiarios(prev => prev.filter(e => e.id !== estagiarioId));
         const estagiarioDesvinculado = todosEstagiarios.find(e => e.id === estagiarioId);
         if (estagiarioDesvinculado) {
@@ -1904,6 +1902,7 @@ export default function ClienteDetalhes() {
       }
       const url = `${window.location.origin}/formulario-contrato-estagio?${params.toString()}`;
       await navigator.clipboard.writeText(url);
+      await loadEstagiarios();
       toast.success(
         'Link copiado. Acompanhe em Entrevistas → Links de contrato.'
       );

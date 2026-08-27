@@ -10,7 +10,7 @@ import {
 import Head from 'next/head';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/router';
-import { clientesService, estagiariosService, vinculacoesService } from '../services/firebase';
+import { clientesService, estagiariosService, vinculacoesService, syncContratoPreenchidoStatus } from '../services/firebase';
 import {
   generateTceDocxBlob,
   type TceContractPayload
@@ -710,6 +710,8 @@ export default function FormularioContratoEstagio() {
           contratoPdfDrivePath: caminho
         });
       }
+
+      await syncContratoPreenchidoStatus(estagiarioIdResult, clienteIdRaw);
 
       toast.success(
         estagiarioIdEdit

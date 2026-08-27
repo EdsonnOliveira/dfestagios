@@ -587,6 +587,18 @@ export const entrevistaCandidatosService = {
     const docRef = doc(db, 'entrevistaCandidatos', id);
     await deleteDoc(docRef);
   },
+
+  async getByEstagiarioId(estagiarioId: string) {
+    const q = query(
+      collection(db, 'entrevistaCandidatos'),
+      where('estagiarioId', '==', estagiarioId)
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+    })) as EntrevistaCandidato[];
+  },
 };
 
 export const clienteContratoLinksService = {
@@ -618,4 +630,77 @@ export const clienteContratoLinksService = {
       updatedAt: new Date(),
     });
   },
+
+  async delete(id: string) {
+    const docRef = doc(db, 'clienteContratoLinks', id);
+    await deleteDoc(docRef);
+  },
+
+  async deleteByEstagiarioAndCliente(clienteId: string, estagiarioId: string) {
+    const q = query(
+      collection(db, 'clienteContratoLinks'),
+      where('clienteId', '==', clienteId),
+      where('estagiarioId', '==', estagiarioId)
+    );
+    const querySnapshot = await getDocs(q);
+    await Promise.all(querySnapshot.docs.map((docSnap) => deleteDoc(docSnap.ref)));
+  },
+
+  async markContratoPreenchido(estagiarioId: string, clienteId: string) {
+    const q = query(
+      collection(db, 'clienteContratoLinks'),
+      where('estagiarioId', '==', estagiarioId),
+      where('clienteId', '==', clienteId)
+    );
+    const querySnapshot = await getDocs(q);
+    const now = new Date();
+    await Promise.all(
+      querySnapshot.docs.map((docSnap) =>
+        updateDoc(docSnap.ref, { status: 'contrato_preenchido', updatedAt: now })
+      )
+    );
+  },
 };
+
+export async function syncContratoPreenchidoStatus(
+  estagiarioId: string,
+  clienteId: string
+) {
+  const candidatos = await entrevistaCandidatosService.getByEstagiarioId(estagiarioId);
+  await Promise.all(
+    candidatos.map((candidato) =>
+      candidato.id
+        ? entrevistaCandidatosService.update(candidato.id, {
+            status: 'contrato_preenchido',
+          })
+        : Promise.resolve()
+    )
+  );
+  await clienteContratoLinksService.markContratoPreenchido(estagiarioId, clienteId);
+}
+
+export async function cancelContratoLinkTracking(
+  clienteId: string,
+  estagiarioId: string
+) {
+  await clienteContratoLinksService.deleteByEstagiarioAndCliente(
+    clienteId,
+    estagiarioId
+  );
+  const candidatos = await entrevistaCandidatosService.getByEstagiarioId(estagiarioId);
+  await Promise.all(
+    candidatos
+      .filter(
+        (candidato) =>
+          candidato.status === 'contrato_pendente' ||
+          candidato.status === 'contrato_preenchido'
+      )
+      .map((candidato) =>
+        candidato.id
+          ? entrevistaCandidatosService.update(candidato.id, {
+              status: 'selecionado',
+            })
+          : Promise.resolve()
+      )
+  );
+}

@@ -8,6 +8,7 @@ import AdminRoute from '../components/AdminRoute';
 import {
   clientesService,
   clienteContratoLinksService,
+  cancelContratoLinkTracking,
   entrevistaCandidatosService,
   entrevistasService,
   estagiariosService,
@@ -32,6 +33,7 @@ import type {
   EntrevistaStatus,
   EntrevistaTipoEntrevista,
   EntrevistaTipoVaga,
+  Estagiario,
 } from '../types/firebase';
 import {
   ENTREVISTA_CANDIDATO_STATUS_LABELS,
@@ -47,6 +49,10 @@ interface ContratoLinkItem {
   candidatoNome: string;
   status: EntrevistaCandidatoStatus;
   link: string;
+  estagiarioId?: string;
+  clienteId?: string;
+  sourceType: 'entrevista' | 'cliente';
+  sourceId: string;
 }
 
 const emptyForm = {
@@ -202,6 +208,49 @@ function resolveCandidatoStatus(
   if (hasContract) return 'contrato_preenchido';
   if (candidato.estagiarioId) return 'contrato_pendente';
   return candidato.status;
+}
+
+function estagiarioHasContratoPreenchido(estagiario: Estagiario | null): boolean {
+  if (!estagiario) return false;
+  return Boolean(
+    estagiario.contratoPdfDrivePath?.trim() ||
+      (estagiario.cpf?.trim() && estagiario.estagioDataInicio?.trim())
+  );
+}
+
+function buildVinculadoKey(clienteId: string, estagiarioId: string) {
+  return `${clienteId}:${estagiarioId}`;
+}
+
+function dedupeContratoLinks(items: ContratoLinkItem[]): ContratoLinkItem[] {
+  const byKey = new Map<string, ContratoLinkItem>();
+  items.forEach((item) => {
+    if (!item.estagiarioId || !item.clienteId) {
+      byKey.set(item.id, item);
+      return;
+    }
+    const key = buildVinculadoKey(item.clienteId, item.estagiarioId);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, item);
+      return;
+    }
+    const preferCurrent =
+      item.status === 'contrato_preenchido' &&
+      existing.status !== 'contrato_preenchido';
+    if (preferCurrent) {
+      byKey.set(key, item);
+      return;
+    }
+    if (
+      item.sourceType === 'entrevista' &&
+      existing.sourceType === 'cliente' &&
+      item.status === existing.status
+    ) {
+      byKey.set(key, item);
+    }
+  });
+  return Array.from(byKey.values());
 }
 
 export default function EntrevistasPage() {
@@ -680,7 +729,7 @@ export default function EntrevistasPage() {
         list.map(async (candidato) => {
           if (!candidato.estagiarioId) return candidato;
           const estagiario = await estagiariosService.getById(candidato.estagiarioId);
-          const hasContract = Boolean(estagiario?.contratoPdfDrivePath?.trim());
+          const hasContract = estagiarioHasContratoPreenchido(estagiario);
           const status = resolveCandidatoStatus(candidato, hasContract);
           if (status !== candidato.status && candidato.id) {
             await entrevistaCandidatosService.update(candidato.id, { status });
@@ -753,6 +802,13 @@ export default function EntrevistasPage() {
   const loadContratoLinks = useCallback(async () => {
     setLoadingContratos(true);
     try {
+      const vinculadoKeys = new Set<string>();
+      clientes.forEach((cliente) => {
+        if (!cliente.id) return;
+        (cliente.estagiariosVinculados ?? []).forEach((estagiarioId) => {
+          vinculadoKeys.add(buildVinculadoKey(cliente.id!, estagiarioId));
+        });
+      });
       const linked = allCandidatos.filter(
         (candidato) =>
           Boolean(candidato.estagiarioId) ||
@@ -763,25 +819,33 @@ export default function EntrevistasPage() {
         Promise.all(
           linked.map(async (candidato) => {
             const entrevista = entrevistas.find((item) => item.id === candidato.entrevistaId);
-            if (!entrevista?.id || !candidato.id) return null;
-            let status = candidato.status;
-            if (candidato.estagiarioId) {
-              const estagiario = await estagiariosService.getById(candidato.estagiarioId);
-              const hasContract = Boolean(estagiario?.contratoPdfDrivePath?.trim());
-              status = resolveCandidatoStatus(candidato, hasContract);
+            if (!entrevista?.id || !candidato.id || !candidato.estagiarioId) return null;
+            if (
+              !vinculadoKeys.has(
+                buildVinculadoKey(entrevista.clienteId, candidato.estagiarioId)
+              )
+            ) {
+              return null;
             }
+            const estagiario = await estagiariosService.getById(candidato.estagiarioId);
+            const status = resolveCandidatoStatus(
+              candidato,
+              estagiarioHasContratoPreenchido(estagiario)
+            );
             const filialQuery = entrevista.filialId
               ? `&filialId=${encodeURIComponent(entrevista.filialId)}`
               : '';
-            const link = candidato.estagiarioId
-              ? `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(entrevista.clienteId)}&estagiarioId=${encodeURIComponent(candidato.estagiarioId)}${filialQuery}`
-              : '';
+            const link = `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(entrevista.clienteId)}&estagiarioId=${encodeURIComponent(candidato.estagiarioId)}${filialQuery}`;
             return {
               id: `entrevista-${candidato.id}`,
               empresaNome: entrevista.empresaNome,
-              candidatoNome: candidato.nome,
+              candidatoNome: estagiario?.nome?.trim() || candidato.nome,
               status,
               link,
+              estagiarioId: candidato.estagiarioId,
+              clienteId: entrevista.clienteId,
+              sourceType: 'entrevista',
+              sourceId: candidato.id,
             } satisfies ContratoLinkItem;
           })
         ),
@@ -790,12 +854,29 @@ export default function EntrevistasPage() {
           return [] as ClienteContratoLink[];
         }),
       ]);
-      const trackedEstagiarioIds = new Set(
-        linked.map((candidato) => candidato.estagiarioId).filter(Boolean) as string[]
+      const validEntrevistaItems = entrevistaItems.filter(
+        (item): item is NonNullable<typeof item> => item !== null
+      );
+      const trackedEstagiarioKeys = new Set(
+        validEntrevistaItems.map((item) =>
+          buildVinculadoKey(item.clienteId!, item.estagiarioId!)
+        )
       );
       const clienteItems = await Promise.all(
         clienteLinksData.map(async (clienteLink) => {
-          if (!clienteLink.id || trackedEstagiarioIds.has(clienteLink.estagiarioId)) {
+          if (!clienteLink.id) return null;
+          if (
+            !vinculadoKeys.has(
+              buildVinculadoKey(clienteLink.clienteId, clienteLink.estagiarioId)
+            )
+          ) {
+            return null;
+          }
+          const linkKey = buildVinculadoKey(
+            clienteLink.clienteId,
+            clienteLink.estagiarioId
+          );
+          if (trackedEstagiarioKeys.has(linkKey)) {
             return null;
           }
           const cliente =
@@ -803,7 +884,8 @@ export default function EntrevistasPage() {
             (await clientesService.getById(clienteLink.clienteId));
           if (!cliente) return null;
           const estagiario = await estagiariosService.getById(clienteLink.estagiarioId);
-          const hasContract = Boolean(estagiario?.contratoPdfDrivePath?.trim());
+          if (!estagiario) return null;
+          const hasContract = estagiarioHasContratoPreenchido(estagiario);
           const status: EntrevistaCandidatoStatus = hasContract
             ? 'contrato_preenchido'
             : 'contrato_pendente';
@@ -814,17 +896,20 @@ export default function EntrevistasPage() {
           return {
             id: `cliente-${clienteLink.id}`,
             empresaNome: cliente.nomeFantasia || cliente.razaoSocial,
-            candidatoNome: clienteLink.nome,
+            candidatoNome: estagiario.nome?.trim() || clienteLink.nome,
             status,
             link,
+            estagiarioId: clienteLink.estagiarioId,
+            clienteId: clienteLink.clienteId,
+            sourceType: 'cliente',
+            sourceId: clienteLink.id,
           } satisfies ContratoLinkItem;
         })
       );
-      setContratoLinks(
-        [...entrevistaItems, ...clienteItems].filter(
-          (item): item is ContratoLinkItem => item !== null
-        )
+      const merged = [...validEntrevistaItems, ...clienteItems].filter(
+        (item): item is NonNullable<typeof item> => item !== null
       );
+      setContratoLinks(dedupeContratoLinks(merged));
     } catch (error) {
       console.error(error);
       toast.error('Erro ao carregar links de contrato.');
@@ -845,6 +930,38 @@ export default function EntrevistasPage() {
       toast.success('Link copiado.');
     } catch {
       toast.error('Não foi possível copiar.');
+    }
+  };
+
+  const handleCancelContratoLink = async (item: ContratoLinkItem) => {
+    if (!item.estagiarioId || !item.clienteId) return;
+    try {
+      setLoadingContratos(true);
+      await cancelContratoLinkTracking(item.clienteId, item.estagiarioId);
+      setContratoLinks((prev) =>
+        prev.filter(
+          (link) =>
+            !(
+              link.estagiarioId === item.estagiarioId &&
+              link.clienteId === item.clienteId
+            )
+        )
+      );
+      setAllCandidatos((prev) =>
+        prev.map((candidato) =>
+          candidato.estagiarioId === item.estagiarioId &&
+          (candidato.status === 'contrato_pendente' ||
+            candidato.status === 'contrato_preenchido')
+            ? { ...candidato, status: 'selecionado' }
+            : candidato
+        )
+      );
+      toast.success('Link de contrato cancelado.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao cancelar link de contrato.');
+    } finally {
+      setLoadingContratos(false);
     }
   };
 
@@ -2080,13 +2197,25 @@ export default function EntrevistasPage() {
                       </p>
                     </div>
                     {item.link && (
-                      <button
-                        type="button"
-                        onClick={() => void handleCopyContratoLink(item.link)}
-                        className="px-3 py-1.5 rounded-lg bg-[#004085] hover:bg-[#0056B3] text-white text-sm shrink-0"
-                      >
-                        Copiar link
-                      </button>
+                      <div className="flex flex-wrap gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyContratoLink(item.link)}
+                          className="px-3 py-1.5 rounded-lg bg-[#004085] hover:bg-[#0056B3] text-white text-sm"
+                        >
+                          Copiar link
+                        </button>
+                        {item.status === 'contrato_pendente' && (
+                          <button
+                            type="button"
+                            onClick={() => void handleCancelContratoLink(item)}
+                            disabled={loadingContratos}
+                            className="px-3 py-1.5 rounded-lg border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-sm disabled:opacity-50"
+                          >
+                            Cancelar
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
