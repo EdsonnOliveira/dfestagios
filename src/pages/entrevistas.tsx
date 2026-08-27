@@ -24,6 +24,7 @@ import {
 } from '../lib/entrevistaMessage';
 import type {
   Cliente,
+  ClienteContratoLink,
   ClienteFilial,
   Entrevista,
   EntrevistaCandidato,
@@ -784,7 +785,10 @@ export default function EntrevistasPage() {
             } satisfies ContratoLinkItem;
           })
         ),
-        clienteContratoLinksService.getAll(),
+        clienteContratoLinksService.getAll().catch((error) => {
+          console.error(error);
+          return [] as ClienteContratoLink[];
+        }),
       ]);
       const trackedEstagiarioIds = new Set(
         linked.map((candidato) => candidato.estagiarioId).filter(Boolean) as string[]
@@ -794,7 +798,9 @@ export default function EntrevistasPage() {
           if (!clienteLink.id || trackedEstagiarioIds.has(clienteLink.estagiarioId)) {
             return null;
           }
-          const cliente = clientes.find((item) => item.id === clienteLink.clienteId);
+          const cliente =
+            clientes.find((item) => item.id === clienteLink.clienteId) ??
+            (await clientesService.getById(clienteLink.clienteId));
           if (!cliente) return null;
           const estagiario = await estagiariosService.getById(clienteLink.estagiarioId);
           const hasContract = Boolean(estagiario?.contratoPdfDrivePath?.trim());

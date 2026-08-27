@@ -1892,7 +1892,7 @@ export default function ClienteDetalhes() {
         estagiarioId,
         nome: copyFormularioNome.trim(),
         telefone: copyFormularioTelefone.replace(/\D/g, ''),
-        filialId: copyFormularioFilialId || undefined,
+        ...(copyFormularioFilialId ? { filialId: copyFormularioFilialId } : {}),
         status: 'contrato_pendente',
       });
       const params = new URLSearchParams({
@@ -1904,7 +1904,9 @@ export default function ClienteDetalhes() {
       }
       const url = `${window.location.origin}/formulario-contrato-estagio?${params.toString()}`;
       await navigator.clipboard.writeText(url);
-      toast.success('Link do formulário copiado para a área de transferência.');
+      toast.success(
+        'Link copiado. Acompanhe em Entrevistas → Links de contrato.'
+      );
       handleCloseCopyFormularioModal();
     } catch (error) {
       console.error(error);

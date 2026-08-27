@@ -594,11 +594,12 @@ export const clienteContratoLinksService = {
     link: Omit<ClienteContratoLink, 'id' | 'createdAt' | 'updatedAt'>
   ) {
     const now = new Date();
-    const docRef = await addDoc(collection(db, 'clienteContratoLinks'), {
-      ...link,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const payload = Object.fromEntries(
+      Object.entries({ ...link, createdAt: now, updatedAt: now }).filter(
+        ([, value]) => value !== undefined
+      )
+    );
+    const docRef = await addDoc(collection(db, 'clienteContratoLinks'), payload);
     return docRef.id;
   },
 
