@@ -1884,7 +1884,6 @@ export default function ClienteDetalhes() {
         status: 'ativo',
         ...(copyFormularioFilialId ? { empresaFilialId: copyFormularioFilialId } : {}),
       });
-      await vinculacoesService.vincularEstagiario(clienteIdParam, estagiarioId);
       await clienteContratoLinksService.add({
         clienteId: clienteIdParam,
         estagiarioId,
@@ -1902,7 +1901,6 @@ export default function ClienteDetalhes() {
       }
       const url = `${window.location.origin}/formulario-contrato-estagio?${params.toString()}`;
       await navigator.clipboard.writeText(url);
-      await loadEstagiarios();
       toast.success(
         'Link copiado. Acompanhe em Entrevistas → Links de contrato.'
       );

@@ -12,7 +12,6 @@ import {
   entrevistaCandidatosService,
   entrevistasService,
   estagiariosService,
-  vinculacoesService,
 } from '../services/firebase';
 import {
   buildEntrevistaConfirmacaoMessage,
@@ -802,16 +801,8 @@ export default function EntrevistasPage() {
   const loadContratoLinks = useCallback(async () => {
     setLoadingContratos(true);
     try {
-      const vinculadoKeys = new Set<string>();
-      clientes.forEach((cliente) => {
-        if (!cliente.id) return;
-        (cliente.estagiariosVinculados ?? []).forEach((estagiarioId) => {
-          vinculadoKeys.add(buildVinculadoKey(cliente.id!, estagiarioId));
-        });
-      });
       const linked = allCandidatos.filter(
         (candidato) =>
-          Boolean(candidato.estagiarioId) ||
           candidato.status === 'contrato_pendente' ||
           candidato.status === 'contrato_preenchido'
       );
@@ -820,13 +811,6 @@ export default function EntrevistasPage() {
           linked.map(async (candidato) => {
             const entrevista = entrevistas.find((item) => item.id === candidato.entrevistaId);
             if (!entrevista?.id || !candidato.id || !candidato.estagiarioId) return null;
-            if (
-              !vinculadoKeys.has(
-                buildVinculadoKey(entrevista.clienteId, candidato.estagiarioId)
-              )
-            ) {
-              return null;
-            }
             const estagiario = await estagiariosService.getById(candidato.estagiarioId);
             const status = resolveCandidatoStatus(
               candidato,
@@ -865,13 +849,6 @@ export default function EntrevistasPage() {
       const clienteItems = await Promise.all(
         clienteLinksData.map(async (clienteLink) => {
           if (!clienteLink.id) return null;
-          if (
-            !vinculadoKeys.has(
-              buildVinculadoKey(clienteLink.clienteId, clienteLink.estagiarioId)
-            )
-          ) {
-            return null;
-          }
           const linkKey = buildVinculadoKey(
             clienteLink.clienteId,
             clienteLink.estagiarioId
@@ -1167,10 +1144,6 @@ export default function EntrevistasPage() {
             ? { empresaFilialId: selectedEntrevista.filialId }
             : {}),
         });
-        await vinculacoesService.vincularEstagiario(
-          selectedEntrevista.clienteId,
-          estagiarioId
-        );
         await entrevistaCandidatosService.update(candidato.id, {
           estagiarioId,
           status: 'contrato_pendente',

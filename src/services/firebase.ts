@@ -703,4 +703,12 @@ export async function cancelContratoLinkTracking(
           : Promise.resolve()
       )
   );
+  const estagiario = await estagiariosService.getById(estagiarioId);
+  const hasContract = Boolean(
+    estagiario?.contratoPdfDrivePath?.trim() ||
+      (estagiario?.cpf?.trim() && estagiario?.estagioDataInicio?.trim())
+  );
+  if (!hasContract) {
+    await vinculacoesService.desvincularEstagiario(clienteId, estagiarioId);
+  }
 }
