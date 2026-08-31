@@ -46,6 +46,7 @@ interface ContratoLinkItem {
   id: string;
   empresaNome: string;
   candidatoNome: string;
+  telefone: string;
   status: EntrevistaCandidatoStatus;
   link: string;
   estagiarioId?: string;
@@ -204,8 +205,20 @@ function resolveCandidatoStatus(
   candidato: EntrevistaCandidato,
   hasContract: boolean
 ): EntrevistaCandidatoStatus {
-  if (hasContract) return 'contrato_preenchido';
-  if (candidato.estagiarioId) return 'contrato_pendente';
+  if (
+    hasContract &&
+    (candidato.status === 'contrato_pendente' ||
+      candidato.status === 'contrato_preenchido')
+  ) {
+    return 'contrato_preenchido';
+  }
+  if (
+    candidato.estagiarioId &&
+    (candidato.status === 'contrato_pendente' ||
+      candidato.status === 'contrato_preenchido')
+  ) {
+    return 'contrato_pendente';
+  }
   return candidato.status;
 }
 
@@ -280,6 +293,7 @@ export default function EntrevistasPage() {
   const [editCandidatoTelefone, setEditCandidatoTelefone] = useState('');
   const [allCandidatos, setAllCandidatos] = useState<EntrevistaCandidato[]>([]);
   const [showContratosModal, setShowContratosModal] = useState(false);
+  const [showHojeModal, setShowHojeModal] = useState(false);
   const [showTodasModal, setShowTodasModal] = useState(false);
   const [todasSearch, setTodasSearch] = useState('');
   const [contratoFiltro, setContratoFiltro] = useState<ContratoFiltro>('todos');
@@ -414,6 +428,32 @@ export default function EntrevistasPage() {
     if (!term) return sorted;
     return sorted.filter((item) => item.empresaNome.toLowerCase().includes(term));
   }, [entrevistas, todasSearch]);
+
+  const entrevistasHoje = useMemo(() => {
+    const todayIso = toIsoDate(new Date());
+    return entrevistas
+      .filter(
+        (item) =>
+          item.dataEntrevista === todayIso &&
+          item.tipoEntrevista !== 'captacao' &&
+          item.status !== 'cancelada'
+      )
+      .sort((a, b) =>
+        a.horarioEntrevista.localeCompare(b.horarioEntrevista, 'pt-BR', {
+          numeric: true,
+        })
+      );
+  }, [entrevistas]);
+
+  const hojeLabel = useMemo(
+    () =>
+      new Date().toLocaleDateString('pt-BR', {
+        weekday: 'long',
+        day: '2-digit',
+        month: 'long',
+      }),
+    []
+  );
 
   const filteredContratoLinks = useMemo(() => {
     if (contratoFiltro === 'todos') return contratoLinks;
@@ -824,6 +864,10 @@ export default function EntrevistasPage() {
               id: `entrevista-${candidato.id}`,
               empresaNome: entrevista.empresaNome,
               candidatoNome: estagiario?.nome?.trim() || candidato.nome,
+              telefone:
+                estagiario?.telefone1?.trim() ||
+                candidato.telefone?.trim() ||
+                '',
               status,
               link,
               estagiarioId: candidato.estagiarioId,
@@ -874,6 +918,10 @@ export default function EntrevistasPage() {
             id: `cliente-${clienteLink.id}`,
             empresaNome: cliente.nomeFantasia || cliente.razaoSocial,
             candidatoNome: estagiario.nome?.trim() || clienteLink.nome,
+            telefone:
+              estagiario.telefone1?.trim() ||
+              clienteLink.telefone?.trim() ||
+              '',
             status,
             link,
             estagiarioId: clienteLink.estagiarioId,
@@ -912,6 +960,12 @@ export default function EntrevistasPage() {
 
   const handleCancelContratoLink = async (item: ContratoLinkItem) => {
     if (!item.estagiarioId || !item.clienteId) return;
+    if (item.status === 'contrato_preenchido') {
+      const confirmed = window.confirm(
+        'Este contrato já foi preenchido. Deseja remover da lista de acompanhamento?'
+      );
+      if (!confirmed) return;
+    }
     try {
       setLoadingContratos(true);
       await cancelContratoLinkTracking(item.clienteId, item.estagiarioId);
@@ -982,6 +1036,11 @@ export default function EntrevistasPage() {
   const handleOpenTodasEntrevista = async (entrevista: Entrevista) => {
     setShowTodasModal(false);
     setTodasSearch('');
+    await openDetailModal(entrevista);
+  };
+
+  const handleOpenHojeEntrevista = async (entrevista: Entrevista) => {
+    setShowHojeModal(false);
     await openDetailModal(entrevista);
   };
 
@@ -1233,6 +1292,18 @@ export default function EntrevistasPage() {
                   className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700"
                 >
                   Próxima
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowHojeModal(true)}
+                  className="px-3 py-2 rounded-lg border border-[#004085] text-[#004085] dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 inline-flex items-center gap-2"
+                >
+                  Entrevistas de hoje
+                  {entrevistasHoje.length > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-[#004085] text-white text-xs font-semibold">
+                      {entrevistasHoje.length}
+                    </span>
+                  )}
                 </button>
                 <button
                   type="button"
@@ -2165,6 +2236,22 @@ export default function EntrevistasPage() {
                       <p className="text-sm text-gray-600 dark:text-gray-300">
                         {item.candidatoNome}
                       </p>
+                      {item.telefone && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {buildWhatsAppUrl(item.telefone) ? (
+                            <a
+                              href={buildWhatsAppUrl(item.telefone)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-green-700 dark:text-green-400 hover:underline"
+                            >
+                              {maskPhone(item.telefone)}
+                            </a>
+                          ) : (
+                            maskPhone(item.telefone)
+                          )}
+                        </p>
+                      )}
                       <p className="text-xs mt-1 text-[#004085] dark:text-blue-400">
                         {ENTREVISTA_CANDIDATO_STATUS_LABELS[item.status]}
                       </p>
@@ -2178,7 +2265,8 @@ export default function EntrevistasPage() {
                         >
                           Copiar link
                         </button>
-                        {item.status === 'contrato_pendente' && (
+                        {(item.status === 'contrato_pendente' ||
+                          item.status === 'contrato_preenchido') && (
                           <button
                             type="button"
                             onClick={() => void handleCancelContratoLink(item)}
@@ -2192,6 +2280,59 @@ export default function EntrevistasPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        </AnimatedModal>
+
+        <AnimatedModal open={showHojeModal} onClose={() => setShowHojeModal(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
+            <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400 mb-1">
+              Entrevistas de hoje
+            </h2>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4 capitalize">
+              {hojeLabel}
+            </p>
+            {entrevistasHoje.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Nenhuma entrevista agendada para hoje.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {entrevistasHoje.map((entrevista) => {
+                  const candidatosCount =
+                    candidatosByEntrevistaId.get(entrevista.id ?? '')?.length ?? 0;
+                  const calendarioIso = getDataCalendario(entrevista);
+                  const calendarioDiferente = calendarioIso !== entrevista.dataEntrevista;
+                  return (
+                    <button
+                      key={entrevista.id}
+                      type="button"
+                      onClick={() => void handleOpenHojeEntrevista(entrevista)}
+                      className="w-full text-left rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="font-semibold text-gray-900 dark:text-gray-100 uppercase">
+                          {entrevista.empresaNome}
+                        </p>
+                        <span className="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full bg-[#004085]/10 text-[#004085] dark:text-blue-400">
+                          {candidatosCount} candidato{candidatosCount === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {entrevista.horarioEntrevista.trim() || 'Horário não informado'} ·{' '}
+                        {entrevista.tipoEntrevista === 'online' ? 'Online' : 'Presencial'} ·{' '}
+                        {entrevista.tituloVaga}
+                      </p>
+                      {calendarioDiferente && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          No calendário desde{' '}
+                          {new Date(calendarioIso + 'T12:00:00').toLocaleDateString('pt-BR')}
+                        </p>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
