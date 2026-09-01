@@ -90,6 +90,17 @@ function formatPhoneDisplay(value: string | undefined): string {
   return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
 }
 
+function resolveEstagiarioFilialLabel(
+  cliente: Cliente | null,
+  estagiario: Estagiario
+): string | null {
+  const filialId = estagiario.empresaFilialId?.trim();
+  if (!filialId || !cliente) return null;
+  const filial = cliente.filiais?.find((item) => item.id === filialId);
+  if (!filial) return null;
+  return filial.nomeFantasia?.trim() || filial.razaoSocial;
+}
+
 export default function ClienteDetalhes() {
   const router = useRouter();
   const { id } = router.query;
@@ -2924,10 +2935,17 @@ export default function ClienteDetalhes() {
                             </tr>
                           </thead>
                           <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {estagiarios.map((estagiario) => (
+                            {estagiarios.map((estagiario) => {
+                              const filialLabel = resolveEstagiarioFilialLabel(cliente, estagiario);
+                              return (
                               <tr key={estagiario.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
+                                  {filialLabel && (
+                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                      {filialLabel}
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div className="text-sm text-gray-900 dark:text-gray-100">
@@ -3028,7 +3046,8 @@ export default function ClienteDetalhes() {
                                   </div>
                                 </td>
                               </tr>
-                            ))}
+                            );
+                            })}
                           </tbody>
                         </table>
                       ) : (

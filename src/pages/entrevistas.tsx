@@ -53,6 +53,7 @@ interface ContratoLinkItem {
   clienteId?: string;
   sourceType: 'entrevista' | 'cliente';
   sourceId: string;
+  createdAt: Date;
 }
 
 const emptyForm = {
@@ -234,6 +235,24 @@ function buildVinculadoKey(clienteId: string, estagiarioId: string) {
   return `${clienteId}:${estagiarioId}`;
 }
 
+function parseLinkDate(value: unknown): Date {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'toDate' in value &&
+    typeof (value as { toDate: () => Date }).toDate === 'function'
+  ) {
+    const parsed = (value as { toDate: () => Date }).toDate();
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return new Date(0);
+}
+
 function dedupeContratoLinks(items: ContratoLinkItem[]): ContratoLinkItem[] {
   const byKey = new Map<string, ContratoLinkItem>();
   items.forEach((item) => {
@@ -258,6 +277,13 @@ function dedupeContratoLinks(items: ContratoLinkItem[]): ContratoLinkItem[] {
       item.sourceType === 'entrevista' &&
       existing.sourceType === 'cliente' &&
       item.status === existing.status
+    ) {
+      byKey.set(key, item);
+      return;
+    }
+    if (
+      item.status === existing.status &&
+      item.createdAt.getTime() > existing.createdAt.getTime()
     ) {
       byKey.set(key, item);
     }
@@ -297,6 +323,7 @@ export default function EntrevistasPage() {
   const [showTodasModal, setShowTodasModal] = useState(false);
   const [todasSearch, setTodasSearch] = useState('');
   const [contratoFiltro, setContratoFiltro] = useState<ContratoFiltro>('todos');
+  const [contratoSearch, setContratoSearch] = useState('');
   const [contratoLinks, setContratoLinks] = useState<ContratoLinkItem[]>([]);
   const [loadingContratos, setLoadingContratos] = useState(false);
   const [draggingEntrevistaId, setDraggingEntrevistaId] = useState<string | null>(null);
@@ -456,12 +483,25 @@ export default function EntrevistasPage() {
   );
 
   const filteredContratoLinks = useMemo(() => {
-    if (contratoFiltro === 'todos') return contratoLinks;
+    const term = contratoSearch.trim().toLowerCase();
+    let items = contratoLinks;
     if (contratoFiltro === 'pendente') {
-      return contratoLinks.filter((item) => item.status === 'contrato_pendente');
+      items = items.filter((item) => item.status === 'contrato_pendente');
+    } else if (contratoFiltro === 'assinado') {
+      items = items.filter((item) => item.status === 'contrato_preenchido');
     }
-    return contratoLinks.filter((item) => item.status === 'contrato_preenchido');
-  }, [contratoLinks, contratoFiltro]);
+    if (term) {
+      items = items.filter(
+        (item) =>
+          item.empresaNome.toLowerCase().includes(term) ||
+          item.candidatoNome.toLowerCase().includes(term) ||
+          item.telefone.replace(/\D/g, '').includes(term.replace(/\D/g, ''))
+      );
+    }
+    return [...items].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    );
+  }, [contratoLinks, contratoFiltro, contratoSearch]);
 
   const applyClienteSelection = (clienteId: string, filialId: string, searchLabel: string) => {
     const cliente = clientes.find((item) => item.id === clienteId);
@@ -874,6 +914,7 @@ export default function EntrevistasPage() {
               clienteId: entrevista.clienteId,
               sourceType: 'entrevista',
               sourceId: candidato.id,
+              createdAt: parseLinkDate(candidato.updatedAt ?? candidato.createdAt),
             } satisfies ContratoLinkItem;
           })
         ),
@@ -928,6 +969,7 @@ export default function EntrevistasPage() {
             clienteId: clienteLink.clienteId,
             sourceType: 'cliente',
             sourceId: clienteLink.id,
+            createdAt: parseLinkDate(clienteLink.updatedAt ?? clienteLink.createdAt),
           } satisfies ContratoLinkItem;
         })
       );
@@ -2188,12 +2230,20 @@ export default function EntrevistasPage() {
           onClose={() => {
             setShowContratosModal(false);
             setContratoFiltro('todos');
+            setContratoSearch('');
           }}
         >
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6">
             <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400 mb-4">
               Links de contrato
             </h2>
+            <input
+              type="text"
+              placeholder="Buscar por empresa, candidato ou telefone..."
+              value={contratoSearch}
+              onChange={(e) => setContratoSearch(e.target.value)}
+              className={`${inputClass} mb-4`}
+            />
             <div className="flex flex-wrap gap-2 mb-4">
               {(
                 [
