@@ -90,15 +90,13 @@ function formatPhoneDisplay(value: string | undefined): string {
   return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
 }
 
-function resolveEstagiarioFilialLabel(
+function resolveEstagiarioFilial(
   cliente: Cliente | null,
   estagiario: Estagiario
-): string | null {
+): ClienteFilial | null {
   const filialId = estagiario.empresaFilialId?.trim();
   if (!filialId || !cliente) return null;
-  const filial = cliente.filiais?.find((item) => item.id === filialId);
-  if (!filial) return null;
-  return filial.nomeFantasia?.trim() || filial.razaoSocial;
+  return cliente.filiais?.find((item) => item.id === filialId) ?? null;
 }
 
 export default function ClienteDetalhes() {
@@ -2915,6 +2913,9 @@ export default function ClienteDetalhes() {
                                 Nome Completo
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Filial
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 CPF
                               </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -2936,15 +2937,26 @@ export default function ClienteDetalhes() {
                           </thead>
                           <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
                             {estagiarios.map((estagiario) => {
-                              const filialLabel = resolveEstagiarioFilialLabel(cliente, estagiario);
+                              const filial = resolveEstagiarioFilial(cliente, estagiario);
                               return (
                               <tr key={estagiario.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
-                                  {filialLabel && (
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                      {filialLabel}
-                                    </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  {filial ? (
+                                    <>
+                                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                        {filial.nomeFantasia?.trim() || filial.razaoSocial}
+                                      </div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                        {filial.cnpj}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
+                                      Matriz
+                                    </span>
                                   )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">

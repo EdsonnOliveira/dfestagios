@@ -178,6 +178,14 @@ function matchesFilialSearch(filial: ClienteFilial, term: string): boolean {
   return fields.some((field) => matchesSearchTerm(field, term));
 }
 
+function matchesContratoLinkSearch(item: ContratoLinkItem, term: string): boolean {
+  return (
+    matchesSearchTerm(item.empresaNome, term) ||
+    matchesSearchTerm(item.candidatoNome, term) ||
+    matchesSearchTerm(item.telefone, term)
+  );
+}
+
 type ClienteSearchOption =
   | { type: 'matriz'; cliente: Cliente }
   | { type: 'filial'; cliente: Cliente; filial: ClienteFilial };
@@ -491,12 +499,7 @@ export default function EntrevistasPage() {
       items = items.filter((item) => item.status === 'contrato_preenchido');
     }
     if (term) {
-      items = items.filter(
-        (item) =>
-          item.empresaNome.toLowerCase().includes(term) ||
-          item.candidatoNome.toLowerCase().includes(term) ||
-          item.telefone.replace(/\D/g, '').includes(term.replace(/\D/g, ''))
-      );
+      items = items.filter((item) => matchesContratoLinkSearch(item, term));
     }
     return [...items].sort(
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
