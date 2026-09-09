@@ -12,7 +12,7 @@ import {
   displayNameFromStorageName
 } from '../services/driveStorageService';
 import { getSupabaseBrowserClient } from '../lib/supabaseClient';
-import { Cliente, ClienteFilial, Estagiario, EstagiarioWithCompanyEntry, FormaCaptacao, FORMA_CAPTACAO_OPTIONS, getFormaCaptacaoLabel } from '../types/firebase';
+import { Cliente, ClienteFilial, Estagiario, EstagiarioWithCompanyEntry, FormaCaptacao, FORMA_CAPTACAO_OPTIONS, getFormaCaptacaoLabel, ReposicaoPendente } from '../types/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { isPanelAdminEmail } from '../constants/admin';
 import { fisqalService } from '../services/fisqalService';
@@ -32,11 +32,13 @@ import {
   calculateRescisao,
   formatDatePtBr,
   formatBolsaDisplay,
+  formatBolsaInputFromDigits,
 } from '../services/rescisaoCalcService';
 import {
   downloadRescisaoDocx,
   generateRescisaoDocxBlob,
 } from '../services/rescisaoDocxService';
+import { relatorioAdministrativoService } from '../services/relatorioAdministrativoService';
 
 const emptyFilialForm = {
   cnpj: '',
@@ -99,6 +101,23 @@ function resolveEstagiarioFilial(
   return cliente.filiais?.find((item) => item.id === filialId) ?? null;
 }
 
+function resolveReposicaoFilial(
+  cliente: Cliente | null,
+  reposicao: ReposicaoPendente
+): ClienteFilial | null {
+  const filialId = reposicao.filialId?.trim();
+  if (!filialId || !cliente) return null;
+  return cliente.filiais?.find((item) => item.id === filialId) ?? null;
+}
+
+function getTodayIsoDate(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function ClienteDetalhes() {
   const router = useRouter();
   const { id } = router.query;
@@ -118,6 +137,9 @@ export default function ClienteDetalhes() {
   const [estagiariosFiltrados, setEstagiariosFiltrados] = useState<Estagiario[]>([]);
   const [filtroEstagiario, setFiltroEstagiario] = useState('');
   const [loadingVincular, setLoadingVincular] = useState(false);
+  const [showDesvincularModal, setShowDesvincularModal] = useState(false);
+  const [estagiarioParaDesvincular, setEstagiarioParaDesvincular] =
+    useState<EstagiarioWithCompanyEntry | null>(null);
   const [loadingCadastrar, setLoadingCadastrar] = useState(false);
   const [loadingMensalidade, setLoadingMensalidade] = useState(false);
   const [activeTab, setActiveTab] = useState<
@@ -210,6 +232,7 @@ export default function ClienteDetalhes() {
     status: 'ativo' as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo',
     formaCaptacao: '' as FormaCaptacao | '',
     formaCaptacaoDetalhe: '',
+    adesaoRestante: '',
   });
   
   const [formDataEstagiario, setFormDataEstagiario] = useState({
@@ -609,7 +632,11 @@ export default function ClienteDetalhes() {
       if (menuAberto) {
         const target = event.target as Element;
         // Verificar se o clique foi fora do menu
-        if (!target.closest('.menu-dropdown') && !target.closest('.menu-button')) {
+        if (
+          !target.closest('.menu-dropdown') &&
+          !target.closest('.menu-button') &&
+          !target.closest('.intern-row')
+        ) {
           fecharMenu();
         }
       }
@@ -940,10 +967,19 @@ export default function ClienteDetalhes() {
       status: cliente.status,
       formaCaptacao: cliente.formaCaptacao ?? '',
       formaCaptacaoDetalhe: cliente.formaCaptacaoDetalhe ?? '',
+      adesaoRestante: cliente.adesaoRestante ?? '',
     });
     setFiliais(cliente.filiais ? [...cliente.filiais] : []);
     resetFilialForm();
     setShowEditModal(true);
+  };
+
+  const handleAdesaoRestanteChange = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    setFormData({
+      ...formData,
+      adesaoRestante: formatBolsaInputFromDigits(digits),
+    });
   };
 
   const handleSave = async () => {
@@ -1007,6 +1043,7 @@ export default function ClienteDetalhes() {
       status: 'ativo',
       formaCaptacao: '',
       formaCaptacaoDetalhe: '',
+      adesaoRestante: '',
     });
   };
 
@@ -1508,6 +1545,7 @@ export default function ClienteDetalhes() {
         };
         setEstagiarios(prev => [...prev, estagiarioCompleto]);
         setTodosEstagiarios(prev => [...prev, estagiarioCompleto]);
+        await loadCliente();
       }
       
       setShowCadastrarModal(false);
@@ -1537,6 +1575,7 @@ export default function ClienteDetalhes() {
           setEstagiariosDisponiveis(prev => prev.filter(e => e.id !== estagiarioId));
           setEstagiariosFiltrados(prev => prev.filter(e => e.id !== estagiarioId));
         }
+        await loadCliente();
       }
     } catch (error) {
       console.error('Erro ao vincular estagiário:', error);
@@ -1545,21 +1584,68 @@ export default function ClienteDetalhes() {
     }
   };
 
-  const handleDesvincularEstagiario = async (estagiarioId: string) => {
+  const handleOpenDesvincularModal = (estagiario: EstagiarioWithCompanyEntry) => {
+    setEstagiarioParaDesvincular(estagiario);
+    setShowDesvincularModal(true);
+    fecharMenu();
+  };
+
+  const handleCloseDesvincularModal = () => {
+    setShowDesvincularModal(false);
+    setEstagiarioParaDesvincular(null);
+  };
+
+  const executarDesvinculacao = async (comReposicao: boolean) => {
+    if (!estagiarioParaDesvincular?.id || !id) return;
+
     try {
       setLoadingVincular(true);
-      if (id) {
-        await vinculacoesService.desvincularEstagiario(id as string, estagiarioId);
-        await cancelContratoLinkTracking(id as string, estagiarioId);
-        setEstagiarios(prev => prev.filter(e => e.id !== estagiarioId));
-        const estagiarioDesvinculado = todosEstagiarios.find(e => e.id === estagiarioId);
-        if (estagiarioDesvinculado) {
-          setEstagiariosDisponiveis(prev => [...prev, estagiarioDesvinculado]);
-          setEstagiariosFiltrados(prev => [...prev, estagiarioDesvinculado]);
+      const estagiarioId = estagiarioParaDesvincular.id;
+
+      await vinculacoesService.desvincularEstagiario(id as string, estagiarioId);
+      await cancelContratoLinkTracking(id as string, estagiarioId);
+
+      if (comReposicao) {
+        const novaReposicao = await clientesService.addReposicaoPendente(id as string, {
+          estagiarioNome: estagiarioParaDesvincular.nome,
+          dataSaida: getTodayIsoDate(),
+          filialId: estagiarioParaDesvincular.empresaFilialId?.trim() || undefined,
+        });
+        setCliente((prev) =>
+          prev
+            ? {
+                ...prev,
+                reposicoesPendentes: [...(prev.reposicoesPendentes ?? []), novaReposicao],
+              }
+            : null
+        );
+      }
+
+      if (cliente) {
+        try {
+          await relatorioAdministrativoService.updateRescisaoReposicao({
+            clienteId: id as string,
+            clienteNome: cliente.nomeFantasia?.trim() || cliente.razaoSocial,
+            estagiarioId,
+            estagiarioNome: estagiarioParaDesvincular.nome,
+            haveraReposicao: comReposicao,
+            dataSaida: getTodayIsoDate(),
+          });
+        } catch (logError) {
+          console.error(logError);
         }
       }
+
+      setEstagiarios((prev) => prev.filter((item) => item.id !== estagiarioId));
+      const estagiarioDesvinculado = todosEstagiarios.find((item) => item.id === estagiarioId);
+      if (estagiarioDesvinculado) {
+        setEstagiariosDisponiveis((prev) => [...prev, estagiarioDesvinculado]);
+        setEstagiariosFiltrados((prev) => [...prev, estagiarioDesvinculado]);
+      }
+      handleCloseDesvincularModal();
     } catch (error) {
       console.error('Erro ao desvincular estagiário:', error);
+      toast.error('Erro ao desvincular estagiário. Tente novamente.');
     } finally {
       setLoadingVincular(false);
     }
@@ -1578,6 +1664,13 @@ export default function ClienteDetalhes() {
       currency: 'BRL'
     }).format(valor);
   };
+
+  const reposicoesPendentes = useMemo(
+    () => cliente?.reposicoesPendentes ?? [],
+    [cliente?.reposicoesPendentes]
+  );
+
+  const totalEstagiariosExibidos = estagiarios.length + reposicoesPendentes.length;
 
   const estagiariosAtivosRescisao = useMemo(
     () => estagiarios.filter((e) => e.status === 'ativo'),
@@ -1665,6 +1758,17 @@ export default function ClienteDetalhes() {
         descontos: rescisaoDescontos,
       });
       downloadRescisaoDocx(blob, rescisaoEstagiarioSelecionado.nome);
+      try {
+        await relatorioAdministrativoService.logRescisao({
+          clienteId: cliente.id!,
+          clienteNome: cliente.nomeFantasia?.trim() || cliente.razaoSocial,
+          estagiarioId: rescisaoEstagiarioSelecionado.id!,
+          estagiarioNome: rescisaoEstagiarioSelecionado.nome,
+          dataSaida: rescisaoDataSaida,
+        });
+      } catch (logError) {
+        console.error(logError);
+      }
       toast.success('Rescisão gerada com sucesso.');
     } catch (error) {
       console.error(error);
@@ -2507,7 +2611,7 @@ export default function ClienteDetalhes() {
                       : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
                   }`}
                 >
-                  Estagiários ({estagiarios.length})
+                  Estagiários ({totalEstagiariosExibidos})
                 </button>
                 <button
                   onClick={() => setActiveTab('financeiro')}
@@ -2626,6 +2730,23 @@ export default function ClienteDetalhes() {
                          cliente.status === 'bloqueado' ? 'Bloqueado' : 'Inativo'}
                       </span>
                     </div>
+
+                    {cliente.status === 'em-andamento' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Adesão restante
+                        </label>
+                        <p
+                          className={`text-sm font-semibold ${
+                            cliente.adesaoRestante?.trim()
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-gray-500 dark:text-gray-400'
+                          }`}
+                        >
+                          {formatBolsaDisplay(cliente.adesaoRestante)}
+                        </p>
+                      </div>
+                    )}
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -2865,7 +2986,7 @@ export default function ClienteDetalhes() {
                 <div>
                   <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400">
-                      Estagiários Vinculados ({estagiarios.length})
+                      Estagiários Vinculados ({totalEstagiariosExibidos})
                     </h2>
                     <div className="flex flex-wrap gap-2">
                       <button
@@ -2905,10 +3026,13 @@ export default function ClienteDetalhes() {
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
-                      {estagiarios.length > 0 ? (
+                      {totalEstagiariosExibidos > 0 ? (
                         <table className="w-full">
                           <thead className="bg-gray-50 dark:bg-slate-700">
                             <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-12">
+                                Ações
+                              </th>
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Nome Completo
                               </th>
@@ -2930,70 +3054,33 @@ export default function ClienteDetalhes() {
                               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Valor da bolsa
                               </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                Ações
-                              </th>
                             </tr>
                           </thead>
                           <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
                             {estagiarios.map((estagiario) => {
                               const filial = resolveEstagiarioFilial(cliente, estagiario);
                               return (
-                              <tr key={estagiario.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  {filial ? (
-                                    <>
-                                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                        {filial.nomeFantasia?.trim() || filial.razaoSocial}
-                                      </div>
-                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                        {filial.cnpj}
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
-                                      Matriz
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {formatCpfDisplay(estagiario.cpf)}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {formatarDataNascimento(estagiario.dataNascimento)}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {formatPhoneDisplay(estagiario.telefone1)}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {formatarDataNascimento(estagiario.estagioDataInicio)}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {formatBolsaDisplay(estagiario.estagioValorBolsa)}
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                              <tr
+                                key={estagiario.id}
+                                className="intern-row hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
+                                onClick={(e) =>
+                                  toggleMenu(internRowMenuId(estagiario.id!), e, {
+                                    width: 224,
+                                    height: 176
+                                  })
+                                }
+                              >
+                                <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
                                   <div className="relative">
                                     <button
                                       type="button"
-                                      onClick={(e) =>
+                                      onClick={(e) => {
+                                        e.stopPropagation();
                                         toggleMenu(internRowMenuId(estagiario.id!), e, {
                                           width: 224,
                                           height: 176
-                                        })
-                                      }
+                                        });
+                                      }}
                                       className="menu-button p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700"
                                       aria-label="Ações do estagiário"
                                     >
@@ -3038,10 +3125,7 @@ export default function ClienteDetalhes() {
                                             type="button"
                                             className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                             disabled={loadingVincular}
-                                            onClick={() => {
-                                              void handleDesvincularEstagiario(estagiario.id!);
-                                              fecharMenu();
-                                            }}
+                                            onClick={() => handleOpenDesvincularModal(estagiario)}
                                           >
                                             {loadingVincular ? (
                                               <span className="inline-flex items-center gap-2">
@@ -3057,8 +3141,93 @@ export default function ClienteDetalhes() {
                                     )}
                                   </div>
                                 </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  {filial ? (
+                                    <>
+                                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                        {filial.nomeFantasia?.trim() || filial.razaoSocial}
+                                      </div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                        {filial.cnpj}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
+                                      Matriz
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {formatCpfDisplay(estagiario.cpf)}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {formatarDataNascimento(estagiario.dataNascimento)}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {formatPhoneDisplay(estagiario.telefone1)}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {formatarDataNascimento(estagiario.estagioDataInicio)}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100">
+                                    {formatBolsaDisplay(estagiario.estagioValorBolsa)}
+                                  </div>
+                                </td>
                               </tr>
                             );
+                            })}
+                            {reposicoesPendentes.map((reposicao) => {
+                              const filial = resolveReposicaoFilial(cliente, reposicao);
+                              return (
+                                <tr
+                                  key={`reposicao-${reposicao.id}`}
+                                  className="bg-amber-50/70 dark:bg-amber-900/15 border-l-4 border-amber-400 dark:border-amber-500"
+                                >
+                                  <td className="px-4 py-4 whitespace-nowrap" />
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <div className="text-sm font-bold text-amber-700 dark:text-amber-300">
+                                      Aguardando reposição
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    {filial ? (
+                                      <>
+                                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                          {filial.nomeFantasia?.trim() || filial.razaoSocial}
+                                        </div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                          {filial.cnpj}
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
+                                        Matriz
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td
+                                    colSpan={5}
+                                    className="px-6 py-4 whitespace-nowrap"
+                                  >
+                                    <div className="text-sm text-gray-700 dark:text-gray-300">
+                                      {reposicao.estagiarioNome} - Saída em{' '}
+                                      {formatarDataNascimento(reposicao.dataSaida)}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
                             })}
                           </tbody>
                         </table>
@@ -3821,6 +3990,62 @@ export default function ClienteDetalhes() {
             </div>
           </div>
 
+
+          <AnimatedModal open={showDesvincularModal} onClose={handleCloseDesvincularModal}>
+            <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                  Desvincular estagiário
+                </h3>
+                <button
+                  type="button"
+                  onClick={handleCloseDesvincularModal}
+                  className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
+                Estagiário:{' '}
+                <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  {estagiarioParaDesvincular?.nome}
+                </span>
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                Haverá reposição desta vaga?
+              </p>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => void executarDesvinculacao(true)}
+                  disabled={loadingVincular}
+                  className="w-full px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingVincular ? 'Processando...' : 'Sim, aguardar reposição'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void executarDesvinculacao(false)}
+                  disabled={loadingVincular}
+                  className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingVincular ? 'Processando...' : 'Não, apenas desvincular'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCloseDesvincularModal}
+                  disabled={loadingVincular}
+                  className="w-full px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </AnimatedModal>
 
           {/* Modal para Vincular Estagiários */}
           <AnimatedModal open={showVincularModal} onClose={() => setShowVincularModal(false)}>
@@ -5341,6 +5566,25 @@ export default function ClienteDetalhes() {
                   <option value="inativo">Inativo</option>
                 </select>
               </div>
+
+              {formData.status === 'em-andamento' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Adesão restante
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.adesaoRestante}
+                    onChange={(e) => handleAdesaoRestanteChange(e.target.value)}
+                    disabled={loadingCnpjLookup}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                    placeholder="R$ 0,00"
+                  />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Valor que ainda falta receber da taxa de adesão após a seleção dos candidatos.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

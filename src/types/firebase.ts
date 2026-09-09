@@ -102,10 +102,12 @@ export interface Cliente {
   valor: string;
   servico?: string; // Serviço prestado ao cliente
   status: 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo';
-  motivoStatus?: string; // Motivo da alteração de status
+  motivoStatus?: string;
+  adesaoRestante?: string;
   formaCaptacao?: FormaCaptacao | null;
   formaCaptacaoDetalhe?: string;
-  estagiariosVinculados?: string[]; // Array de IDs dos estagiários vinculados
+  estagiariosVinculados?: string[];
+  reposicoesPendentes?: ReposicaoPendente[];
   filiais?: ClienteFilial[];
   termosAceite?: ClienteTermosAceite;
   createdAt: Date;
@@ -146,6 +148,29 @@ export const getFormaCaptacaoLabel = (value?: FormaCaptacao | null): string => {
   if (!value) return '-';
   return FORMA_CAPTACAO_OPTIONS.find((option) => option.value === value)?.label ?? value;
 };
+
+export interface ReposicaoPendente {
+  id: string;
+  estagiarioNome: string;
+  dataSaida: string;
+  filialId?: string;
+}
+
+export type RelatorioAdministrativoEventoTipo = 'contrato' | 'rescisao';
+
+export interface RelatorioAdministrativoEvento {
+  id?: string;
+  tipo: RelatorioAdministrativoEventoTipo;
+  dataRegistro: string;
+  clienteId: string;
+  clienteNome: string;
+  estagiarioId: string;
+  estagiarioNome: string;
+  dataReferencia: string;
+  haveraReposicao?: boolean | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 export interface VinculacaoEstagiario {
   id?: string;

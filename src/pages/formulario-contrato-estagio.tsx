@@ -11,6 +11,7 @@ import Head from 'next/head';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/router';
 import { clientesService, estagiariosService, vinculacoesService, syncContratoPreenchidoStatus } from '../services/firebase';
+import { relatorioAdministrativoService } from '../services/relatorioAdministrativoService';
 import {
   generateTceDocxBlob,
   type TceContractPayload
@@ -660,6 +661,10 @@ export default function FormularioContratoEstagio() {
       };
 
       let estagiarioIdResult: string;
+      let deveRegistrarContrato = false;
+      const clienteDoc = await clientesService.getById(clienteIdRaw);
+      const clienteNome =
+        clienteDoc?.nomeFantasia?.trim() || clienteDoc?.razaoSocial || '-';
 
       if (estagiarioIdEdit) {
         estagiarioIdResult = estagiarioIdEdit;
@@ -667,7 +672,6 @@ export default function FormularioContratoEstagio() {
           estagiarioIdEdit,
           dadosEstagiario as Partial<Estagiario>
         );
-        const clienteDoc = await clientesService.getById(clienteIdRaw);
         const ja =
           clienteDoc?.estagiariosVinculados?.includes(estagiarioIdEdit) ?? false;
         if (!ja) {
@@ -675,6 +679,7 @@ export default function FormularioContratoEstagio() {
             clienteIdRaw,
             estagiarioIdEdit
           );
+          deveRegistrarContrato = true;
         }
       } else {
         estagiarioIdResult = await estagiariosService.add(
@@ -684,6 +689,21 @@ export default function FormularioContratoEstagio() {
           clienteIdRaw,
           estagiarioIdResult
         );
+        deveRegistrarContrato = true;
+      }
+
+      if (deveRegistrarContrato) {
+        try {
+          await relatorioAdministrativoService.logContrato({
+            clienteId: clienteIdRaw,
+            clienteNome,
+            estagiarioId: estagiarioIdResult,
+            estagiarioNome: form.nomeCompleto.trim(),
+            dataInicio: form.dataInicioEstagio,
+          });
+        } catch (logError) {
+          console.error(logError);
+        }
       }
 
       const blob = await generateTceDocxBlob(contractPayload);

@@ -9,6 +9,10 @@ import AdminRoute from '../components/AdminRoute';
 import { clientesService } from '../services/firebase';
 import { fetchCnpjLookup } from '../services/brasilApiCnpj';
 import { Cliente, ClienteFilial, FormaCaptacao, FORMA_CAPTACAO_OPTIONS } from '../types/firebase';
+import {
+  formatBolsaDisplay,
+  formatBolsaInputFromDigits,
+} from '../services/rescisaoCalcService';
 
 const emptyFilialForm = {
   cnpj: '',
@@ -178,6 +182,7 @@ export default function Clientes() {
     status: 'ativo' as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo',
     formaCaptacao: '' as FormaCaptacao | '',
     formaCaptacaoDetalhe: '',
+    adesaoRestante: '',
   });
 
   useEffect(() => {
@@ -499,11 +504,20 @@ export default function Clientes() {
       status: 'ativo',
       formaCaptacao: '',
       formaCaptacaoDetalhe: '',
+      adesaoRestante: '',
     });
     setMotivoStatus('');
     setFiliais([]);
     resetFilialForm();
     setShowAddModal(true);
+  };
+
+  const handleAdesaoRestanteChange = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    setFormData({
+      ...formData,
+      adesaoRestante: formatBolsaInputFromDigits(digits),
+    });
   };
 
   const handleEdit = (cliente: Cliente) => {
@@ -522,6 +536,7 @@ export default function Clientes() {
       status: cliente.status,
       formaCaptacao: cliente.formaCaptacao ?? '',
       formaCaptacaoDetalhe: cliente.formaCaptacaoDetalhe ?? '',
+      adesaoRestante: cliente.adesaoRestante ?? '',
     });
     setMotivoStatus(cliente.motivoStatus ?? '');
     setFiliais(cliente.filiais ? [...cliente.filiais] : []);
@@ -650,6 +665,7 @@ export default function Clientes() {
       status: 'ativo',
       formaCaptacao: '',
       formaCaptacaoDetalhe: '',
+      adesaoRestante: '',
     });
   };
 
@@ -1521,14 +1537,15 @@ export default function Clientes() {
               <div className="overflow-x-auto">
                 <table className="w-full table-fixed border-collapse">
                   <colgroup>
-                    <col className="w-[15%]" />
-                    <col className="w-[21%]" />
                     <col className="w-[13%]" />
+                    <col className="w-[18%]" />
                     <col className="w-[11%]" />
-                    <col className="w-[8%]" />
-                    <col className="w-[7%]" />
                     <col className="w-[10%]" />
-                    <col className="w-[15%]" />
+                    <col className="w-[7%]" />
+                    <col className="w-[6%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[9%]" />
+                    <col className="w-[16%]" />
                   </colgroup>
                   <thead className="bg-gray-50 dark:bg-slate-700">
                     <tr>
@@ -1549,6 +1566,9 @@ export default function Clientes() {
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Filiais
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        Adesão restante
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                         Status
@@ -1610,6 +1630,21 @@ export default function Clientes() {
                           <div className="text-sm text-gray-900 dark:text-gray-100 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
                             {getFiliaisCount(cliente)}
                           </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-slate-700">
+                          {cliente.status === 'em-andamento' ? (
+                            <div
+                              className={`text-sm font-semibold ${
+                                cliente.adesaoRestante?.trim()
+                                  ? 'text-amber-600 dark:text-amber-400'
+                                  : 'text-gray-400 dark:text-gray-500'
+                              }`}
+                            >
+                              {formatBolsaDisplay(cliente.adesaoRestante)}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-400 dark:text-gray-500">-</div>
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap group-hover:bg-gray-50 dark:group-hover:bg-slate-700">
                           <span 
@@ -1833,6 +1868,25 @@ export default function Clientes() {
                     <option value="inativo">Inativo</option>
                   </select>
                 </div>
+
+                {formData.status === 'em-andamento' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Adesão restante
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.adesaoRestante}
+                      onChange={(e) => handleAdesaoRestanteChange(e.target.value)}
+                      disabled={loadingCnpjLookup}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                      placeholder="R$ 0,00"
+                    />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Valor que ainda falta receber da taxa de adesão após a seleção dos candidatos.
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

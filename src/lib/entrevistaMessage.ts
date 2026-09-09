@@ -139,12 +139,30 @@ export function buildEntrevistaConfirmacaoMessage(entrevista: Entrevista): strin
     ].join('\n');
   }
 
-  const dataEntrevista = formatInterviewDate(entrevista.dataEntrevista);
   const horario = entrevista.horarioEntrevista.trim();
   const endereco = [entrevista.endereco, entrevista.bairro, entrevista.cidade]
     .filter(Boolean)
     .join(', ');
   const responsavel = entrevista.responsavelEntrevista?.trim() || '-';
+
+  if (tipoEntrevista === 'online') {
+    return [
+      'Olá! Agradecemos o envio do seu currículo. 😊',
+      '',
+      'Temos uma ótima notícia: sua entrevista está confirmada no horário combinado!',
+      '',
+      `📍 Empresa: ${entrevista.empresaNome}`,
+      `📌 Endereço: ${endereco || '-'}`,
+      '',
+      `📲 A entrevista será realizada pelo Google Meet. ${horario}, O responsável pela entrevista (${responsavel}) começará a chamar os candidatos um por vez pelo Google Meet`,
+      '',
+      'Pedimos que fique atento ao celular e aguarde o contato.',
+      '',
+      'Boa sorte! 🍀 Estamos torcendo por você! 💙',
+    ].join('\n');
+  }
+
+  const dataEntrevista = formatInterviewDate(entrevista.dataEntrevista);
   const mapsLink = entrevista.googleMapsLink?.trim() || '';
 
   const parts = [

@@ -17,7 +17,7 @@ import {
   User as FirebaseUser
 } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
-import { Estagiario, EstagiarioWithCompanyEntry, Grupo, Cliente, Entrevista, EntrevistaCandidato, ClienteContratoLink } from '../types/firebase';
+import { Estagiario, EstagiarioWithCompanyEntry, Grupo, Cliente, Entrevista, EntrevistaCandidato, ClienteContratoLink, ReposicaoPendente } from '../types/firebase';
 
 function parseFirestoreDate(value: unknown): Date | null {
   if (!value) return null;
@@ -309,6 +309,55 @@ export const clientesService = {
     });
   },
 
+  async addReposicaoPendente(
+    clienteId: string,
+    reposicao: Omit<ReposicaoPendente, 'id'>
+  ): Promise<ReposicaoPendente> {
+    const clienteRef = doc(db, 'clientes', clienteId);
+    const snap = await getDoc(clienteRef);
+    if (!snap.exists()) {
+      throw new Error('Cliente não encontrado');
+    }
+    const clienteData = snap.data() as Cliente;
+    const entry: ReposicaoPendente = {
+      id:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}`,
+      ...reposicao,
+    };
+    const reposicoesPendentes = [...(clienteData.reposicoesPendentes ?? []), entry];
+    await updateDoc(clienteRef, {
+      reposicoesPendentes,
+      updatedAt: new Date(),
+    });
+    return entry;
+  },
+
+  async resolveReposicaoPendente(clienteId: string, filialId?: string): Promise<boolean> {
+    const clienteRef = doc(db, 'clientes', clienteId);
+    const snap = await getDoc(clienteRef);
+    if (!snap.exists()) return false;
+    const clienteData = snap.data() as Cliente;
+    const pending = clienteData.reposicoesPendentes ?? [];
+    if (pending.length === 0) return false;
+
+    const normalizedFilialId = filialId?.trim() || '';
+    let indexToRemove = pending.findIndex(
+      (item) => (item.filialId?.trim() || '') === normalizedFilialId
+    );
+    if (indexToRemove === -1) {
+      indexToRemove = 0;
+    }
+
+    const reposicoesPendentes = pending.filter((_, index) => index !== indexToRemove);
+    await updateDoc(clienteRef, {
+      reposicoesPendentes,
+      updatedAt: new Date(),
+    });
+    return true;
+  },
+
   async toggleStatus(id: string, currentStatus: 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo') {
     const docRef = doc(db, 'clientes', id);
     // Lógica de alternância: ativo -> em-andamento -> bloqueado -> inativo -> ativo
@@ -407,6 +456,12 @@ export const vinculacoesService = {
           });
         }
       }
+
+      const estagiario = await estagiariosService.getById(estagiarioId);
+      await clientesService.resolveReposicaoPendente(
+        clienteId,
+        estagiario?.empresaFilialId?.trim()
+      );
       
       return docRef.id;
     } catch (error) {
