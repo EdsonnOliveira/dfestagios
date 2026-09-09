@@ -319,12 +319,15 @@ export const clientesService = {
       throw new Error('Cliente não encontrado');
     }
     const clienteData = snap.data() as Cliente;
+    const filialId = reposicao.filialId?.trim();
     const entry: ReposicaoPendente = {
       id:
         typeof crypto !== 'undefined' && 'randomUUID' in crypto
           ? crypto.randomUUID()
           : `${Date.now()}`,
-      ...reposicao,
+      estagiarioNome: reposicao.estagiarioNome.trim(),
+      dataSaida: reposicao.dataSaida.trim(),
+      ...(filialId ? { filialId } : {}),
     };
     const reposicoesPendentes = [...(clienteData.reposicoesPendentes ?? []), entry];
     await updateDoc(clienteRef, {

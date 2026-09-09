@@ -1605,20 +1605,30 @@ export default function ClienteDetalhes() {
       await vinculacoesService.desvincularEstagiario(id as string, estagiarioId);
       await cancelContratoLinkTracking(id as string, estagiarioId);
 
+      let reposicaoRegistrada = !comReposicao;
       if (comReposicao) {
-        const novaReposicao = await clientesService.addReposicaoPendente(id as string, {
-          estagiarioNome: estagiarioParaDesvincular.nome,
-          dataSaida: getTodayIsoDate(),
-          filialId: estagiarioParaDesvincular.empresaFilialId?.trim() || undefined,
-        });
-        setCliente((prev) =>
-          prev
-            ? {
-                ...prev,
-                reposicoesPendentes: [...(prev.reposicoesPendentes ?? []), novaReposicao],
-              }
-            : null
-        );
+        try {
+          const filialId = estagiarioParaDesvincular.empresaFilialId?.trim();
+          const novaReposicao = await clientesService.addReposicaoPendente(id as string, {
+            estagiarioNome: estagiarioParaDesvincular.nome,
+            dataSaida: getTodayIsoDate(),
+            ...(filialId ? { filialId } : {}),
+          });
+          setCliente((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  reposicoesPendentes: [...(prev.reposicoesPendentes ?? []), novaReposicao],
+                }
+              : null
+          );
+          reposicaoRegistrada = true;
+        } catch (reposicaoError) {
+          console.error(reposicaoError);
+          toast.error(
+            'Estagiário desvinculado, mas falhou ao registrar a reposição pendente.'
+          );
+        }
       }
 
       if (cliente) {
@@ -1643,6 +1653,13 @@ export default function ClienteDetalhes() {
         setEstagiariosFiltrados((prev) => [...prev, estagiarioDesvinculado]);
       }
       handleCloseDesvincularModal();
+      if (reposicaoRegistrada) {
+        toast.success(
+          comReposicao
+            ? 'Estagiário desvinculado. Vaga aguardando reposição.'
+            : 'Estagiário desvinculado.'
+        );
+      }
     } catch (error) {
       console.error('Erro ao desvincular estagiário:', error);
       toast.error('Erro ao desvincular estagiário. Tente novamente.');
