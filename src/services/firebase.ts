@@ -320,6 +320,7 @@ export const clientesService = {
     }
     const clienteData = snap.data() as Cliente;
     const filialId = reposicao.filialId?.trim();
+    const estagiarioId = reposicao.estagiarioId?.trim();
     const entry: ReposicaoPendente = {
       id:
         typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -327,6 +328,7 @@ export const clientesService = {
           : `${Date.now()}`,
       estagiarioNome: reposicao.estagiarioNome.trim(),
       dataSaida: reposicao.dataSaida.trim(),
+      ...(estagiarioId ? { estagiarioId } : {}),
       ...(filialId ? { filialId } : {}),
     };
     const reposicoesPendentes = [...(clienteData.reposicoesPendentes ?? []), entry];
@@ -354,6 +356,21 @@ export const clientesService = {
     }
 
     const reposicoesPendentes = pending.filter((_, index) => index !== indexToRemove);
+    await updateDoc(clienteRef, {
+      reposicoesPendentes,
+      updatedAt: new Date(),
+    });
+    return true;
+  },
+
+  async cancelReposicaoPendente(clienteId: string, reposicaoId: string): Promise<boolean> {
+    const clienteRef = doc(db, 'clientes', clienteId);
+    const snap = await getDoc(clienteRef);
+    if (!snap.exists()) return false;
+    const clienteData = snap.data() as Cliente;
+    const pending = clienteData.reposicoesPendentes ?? [];
+    const reposicoesPendentes = pending.filter((item) => item.id !== reposicaoId);
+    if (reposicoesPendentes.length === pending.length) return false;
     await updateDoc(clienteRef, {
       reposicoesPendentes,
       updatedAt: new Date(),

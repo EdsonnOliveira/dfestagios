@@ -151,6 +151,7 @@ export const getFormaCaptacaoLabel = (value?: FormaCaptacao | null): string => {
 
 export interface ReposicaoPendente {
   id: string;
+  estagiarioId?: string;
   estagiarioNome: string;
   dataSaida: string;
   filialId?: string;

@@ -23,6 +23,20 @@ export function formatDateShortPtBr(value: string): string {
   return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${String(year).slice(-2)}`;
 }
 
+export function parseDataReferenciaToIso(value: string): string {
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const brMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{2,4})$/);
+  if (brMatch) {
+    const day = brMatch[1];
+    const month = brMatch[2];
+    const yearRaw = brMatch[3];
+    const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
+    return `${year}-${month}-${day}`;
+  }
+  return trimmed;
+}
+
 export function formatDateLongPtBr(isoDate: string): string {
   const [year, month, day] = isoDate.split('-').map(Number);
   if (!year || !month || !day) return isoDate;

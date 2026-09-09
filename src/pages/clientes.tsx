@@ -146,6 +146,7 @@ export default function Clientes() {
   const [filtroStatus, setFiltroStatus] = useState('');
   const [filtroEstagiario, setFiltroEstagiario] = useState('');
   const [filtroFilial, setFiltroFilial] = useState('');
+  const [filtroReposicao, setFiltroReposicao] = useState('');
   const [filtroResponsavel, setFiltroResponsavel] = useState('');
   const [filtroCnpj, setFiltroCnpj] = useState('');
 
@@ -729,6 +730,13 @@ export default function Clientes() {
           filtroFilial === 'com-filial' ? 'Com filial' : 'Sem filial';
         filtrosAplicados.push(`Filiais: "${filialText}"`);
       }
+      if (filtroReposicao) {
+        const reposicaoText =
+          filtroReposicao === 'com-reposicao-pendente'
+            ? 'Aguardando reposição'
+            : 'Sem reposição pendente';
+        filtrosAplicados.push(`Reposição: "${reposicaoText}"`);
+      }
       
       if (filtrosAplicados.length > 0) {
         filtrosTexto = `Filtros: ${filtrosAplicados.join(', ')}`;
@@ -891,6 +899,11 @@ export default function Clientes() {
     []
   );
 
+  const getReposicoesPendentesCount = useCallback(
+    (cliente: Cliente) => cliente.reposicoesPendentes?.length ?? 0,
+    []
+  );
+
   const getResponsavelFirstName = useCallback((responsavel: string) => {
     const trimmed = responsavel.trim();
     if (!trimmed) return '-';
@@ -923,6 +936,11 @@ export default function Clientes() {
         filtroFilial === '' ||
         (filtroFilial === 'com-filial' && filiaisCount > 0) ||
         (filtroFilial === 'sem-filial' && filiaisCount === 0);
+      const reposicoesPendentesCount = getReposicoesPendentesCount(cliente);
+      const matchReposicao =
+        filtroReposicao === '' ||
+        (filtroReposicao === 'com-reposicao-pendente' && reposicoesPendentesCount > 0) ||
+        (filtroReposicao === 'sem-reposicao-pendente' && reposicoesPendentesCount === 0);
 
       return (
         matchRazaoSocial &&
@@ -933,7 +951,8 @@ export default function Clientes() {
         matchBairro &&
         matchStatus &&
         matchEstagiario &&
-        matchFilial
+        matchFilial &&
+        matchReposicao
       );
     });
   };
@@ -1455,6 +1474,21 @@ export default function Clientes() {
                   <option value="">Todos</option>
                   <option value="com-filial">Sim</option>
                   <option value="sem-filial">Não</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Reposição pendente
+                </label>
+                <select
+                  value={filtroReposicao}
+                  onChange={(e) => setFiltroReposicao(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">Todos</option>
+                  <option value="com-reposicao-pendente">Aguardando reposição</option>
+                  <option value="sem-reposicao-pendente">Sem reposição pendente</option>
                 </select>
               </div>
 

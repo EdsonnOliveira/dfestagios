@@ -140,6 +140,11 @@ export default function ClienteDetalhes() {
   const [showDesvincularModal, setShowDesvincularModal] = useState(false);
   const [estagiarioParaDesvincular, setEstagiarioParaDesvincular] =
     useState<EstagiarioWithCompanyEntry | null>(null);
+  const [showCancelReposicaoModal, setShowCancelReposicaoModal] = useState(false);
+  const [reposicaoParaCancelar, setReposicaoParaCancelar] = useState<ReposicaoPendente | null>(
+    null
+  );
+  const [loadingCancelReposicao, setLoadingCancelReposicao] = useState(false);
   const [loadingCadastrar, setLoadingCadastrar] = useState(false);
   const [loadingMensalidade, setLoadingMensalidade] = useState(false);
   const [activeTab, setActiveTab] = useState<
@@ -295,6 +300,7 @@ export default function ClienteDetalhes() {
       .trim();
 
   const internRowMenuId = (estagiarioId: string) => `est-${estagiarioId}`;
+  const reposicaoRowMenuId = (reposicaoId: string) => `rep-${reposicaoId}`;
 
   useEffect(() => {
     formCnpjRef.current = formData.cnpj;
@@ -635,7 +641,8 @@ export default function ClienteDetalhes() {
         if (
           !target.closest('.menu-dropdown') &&
           !target.closest('.menu-button') &&
-          !target.closest('.intern-row')
+          !target.closest('.intern-row') &&
+          !target.closest('.reposicao-row')
         ) {
           fecharMenu();
         }
@@ -1638,6 +1645,7 @@ export default function ClienteDetalhes() {
         try {
           const filialId = estagiarioParaDesvincular.empresaFilialId?.trim();
           const novaReposicao = await clientesService.addReposicaoPendente(id as string, {
+            estagiarioId,
             estagiarioNome: estagiarioParaDesvincular.nome,
             dataSaida: getTodayIsoDate(),
             ...(filialId ? { filialId } : {}),
@@ -1696,6 +1704,61 @@ export default function ClienteDetalhes() {
     }
   };
 
+  const handleOpenCancelReposicaoModal = (reposicao: ReposicaoPendente) => {
+    setReposicaoParaCancelar(reposicao);
+    setShowCancelReposicaoModal(true);
+    fecharMenu();
+  };
+
+  const handleCloseCancelReposicaoModal = () => {
+    setShowCancelReposicaoModal(false);
+    setReposicaoParaCancelar(null);
+  };
+
+  const executarCancelamentoReposicao = async () => {
+    if (!reposicaoParaCancelar?.id || !id || !cliente) return;
+
+    try {
+      setLoadingCancelReposicao(true);
+      const cancelado = await clientesService.cancelReposicaoPendente(
+        id as string,
+        reposicaoParaCancelar.id
+      );
+      if (!cancelado) {
+        toast.error('Reposição pendente não encontrada.');
+        return;
+      }
+
+      setCliente((prev) =>
+        prev
+          ? {
+              ...prev,
+              reposicoesPendentes: (prev.reposicoesPendentes ?? []).filter(
+                (item) => item.id !== reposicaoParaCancelar.id
+              ),
+            }
+          : null
+      );
+
+      try {
+        await relatorioAdministrativoService.clearReposicaoPendenteNoRelatorio({
+          clienteId: id as string,
+          estagiarioId: reposicaoParaCancelar.estagiarioId,
+          estagiarioNome: reposicaoParaCancelar.estagiarioNome,
+        });
+      } catch (logError) {
+        console.error(logError);
+      }
+
+      handleCloseCancelReposicaoModal();
+      toast.success('Reposição pendente cancelada.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao cancelar reposição pendente. Tente novamente.');
+    } finally {
+      setLoadingCancelReposicao(false);
+    }
+  };
 
   // Função removida - não utilizada
   // const formatarData = (data: string) => {
@@ -3238,9 +3301,56 @@ export default function ClienteDetalhes() {
                               return (
                                 <tr
                                   key={`reposicao-${reposicao.id}`}
-                                  className="bg-amber-50/70 dark:bg-amber-900/15 border-l-4 border-amber-400 dark:border-amber-500"
+                                  className="reposicao-row bg-amber-50/70 dark:bg-amber-900/15 border-l-4 border-amber-400 dark:border-amber-500 hover:bg-amber-100/80 dark:hover:bg-amber-900/25 cursor-pointer"
+                                  onClick={(e) =>
+                                    toggleMenu(reposicaoRowMenuId(reposicao.id), e, {
+                                      width: 224,
+                                      height: 56,
+                                    })
+                                  }
                                 >
-                                  <td className="px-4 py-4 whitespace-nowrap" />
+                                  <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                                    <div className="relative">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          toggleMenu(reposicaoRowMenuId(reposicao.id), e, {
+                                            width: 224,
+                                            height: 56,
+                                          });
+                                        }}
+                                        className="menu-button p-2 text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 rounded-full hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                                        aria-label="Ações da reposição pendente"
+                                      >
+                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                          <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                        </svg>
+                                      </button>
+                                      {menuAberto === reposicaoRowMenuId(reposicao.id) && (
+                                        <div
+                                          className="menu-dropdown fixed bg-white dark:bg-slate-800 rounded-md shadow-lg z-50 border border-gray-200 dark:border-gray-700"
+                                          style={{
+                                            left: `${menuPosition.x}px`,
+                                            top: `${menuPosition.y}px`,
+                                            width: `${menuLayout.width}px`,
+                                            transform: 'translate(-50%, 10px)',
+                                          }}
+                                        >
+                                          <div className="py-1">
+                                            <button
+                                              type="button"
+                                              className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                              disabled={loadingCancelReposicao}
+                                              onClick={() => handleOpenCancelReposicaoModal(reposicao)}
+                                            >
+                                              Cancelar reposição
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
                                   <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="text-sm font-bold text-amber-700 dark:text-amber-300">
                                       Aguardando reposição
@@ -4035,6 +4145,54 @@ export default function ClienteDetalhes() {
             </div>
           </div>
 
+
+          <AnimatedModal open={showCancelReposicaoModal} onClose={handleCloseCancelReposicaoModal}>
+            <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-[#004085] dark:text-blue-400">
+                  Cancelar reposição
+                </h3>
+                <button
+                  type="button"
+                  onClick={handleCloseCancelReposicaoModal}
+                  className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
+                Vaga:{' '}
+                <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  {reposicaoParaCancelar?.estagiarioNome}
+                </span>
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                O cliente desistiu da reposição? A vaga deixará de aparecer como aguardando reposição.
+              </p>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => void executarCancelamentoReposicao()}
+                  disabled={loadingCancelReposicao}
+                  className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingCancelReposicao ? 'Processando...' : 'Sim, cancelar reposição'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCloseCancelReposicaoModal}
+                  disabled={loadingCancelReposicao}
+                  className="w-full px-4 py-2 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Voltar
+                </button>
+              </div>
+            </div>
+          </AnimatedModal>
 
           <AnimatedModal open={showDesvincularModal} onClose={handleCloseDesvincularModal}>
             <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md mx-4 transition-colors">
