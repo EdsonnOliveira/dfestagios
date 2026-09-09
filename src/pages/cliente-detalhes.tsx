@@ -1476,6 +1476,25 @@ export default function ClienteDetalhes() {
     setFormDataEstagiario({...formDataEstagiario, cpf: formatted});
   };
 
+  const registrarContratoNoRelatorio = async (
+    estagiarioId: string,
+    estagiarioNome: string,
+    dataInicio?: string
+  ) => {
+    if (!id || !cliente) return;
+    try {
+      await relatorioAdministrativoService.logContrato({
+        clienteId: id as string,
+        clienteNome: cliente.nomeFantasia?.trim() || cliente.razaoSocial,
+        estagiarioId,
+        estagiarioNome: estagiarioNome.trim(),
+        dataInicio: dataInicio?.trim() || getTodayIsoDate(),
+      });
+    } catch (logError) {
+      console.error(logError);
+    }
+  };
+
   const handleEstagioValorBolsaChange = (value: string) => {
     const numericValue = value.replace(/\D/g, '');
     if (!numericValue) {
@@ -1535,7 +1554,12 @@ export default function ClienteDetalhes() {
           estagiarioId,
           dataVinculacaoEstimada
         );
-        
+        await registrarContratoNoRelatorio(
+          estagiarioId,
+          formDataEstagiario.nome,
+          dataInicioStr
+        );
+
         const estagiarioCompleto: EstagiarioWithCompanyEntry = {
           ...novoEstagiario,
           id: estagiarioId,
@@ -1564,10 +1588,14 @@ export default function ClienteDetalhes() {
       if (id) {
         // Vincular no banco de dados
         await vinculacoesService.vincularEstagiario(id as string, estagiarioId);
-        
-        // Atualizar a lista local
+
         const estagiarioParaVincular = todosEstagiarios.find(e => e.id === estagiarioId);
         if (estagiarioParaVincular) {
+          await registrarContratoNoRelatorio(
+            estagiarioId,
+            estagiarioParaVincular.nome,
+            estagiarioParaVincular.estagioDataInicio
+          );
           setEstagiarios(prev => [
             ...prev,
             { ...estagiarioParaVincular, companyEntryDate: new Date() }
