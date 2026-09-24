@@ -1,11 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import PainelHeader from '../components/PainelHeader';
 import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
-import { estagiariosService, clientesService } from '../services/firebase';
+import { estagiariosService, clientesService, vinculacoesService } from '../services/firebase';
+import { formatBolsaDisplay, formatDatePtBr } from '../services/rescisaoCalcService';
 import { Estagiario, Cliente } from '../types/firebase';
+
+function formatDateDisplay(dataString: string | undefined): string {
+  if (!dataString?.trim()) return '-';
+  const formatted = formatDatePtBr(dataString.trim());
+  return formatted || '-';
+}
 
 export default function Painel() {
   const [filtroNome, setFiltroNome] = useState('');
@@ -14,15 +21,15 @@ export default function Painel() {
   const [filtroCurso, setFiltroCurso] = useState('');
   const [filtroEscolaridade, setFiltroEscolaridade] = useState('');
   const [filtroIdade, setFiltroIdade] = useState('');
-  const [filtroIngles, setFiltroIngles] = useState('');
-  const [filtroFrances, setFiltroFrances] = useState('');
-  const [filtroEspanhol, setFiltroEspanhol] = useState('');
-  const [filtroInformatica, setFiltroInformatica] = useState('');
+  const [filtroSexo, setFiltroSexo] = useState('');
   const [filtroAperfeicoamento, setFiltroAperfeicoamento] = useState('');
   const [filtroVinculados, setFiltroVinculados] = useState('');
 
   const [estagiarios, setEstagiarios] = useState<Estagiario[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [vinculacoesAtivas, setVinculacoesAtivas] = useState<
+    Array<{ clienteId: string; estagiarioId: string }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -49,7 +56,17 @@ export default function Painel() {
   useEffect(() => {
     loadEstagiarios();
     loadClientes();
+    void loadVinculacoesAtivas();
   }, []);
+
+  const loadVinculacoesAtivas = async () => {
+    try {
+      const data = await vinculacoesService.getVinculacoesAtivas();
+      setVinculacoesAtivas(data);
+    } catch (error) {
+      console.error('Erro ao carregar vinculações:', error);
+    }
+  };
 
   const loadEstagiarios = async () => {
     try {
@@ -71,6 +88,51 @@ export default function Painel() {
       console.error('Erro ao carregar clientes:', error);
     }
   };
+
+  const estagiarioEstaVinculado = useCallback(
+    (estagiarioId: string) => {
+      if (!estagiarioId) return false;
+      if (vinculacoesAtivas.some((item) => item.estagiarioId === estagiarioId)) {
+        return true;
+      }
+      return clientes.some((cliente) =>
+        cliente.estagiariosVinculados?.includes(estagiarioId)
+      );
+    },
+    [clientes, vinculacoesAtivas]
+  );
+
+  const getEmpresaVinculadaLabel = useCallback(
+    (estagiario: Estagiario): string => {
+      const estagiarioId = estagiario.id ?? '';
+      if (!estagiarioId) return '-';
+      const clienteIdsFromVinculacao = vinculacoesAtivas
+        .filter((item) => item.estagiarioId === estagiarioId)
+        .map((item) => item.clienteId);
+      const linkedClientes =
+        clienteIdsFromVinculacao.length > 0
+          ? clientes.filter(
+              (cliente) => cliente.id && clienteIdsFromVinculacao.includes(cliente.id)
+            )
+          : clientes.filter((cliente) =>
+              cliente.estagiariosVinculados?.includes(estagiarioId)
+            );
+      if (linkedClientes.length === 0) return '-';
+      return linkedClientes
+        .map((cliente) => {
+          const filialId = estagiario.empresaFilialId?.trim();
+          if (filialId && cliente.filiais?.length) {
+            const filial = cliente.filiais.find((item) => item.id === filialId);
+            if (filial) {
+              return filial.nomeFantasia?.trim() || filial.razaoSocial;
+            }
+          }
+          return cliente.nomeFantasia?.trim() || cliente.razaoSocial;
+        })
+        .join(', ');
+    },
+    [clientes, vinculacoesAtivas]
+  );
 
   const calcularIdade = (dataNascimento: string): number => {
     if (!dataNascimento) return 0;
@@ -206,28 +268,15 @@ export default function Painel() {
         filtrosAplicados.push(`Escolaridade: "${escolaridadeText}"`);
       }
       if (filtroIdade) filtrosAplicados.push(`Idade: "${filtroIdade} anos"`);
-      if (filtroIngles) {
-        const inglesText = filtroIngles === 'nenhum' ? 'Nenhum' :
-                          filtroIngles === 'basico' ? 'Básico' :
-                          filtroIngles === 'intermediario' ? 'Intermediário' :
-                          filtroIngles === 'avancado' ? 'Avançado' : 'Fluente';
-        filtrosAplicados.push(`Inglês: "${inglesText}"`);
+      if (filtroSexo) {
+        const sexoText =
+          filtroSexo === 'masculino'
+            ? 'Masculino'
+            : filtroSexo === 'feminino'
+              ? 'Feminino'
+              : 'Outro';
+        filtrosAplicados.push(`Sexo: "${sexoText}"`);
       }
-      if (filtroFrances) {
-        const francesText = filtroFrances === 'nenhum' ? 'Nenhum' :
-                           filtroFrances === 'basico' ? 'Básico' :
-                           filtroFrances === 'intermediario' ? 'Intermediário' :
-                           filtroFrances === 'avancado' ? 'Avançado' : 'Fluente';
-        filtrosAplicados.push(`Francês: "${francesText}"`);
-      }
-      if (filtroEspanhol) {
-        const espanholText = filtroEspanhol === 'nenhum' ? 'Nenhum' :
-                            filtroEspanhol === 'basico' ? 'Básico' :
-                            filtroEspanhol === 'intermediario' ? 'Intermediário' :
-                            filtroEspanhol === 'avancado' ? 'Avançado' : 'Fluente';
-        filtrosAplicados.push(`Espanhol: "${espanholText}"`);
-      }
-      if (filtroInformatica) filtrosAplicados.push(`Informática: "${filtroInformatica}"`);
       if (filtroAperfeicoamento) filtrosAplicados.push(`Aperfeiçoamento: "${filtroAperfeicoamento}"`);
       if (filtroVinculados) {
         const vinculadosText = filtroVinculados === 'vinculados' ? 'Vinculados a Empresas' : 'Não Vinculados';
@@ -302,47 +351,92 @@ export default function Painel() {
       
       yPosition += 10;
       
-      // Preparar dados da tabela
-      const tableData = estagiariosFiltrados.map((estagiario) => [
-        estagiario.nome,
-        estagiario.cpf || '-',
-        estagiario.dataNascimento ? new Date(estagiario.dataNascimento).toLocaleDateString('pt-BR') : '-',
-        estagiario.telefone1 || '-'
-      ]);
-      
-      // Configurações da tabela
-      const tableConfig = {
-        startY: yPosition,
-        head: [['Nome Completo', 'CPF', 'Data de Nascimento', 'Telefone']],
-        body: tableData,
+      const tableData = modoListaVinculadosEmpresa
+        ? estagiariosFiltrados.map((estagiario) => [
+            estagiario.nome,
+            estagiario.telefone1 || '-',
+            formatDateDisplay(estagiario.dataNascimento),
+            getEmpresaVinculadaLabel(estagiario),
+            formatBolsaDisplay(estagiario.estagioValorBolsa),
+            formatDateDisplay(estagiario.estagioDataInicio),
+            estagiario.status === 'ativo' ? 'Ativo' : 'Inativo',
+          ])
+        : estagiariosFiltrados.map((estagiario) => [
+            estagiario.nome,
+            estagiario.cpf || '-',
+            formatDateDisplay(estagiario.dataNascimento),
+            estagiario.telefone1 || '-',
+          ]);
+
+      const tableStyles = {
         styles: {
           fontSize: 10,
           cellPadding: 4,
           overflow: 'linebreak' as const,
           halign: 'left' as const,
-          valign: 'middle' as const
+          valign: 'middle' as const,
         },
         headStyles: {
-          fillColor: [primaryColor[0], primaryColor[1], primaryColor[2]] as [number, number, number],
+          fillColor: [primaryColor[0], primaryColor[1], primaryColor[2]] as [
+            number,
+            number,
+            number,
+          ],
           textColor: 255,
           fontStyle: 'bold' as const,
-          fontSize: 12
+          fontSize: 12,
         },
         alternateRowStyles: {
-          fillColor: [secondaryColor[0], secondaryColor[1], secondaryColor[2]] as [number, number, number],
-        },
-        columnStyles: {
-          0: { cellWidth: 60, halign: 'left' as const }, // Nome Completo
-          1: { cellWidth: 40, halign: 'center' as const }, // CPF
-          2: { cellWidth: 40, halign: 'center' as const }, // Data de Nascimento
-          3: { cellWidth: 40, halign: 'center' as const } // Telefone
+          fillColor: [secondaryColor[0], secondaryColor[1], secondaryColor[2]] as [
+            number,
+            number,
+            number,
+          ],
         },
         margin: { left: margin, right: margin },
-        showHead: 'everyPage' as const
+        showHead: 'everyPage' as const,
       };
-      
-      // Adicionar tabela
-      autoTable(doc, tableConfig);
+
+      if (modoListaVinculadosEmpresa) {
+        autoTable(doc, {
+          startY: yPosition,
+          head: [
+            [
+              'Nome',
+              'Telefone',
+              'Data de Nascimento',
+              'Empresa vinculada',
+              'Valor da bolsa',
+              'Data de início',
+              'Status',
+            ],
+          ],
+          body: tableData,
+          columnStyles: {
+            0: { cellWidth: 42, halign: 'left' as const },
+            1: { cellWidth: 28, halign: 'left' as const },
+            2: { cellWidth: 28, halign: 'center' as const },
+            3: { cellWidth: 40, halign: 'left' as const },
+            4: { cellWidth: 28, halign: 'center' as const },
+            5: { cellWidth: 28, halign: 'center' as const },
+            6: { cellWidth: 22, halign: 'center' as const },
+          },
+          ...tableStyles,
+        });
+      } else {
+        autoTable(doc, {
+          startY: yPosition,
+          head: [['Nome Completo', 'CPF', 'Data de Nascimento', 'Telefone']],
+          body: tableData,
+          columnStyles: {
+            0: { cellWidth: 60, halign: 'left' as const },
+            1: { cellWidth: 40, halign: 'center' as const },
+            2: { cellWidth: 40, halign: 'center' as const },
+            3: { cellWidth: 40, halign: 'center' as const },
+          },
+          ...tableStyles,
+        });
+      }
       
       // Rodapé
       const finalY = (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || yPosition;
@@ -450,15 +544,8 @@ export default function Painel() {
       const idade = calcularIdade(estagiario.dataNascimento || '');
       const matchIdade = filtroIdade === '' || idade.toString() === filtroIdade;
       
-      const matchIngles = filtroIngles === '' || estagiario.ingles === filtroIngles;
-      const matchFrances = filtroFrances === '' || estagiario.frances === filtroFrances;
-      const matchEspanhol = filtroEspanhol === '' || estagiario.espanhol === filtroEspanhol;
-      
-      const matchInformatica = filtroInformatica === '' || 
-        (estagiario.informatica && estagiario.informatica.some(skill => 
-          skill.toLowerCase().includes(filtroInformatica.toLowerCase())
-        ));
-      
+      const matchSexo = filtroSexo === '' || estagiario.sexo === filtroSexo;
+
       const matchAperfeicoamento = filtroAperfeicoamento === '' || 
         (estagiario.aperfeicoamento && estagiario.aperfeicoamento.some(skill => 
           skill.toLowerCase().includes(filtroAperfeicoamento.toLowerCase())
@@ -466,30 +553,64 @@ export default function Painel() {
 
       // Filtro de vinculação com empresas
       const matchVinculados = filtroVinculados === '' || (() => {
+        const estagiarioId = estagiario.id || '';
+        const vinculado = estagiarioEstaVinculado(estagiarioId);
         if (filtroVinculados === 'vinculados') {
-          // Verificar se o estagiário está vinculado a alguma empresa
-          return clientes.some(cliente => 
-            cliente.estagiariosVinculados && 
-            cliente.estagiariosVinculados.includes(estagiario.id || '')
-          );
-        } else if (filtroVinculados === 'nao-vinculados') {
-          // Verificar se o estagiário NÃO está vinculado a nenhuma empresa
-          return !clientes.some(cliente => 
-            cliente.estagiariosVinculados && 
-            cliente.estagiariosVinculados.includes(estagiario.id || '')
-          );
+          return vinculado;
+        }
+        if (filtroVinculados === 'nao-vinculados') {
+          return !vinculado;
         }
         return true;
       })();
       
-      return matchNome && matchCidade && matchBairro && matchCurso && matchEscolaridade && matchIdade && 
-             matchIngles && matchFrances && matchEspanhol && matchInformatica && matchAperfeicoamento && matchVinculados;
+      return matchNome && matchCidade && matchBairro && matchCurso && matchEscolaridade && matchIdade &&
+             matchSexo && matchAperfeicoamento && matchVinculados;
     });
   };
 
   const estagiariosFiltrados = filtrarEstagiarios();
+  const modoListaVinculadosEmpresa = filtroVinculados === 'vinculados';
 
-  const idadesUnicas = Array.from(new Set(estagiarios.map(e => calcularIdade(e.dataNascimento || '')).filter(idade => idade > 0))).sort((a, b) => a - b);
+  const renderStatusBadge = (estagiario: Estagiario) => (
+    <span
+      onClick={() => estagiario.status === 'inativo' && handleShowMotivo(estagiario)}
+      className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+        estagiario.status === 'ativo'
+          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+          : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-800 cursor-pointer'
+      }`}
+    >
+      {estagiario.status === 'ativo' ? 'Ativo' : 'Inativo'}
+    </span>
+  );
+
+  const renderTelefoneCell = (estagiario: Estagiario) => (
+    <button
+      type="button"
+      onClick={() => {
+        const numero = estagiario.telefone1?.replace(/\D/g, '');
+        if (numero) {
+          window.open(`https://wa.me/55${numero}`, '_blank');
+        }
+      }}
+      className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer"
+    >
+      {estagiario.telefone1}
+    </button>
+  );
+
+  const idadesUnicas = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          estagiarios
+            .map((e) => calcularIdade(e.dataNascimento || ''))
+            .filter((idade) => idade > 0)
+        )
+      ).sort((a, b) => a - b),
+    [estagiarios]
+  );
   const cidadesUnicas = Array.from(new Set(estagiarios.map(e => e.cidade).filter(cidade => cidade))).sort();
   const bairrosUnicos = Array.from(new Set(estagiarios.map(e => e.bairro).filter(bairro => bairro))).sort();
   // const escolaridadesUnicas = Array.from(new Set(estagiarios.map(e => e.grauInstrucao).filter(escolaridade => escolaridade))).sort();
@@ -601,73 +722,21 @@ export default function Painel() {
             </div>
           </div>
 
-          {/* Segunda linha de filtros */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mt-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Inglês
+                Sexo
               </label>
               <select
-                value={filtroIngles}
-                onChange={(e) => setFiltroIngles(e.target.value)}
+                value={filtroSexo}
+                onChange={(e) => setFiltroSexo(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
               >
                 <option value="">Todos</option>
-                <option value="nenhum">Nenhum</option>
-                <option value="basico">Básico</option>
-                <option value="intermediario">Intermediário</option>
-                <option value="avancado">Avançado</option>
-                <option value="fluente">Fluente</option>
+                <option value="masculino">Masculino</option>
+                <option value="feminino">Feminino</option>
+                <option value="outro">Outro</option>
               </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Francês
-              </label>
-              <select
-                value={filtroFrances}
-                onChange={(e) => setFiltroFrances(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
-              >
-                <option value="">Todos</option>
-                <option value="nenhum">Nenhum</option>
-                <option value="basico">Básico</option>
-                <option value="intermediario">Intermediário</option>
-                <option value="avancado">Avançado</option>
-                <option value="fluente">Fluente</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Espanhol
-              </label>
-              <select
-                value={filtroEspanhol}
-                onChange={(e) => setFiltroEspanhol(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
-              >
-                <option value="">Todos</option>
-                <option value="nenhum">Nenhum</option>
-                <option value="basico">Básico</option>
-                <option value="intermediario">Intermediário</option>
-                <option value="avancado">Avançado</option>
-                <option value="fluente">Fluente</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Informática
-              </label>
-              <input
-                type="text"
-                placeholder="Ex: Excel, Word, PowerPoint..."
-                value={filtroInformatica}
-                onChange={(e) => setFiltroInformatica(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
-              />
             </div>
           </div>
 
@@ -728,111 +797,156 @@ export default function Painel() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full table-fixed min-w-[720px]">
               <thead className="bg-gray-50 dark:bg-slate-700">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Nome
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Telefone
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Idade
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Cidade
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Bairro
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Curso
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Grau de Instrução
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Ações
-                  </th>
-                </tr>
+                {modoListaVinculadosEmpresa ? (
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Nome
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Telefone
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Data de Nascimento
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Empresa vinculada
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Valor da bolsa
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Data de início
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Status
+                    </th>
+                  </tr>
+                ) : (
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Nome
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Telefone
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Idade
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Cidade
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Bairro
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Curso
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Grau de Instrução
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Ações
+                    </th>
+                  </tr>
+                )}
               </thead>
               <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {estagiariosFiltrados.map((estagiario) => (
-                  <tr key={estagiario.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <button
-                        onClick={() => {
-                          const numero = estagiario.telefone1?.replace(/\D/g, '');
-                          if (numero) {
-                            window.open(`https://wa.me/55${numero}`, '_blank');
-                          }
-                        }}
-                        className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer"
-                      >
-                        {estagiario.telefone1}
-                      </button>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900 dark:text-gray-100">
-                        {estagiario.dataNascimento ? `${calcularIdade(estagiario.dataNascimento)} anos` : '-'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.cidade}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.bairro || '-'}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.curso || '-'}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.grauInstrucao}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span 
-                        onClick={() => estagiario.status === 'inativo' && handleShowMotivo(estagiario)}
-                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full cursor-pointer ${
-                          estagiario.status === 'ativo' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800 hover:bg-red-200'
-                        }`}
-                      >
-                        {estagiario.status === 'ativo' ? 'Ativo' : 'Inativo'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button 
-                        onClick={() => handleEdit(estagiario)}
-                        className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 mr-3"
-                      >
-                        Editar
-                      </button>
-                      <button 
-                        onClick={() => handleToggleStatus(estagiario.id!, estagiario.status)}
-                        disabled={loadingStatus === estagiario.id}
-                        className={`${
-                          estagiario.status === 'ativo' 
-                            ? 'text-orange-600 hover:text-orange-900 dark:text-orange-400 dark:hover:text-orange-300' 
-                            : 'text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300'
-                        } ${loadingStatus === estagiario.id ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      >
-                        {loadingStatus === estagiario.id ? (
-                          <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-                        ) : (
-                          estagiario.status === 'ativo' ? 'Inativar' : 'Ativar'
-                        )}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {estagiariosFiltrados.map((estagiario) =>
+                  modoListaVinculadosEmpresa ? (
+                    <tr key={estagiario.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
+                      <td className="px-6 py-4">
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          {estagiario.nome}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {renderTelefoneCell(estagiario)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">
+                          {formatDateDisplay(estagiario.dataNascimento)}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">
+                          {getEmpresaVinculadaLabel(estagiario)}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">
+                          {formatBolsaDisplay(estagiario.estagioValorBolsa)}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">
+                          {formatDateDisplay(estagiario.estagioDataInicio)}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {renderStatusBadge(estagiario)}
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={estagiario.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {renderTelefoneCell(estagiario)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">
+                          {estagiario.dataNascimento ? `${calcularIdade(estagiario.dataNascimento)} anos` : '-'}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.cidade}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.bairro || '-'}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.curso || '-'}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.grauInstrucao}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {renderStatusBadge(estagiario)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(estagiario)}
+                          className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 mr-3"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStatus(estagiario.id!, estagiario.status)}
+                          disabled={loadingStatus === estagiario.id}
+                          className={`${
+                            estagiario.status === 'ativo'
+                              ? 'text-orange-600 hover:text-orange-900 dark:text-orange-400 dark:hover:text-orange-300'
+                              : 'text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300'
+                          } ${loadingStatus === estagiario.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          {loadingStatus === estagiario.id ? (
+                            <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+                          ) : (
+                            estagiario.status === 'ativo' ? 'Inativar' : 'Ativar'
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                )}
               </tbody>
             </table>
             

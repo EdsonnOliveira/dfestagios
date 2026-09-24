@@ -582,7 +582,24 @@ export const vinculacoesService = {
       console.error('Erro ao buscar clientes do estagiário:', error);
       throw error;
     }
-  }
+  },
+
+  async getVinculacoesAtivas(): Promise<
+    Array<{ clienteId: string; estagiarioId: string }>
+  > {
+    const q = query(
+      collection(db, 'vinculacoes'),
+      where('status', '==', 'ativo')
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((docSnap) => {
+      const data = docSnap.data();
+      return {
+        clienteId: String(data.clienteId ?? ''),
+        estagiarioId: String(data.estagiarioId ?? ''),
+      };
+    });
+  },
 };
 
 export const entrevistasService = {

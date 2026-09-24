@@ -104,6 +104,7 @@ export interface Cliente {
   status: 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo';
   motivoStatus?: string;
   adesaoRestante?: string;
+  exigeNotaFiscal?: boolean;
   formaCaptacao?: FormaCaptacao | null;
   formaCaptacaoDetalhe?: string;
   estagiariosVinculados?: string[];

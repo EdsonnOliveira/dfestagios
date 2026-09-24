@@ -18,6 +18,7 @@ export default function Mensalidades() {
   const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
   const [filtroFormaPagamento, setFiltroFormaPagamento] = useState('');
+  const [filtroExigeNotaFiscal, setFiltroExigeNotaFiscal] = useState('');
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [mensalidades, setMensalidades] = useState<Mensalidade[]>([]);
@@ -138,6 +139,7 @@ export default function Mensalidades() {
         servico: cliente?.servico || '',
         status: cliente?.status || 'ativo',
         motivoStatus: cliente?.motivoStatus || '',
+        exigeNotaFiscal: cliente?.exigeNotaFiscal === true,
         estagiariosVinculados: cliente?.estagiariosVinculados || [],
         createdAt: cliente?.createdAt || new Date(),
         updatedAt: cliente?.updatedAt || new Date()
@@ -202,6 +204,16 @@ export default function Mensalidades() {
       });
     }
 
+    if (filtroExigeNotaFiscal === 'sim') {
+      mensalidadesFiltradas = mensalidadesFiltradas.filter(
+        (mensalidade) => mensalidade.exigeNotaFiscal === true
+      );
+    } else if (filtroExigeNotaFiscal === 'nao') {
+      mensalidadesFiltradas = mensalidadesFiltradas.filter(
+        (mensalidade) => mensalidade.exigeNotaFiscal !== true
+      );
+    }
+
     // Adicionar clientes que não têm nenhuma mensalidade
     const clientesIdsComMensalidade = new Set(mensalidades.map(m => m.clienteId));
     const clientesSemMensalidade = clientes
@@ -237,6 +249,7 @@ export default function Mensalidades() {
         servico: cliente.servico || '',
         status: cliente.status || 'ativo',
         motivoStatus: cliente.motivoStatus || '',
+        exigeNotaFiscal: cliente.exigeNotaFiscal === true,
         estagiariosVinculados: cliente.estagiariosVinculados || [],
         createdAt: cliente.createdAt || new Date(),
         updatedAt: cliente.updatedAt || new Date()
@@ -272,6 +285,16 @@ export default function Mensalidades() {
       clientesSemMensalidadeFiltrados = [];
     }
 
+    if (filtroExigeNotaFiscal === 'sim') {
+      clientesSemMensalidadeFiltrados = clientesSemMensalidadeFiltrados.filter(
+        (cliente) => cliente.exigeNotaFiscal === true
+      );
+    } else if (filtroExigeNotaFiscal === 'nao') {
+      clientesSemMensalidadeFiltrados = clientesSemMensalidadeFiltrados.filter(
+        (cliente) => cliente.exigeNotaFiscal !== true
+      );
+    }
+
     const todosClientes = [...mensalidadesFiltradas, ...clientesSemMensalidadeFiltrados];
 
     setClientesComStatus(todosClientes);
@@ -283,6 +306,7 @@ export default function Mensalidades() {
     filtroCliente,
     filtroStatus,
     filtroFormaPagamento,
+    filtroExigeNotaFiscal,
   ]);
 
   useEffect(() => {
@@ -300,7 +324,11 @@ export default function Mensalidades() {
       if (menuAberto) {
         const target = event.target as Element;
         // Verificar se o clique foi fora do menu
-        if (!target.closest('.menu-dropdown') && !target.closest('.menu-button')) {
+        if (
+          !target.closest('.menu-dropdown') &&
+          !target.closest('.menu-button') &&
+          !target.closest('.mensalidade-row-trigger')
+        ) {
           fecharMenu();
         }
       }
@@ -462,6 +490,33 @@ export default function Mensalidades() {
       servico: '',
       status: 'ativo'
     });
+  };
+
+  const toggleClienteExigeNotaFiscal = async (cliente: {
+    clienteId?: string;
+    exigeNotaFiscal?: boolean;
+  }) => {
+    if (!cliente.clienteId) return;
+    const nextValue = !cliente.exigeNotaFiscal;
+    try {
+      setLoadingAction(true);
+      await clientesService.update(cliente.clienteId, {
+        exigeNotaFiscal: nextValue,
+      });
+      setClientes((prev) =>
+        prev.map((item) =>
+          item.id === cliente.clienteId
+            ? { ...item, exigeNotaFiscal: nextValue }
+            : item
+        )
+      );
+      fecharMenu();
+    } catch (error) {
+      console.error('Erro ao atualizar exigência de NF:', error);
+      alert('Erro ao atualizar exigência de nota fiscal');
+    } finally {
+      setLoadingAction(false);
+    }
   };
 
   const handleSalvarCliente = async () => {
@@ -1206,7 +1261,8 @@ export default function Mensalidades() {
       filtroDataFim ||
       filtroCliente ||
       filtroStatus ||
-      filtroFormaPagamento
+      filtroFormaPagamento ||
+      filtroExigeNotaFiscal
   );
 
   const resetFilters = () => {
@@ -1215,6 +1271,7 @@ export default function Mensalidades() {
     setFiltroCliente('');
     setFiltroStatus('');
     setFiltroFormaPagamento('');
+    setFiltroExigeNotaFiscal('');
   };
 
   const valoresCalculados = (() => {
@@ -1356,7 +1413,7 @@ export default function Mensalidades() {
               )}
             </div>
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Data Início
@@ -1424,6 +1481,21 @@ export default function Mensalidades() {
                   <option value="pix">PIX</option>
                   <option value="boleto">Boleto</option>
                   <option value="sem_forma">Sem forma</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Exige NF
+                </label>
+                <select
+                  value={filtroExigeNotaFiscal}
+                  onChange={(e) => setFiltroExigeNotaFiscal(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">Todos</option>
+                  <option value="sim">Exige NF</option>
+                  <option value="nao">Não exige NF</option>
                 </select>
               </div>
             </div>
@@ -1814,9 +1886,15 @@ export default function Mensalidades() {
                     </tr>
                   </thead>
                   <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {clientesComStatus.map((cliente) => (
-                      <tr key={cliente.mensalidadeUnicaId || cliente.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
-                        <td className="px-4 py-4">
+                    {clientesComStatus.map((cliente) => {
+                      const menuRowId = cliente.mensalidadeUnicaId || cliente.id;
+                      return (
+                      <tr
+                        key={menuRowId}
+                        onClick={(e) => toggleMenu(menuRowId, e)}
+                        className="mensalidade-row-trigger hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
+                      >
+                        <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                           {cliente.statusMensalidade !== 'sem_mensalidade' && cliente.mensalidadeId ? (
                             <input
                               type="checkbox"
@@ -1839,6 +1917,7 @@ export default function Mensalidades() {
                                   href={`https://wa.me/55${cliente.telefone.replace(/\D/g, '')}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
                                   className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 hover:underline cursor-pointer"
                                 >
                                   📱 {cliente.telefone}
@@ -1850,8 +1929,15 @@ export default function Mensalidades() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <div className="text-sm text-gray-900 dark:text-gray-100">
-                            {cliente.observacoes || '-'}
+                          <div className="flex items-center justify-between gap-2 min-w-[8rem]">
+                            <div className="text-sm text-gray-900 dark:text-gray-100">
+                              {cliente.observacoes || '-'}
+                            </div>
+                            {cliente.exigeNotaFiscal ? (
+                              <span className="inline-flex shrink-0 px-2 py-1 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
+                                NF
+                              </span>
+                            ) : null}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1947,7 +2033,11 @@ export default function Mensalidades() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="relative">
                             <button
-                              onClick={(e) => toggleMenu(cliente.mensalidadeUnicaId || cliente.id, e)}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleMenu(menuRowId, e);
+                              }}
                               className="menu-button p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700"
                             >
                               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -1959,6 +2049,8 @@ export default function Mensalidades() {
                             {menuAberto === (cliente.mensalidadeUnicaId || cliente.id) && (
                               <div 
                                 className="menu-dropdown fixed w-48 bg-white dark:bg-slate-800 rounded-md shadow-lg z-50 border border-gray-200 dark:border-gray-700"
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
                                 style={{
                                   left: `${menuPosition.x}px`,
                                   top: `${menuPosition.y}px`,
@@ -1971,6 +2063,16 @@ export default function Mensalidades() {
                                     onClick={() => abrirModalCliente(cliente)}
                                   >
                                     Editar Cliente
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="block w-full text-left px-4 py-2 text-sm text-green-700 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    onClick={() => void toggleClienteExigeNotaFiscal(cliente)}
+                                    disabled={loadingAction || !cliente.clienteId}
+                                  >
+                                    {cliente.exigeNotaFiscal
+                                      ? 'Remover exigência de NF'
+                                      : 'Marcar: exige NF'}
                                   </button>
                                   
                                   {/* Mostrar opções de mensalidade apenas se o cliente tiver mensalidade */}
@@ -2061,7 +2163,8 @@ export default function Mensalidades() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
                 

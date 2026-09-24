@@ -40,6 +40,21 @@ import {
 
 const WEEKDAY_SHORT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'] as const;
 
+const CALENDAR_WEEKDAY_LABELS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'] as const;
+
+function buildMonthCalendarCells(year: number, month: number): (Date | null)[] {
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < firstWeekday; i += 1) {
+    cells.push(null);
+  }
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push(new Date(year, month, day));
+  }
+  return cells;
+}
+
 type ContratoFiltro = 'todos' | 'pendente' | 'assinado';
 
 interface ContratoLinkItem {
@@ -325,9 +340,17 @@ export default function EntrevistasPage() {
   );
   const [editCandidatoNome, setEditCandidatoNome] = useState('');
   const [editCandidatoTelefone, setEditCandidatoTelefone] = useState('');
+  const [selectedCandidatosIds, setSelectedCandidatosIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [allCandidatos, setAllCandidatos] = useState<EntrevistaCandidato[]>([]);
   const [showContratosModal, setShowContratosModal] = useState(false);
   const [showHojeModal, setShowHojeModal] = useState(false);
+  const [hojeModalDateIso, setHojeModalDateIso] = useState('');
+  const [hojeModalViewMonth, setHojeModalViewMonth] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
   const [showTodasModal, setShowTodasModal] = useState(false);
   const [todasSearch, setTodasSearch] = useState('');
   const [contratoFiltro, setContratoFiltro] = useState<ContratoFiltro>('todos');
@@ -464,31 +487,75 @@ export default function EntrevistasPage() {
     return sorted.filter((item) => item.empresaNome.toLowerCase().includes(term));
   }, [entrevistas, todasSearch]);
 
+  const filterEntrevistasByDataEntrevista = useCallback(
+    (iso: string, searchTerm = '') => {
+      const term = searchTerm.trim().toLowerCase();
+      return entrevistas
+        .filter(
+          (item) =>
+            item.dataEntrevista === iso &&
+            item.tipoEntrevista !== 'captacao' &&
+            item.status !== 'cancelada' &&
+            (!term || item.empresaNome.toLowerCase().includes(term))
+        )
+        .sort((a, b) =>
+          a.horarioEntrevista.localeCompare(b.horarioEntrevista, 'pt-BR', {
+            numeric: true,
+          })
+        );
+    },
+    [entrevistas]
+  );
+
   const entrevistasHoje = useMemo(() => {
     const todayIso = toIsoDate(new Date());
-    return entrevistas
-      .filter(
-        (item) =>
-          item.dataEntrevista === todayIso &&
-          item.tipoEntrevista !== 'captacao' &&
-          item.status !== 'cancelada'
-      )
-      .sort((a, b) =>
-        a.horarioEntrevista.localeCompare(b.horarioEntrevista, 'pt-BR', {
-          numeric: true,
-        })
-      );
+    return filterEntrevistasByDataEntrevista(todayIso);
+  }, [filterEntrevistasByDataEntrevista]);
+
+  const todayIso = toIsoDate(new Date());
+
+  const entrevistasNoDiaModal = useMemo(
+    () =>
+      hojeModalDateIso
+        ? filterEntrevistasByDataEntrevista(hojeModalDateIso)
+        : [],
+    [filterEntrevistasByDataEntrevista, hojeModalDateIso]
+  );
+
+  const hojeModalDateLabel = useMemo(() => {
+    if (!hojeModalDateIso) return '';
+    return new Date(hojeModalDateIso + 'T12:00:00').toLocaleDateString('pt-BR', {
+      weekday: 'long',
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    });
+  }, [hojeModalDateIso]);
+
+  const dataEntrevistaComRegistro = useMemo(() => {
+    const set = new Set<string>();
+    entrevistas.forEach((item) => {
+      if (
+        item.dataEntrevista &&
+        item.tipoEntrevista !== 'captacao' &&
+        item.status !== 'cancelada'
+      ) {
+        set.add(item.dataEntrevista);
+      }
+    });
+    return set;
   }, [entrevistas]);
 
-  const hojeLabel = useMemo(
+  const hojeModalCalendarCells = useMemo(
     () =>
-      new Date().toLocaleDateString('pt-BR', {
-        weekday: 'long',
-        day: '2-digit',
-        month: 'long',
-      }),
-    []
+      buildMonthCalendarCells(hojeModalViewMonth.year, hojeModalViewMonth.month),
+    [hojeModalViewMonth.month, hojeModalViewMonth.year]
   );
+
+  const hojeModalMonthLabel = useMemo(() => {
+    const date = new Date(hojeModalViewMonth.year, hojeModalViewMonth.month, 1);
+    return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  }, [hojeModalViewMonth.month, hojeModalViewMonth.year]);
 
   const filteredContratoLinks = useMemo(() => {
     const term = contratoSearch.trim().toLowerCase();
@@ -835,6 +902,7 @@ export default function EntrevistasPage() {
   const openDetailModal = async (entrevista: Entrevista) => {
     setSelectedEntrevista(entrevista);
     setCandidatos([]);
+    setSelectedCandidatosIds(new Set());
     if (entrevista.id) {
       await refreshCandidatos(entrevista.id);
     }
@@ -843,9 +911,37 @@ export default function EntrevistasPage() {
   const closeDetailModal = () => {
     setSelectedEntrevista(null);
     setCandidatos([]);
+    setSelectedCandidatosIds(new Set());
     setNovoCandidatoNome('');
     setNovoCandidatoTelefone('');
   };
+
+  const candidatosComId = useMemo(
+    () =>
+      candidatos.filter(
+        (item): item is EntrevistaCandidato & { id: string } => Boolean(item.id)
+      ),
+    [candidatos]
+  );
+
+  const toggleCandidatoSelection = useCallback((candidatoId: string) => {
+    setSelectedCandidatosIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(candidatoId)) {
+        next.delete(candidatoId);
+      } else {
+        next.add(candidatoId);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllCandidatos = useCallback(() => {
+    const ids = candidatosComId.map((item) => item.id);
+    setSelectedCandidatosIds((prev) =>
+      prev.size === ids.length ? new Set() : new Set(ids)
+    );
+  }, [candidatosComId]);
 
   const handleCopyMessage = async () => {
     if (!whatsappMessage || typeof window === 'undefined') return;
@@ -1084,8 +1180,39 @@ export default function EntrevistasPage() {
     await openDetailModal(entrevista);
   };
 
-  const handleOpenHojeEntrevista = async (entrevista: Entrevista) => {
+  const openHojeModal = useCallback(() => {
+    const now = new Date();
+    setHojeModalDateIso(toIsoDate(now));
+    setHojeModalViewMonth({ year: now.getFullYear(), month: now.getMonth() });
+    setShowHojeModal(true);
+  }, []);
+
+  const closeHojeModal = useCallback(() => {
     setShowHojeModal(false);
+    setHojeModalDateIso('');
+  }, []);
+
+  const goToHojeModalPreviousMonth = useCallback(() => {
+    setHojeModalViewMonth((prev) => {
+      const date = new Date(prev.year, prev.month - 1, 1);
+      return { year: date.getFullYear(), month: date.getMonth() };
+    });
+  }, []);
+
+  const goToHojeModalNextMonth = useCallback(() => {
+    setHojeModalViewMonth((prev) => {
+      const date = new Date(prev.year, prev.month + 1, 1);
+      return { year: date.getFullYear(), month: date.getMonth() };
+    });
+  }, []);
+
+  const selectHojeModalDay = useCallback((day: Date) => {
+    setHojeModalDateIso(toIsoDate(day));
+  }, []);
+
+  const handleOpenHojeEntrevista = async (entrevista: Entrevista) => {
+    closeHojeModal();
+    setWeekStart(getWeekStartMonday(new Date(entrevista.dataEntrevista + 'T12:00:00')));
     await openDetailModal(entrevista);
   };
 
@@ -1148,6 +1275,12 @@ export default function EntrevistasPage() {
       await entrevistaCandidatosService.delete(candidato.id);
       setCandidatos((prev) => prev.filter((item) => item.id !== candidato.id));
       setAllCandidatos((prev) => prev.filter((item) => item.id !== candidato.id));
+      setSelectedCandidatosIds((prev) => {
+        if (!candidato.id || !prev.has(candidato.id)) return prev;
+        const next = new Set(prev);
+        next.delete(candidato.id);
+        return next;
+      });
       if (editingCandidato?.id === candidato.id) {
         setEditingCandidato(null);
         setEditCandidatoNome('');
@@ -1157,6 +1290,33 @@ export default function EntrevistasPage() {
     } catch (error) {
       console.error(error);
       toast.error('Erro ao excluir candidato.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  const handleDeleteSelectedCandidatos = async () => {
+    const ids = Array.from(selectedCandidatosIds);
+    if (ids.length === 0 || !selectedEntrevista?.id) return;
+    if (!confirm(`Excluir ${ids.length} candidato(s)?`)) return;
+    try {
+      setLoadingAction(true);
+      await Promise.all(ids.map((id) => entrevistaCandidatosService.delete(id)));
+      const idSet = new Set(ids);
+      setCandidatos((prev) => prev.filter((item) => !item.id || !idSet.has(item.id)));
+      setAllCandidatos((prev) => prev.filter((item) => !item.id || !idSet.has(item.id)));
+      if (editingCandidato?.id && idSet.has(editingCandidato.id)) {
+        setEditingCandidato(null);
+        setEditCandidatoNome('');
+        setEditCandidatoTelefone('');
+      }
+      setSelectedCandidatosIds(new Set());
+      toast.success(
+        ids.length === 1 ? 'Candidato excluído.' : 'Candidatos excluídos.'
+      );
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao excluir candidatos.');
     } finally {
       setLoadingAction(false);
     }
@@ -1340,7 +1500,7 @@ export default function EntrevistasPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowHojeModal(true)}
+                  onClick={openHojeModal}
                   className="px-3 py-2 rounded-lg border border-[#004085] text-[#004085] dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 inline-flex items-center gap-2"
                 >
                   Entrevistas de hoje
@@ -2114,6 +2274,44 @@ export default function EntrevistasPage() {
                   </p>
                 ) : (
                   <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-3 px-1 pb-1">
+                      <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={
+                            candidatosComId.length > 0 &&
+                            selectedCandidatosIds.size === candidatosComId.length
+                          }
+                          onChange={toggleSelectAllCandidatos}
+                          disabled={loadingAction}
+                          className="h-4 w-4 accent-[#004085] text-[#004085] focus:ring-2 focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded cursor-pointer disabled:opacity-50"
+                        />
+                        Selecionar todos
+                      </label>
+                      {selectedCandidatosIds.size > 0 && (
+                        <>
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
+                            {selectedCandidatosIds.size} selecionado(s)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteSelectedCandidatos()}
+                            disabled={loadingAction}
+                            className="px-3 py-1.5 rounded-lg border border-red-300 text-red-600 text-sm disabled:opacity-50"
+                          >
+                            Excluir selecionados
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCandidatosIds(new Set())}
+                            disabled={loadingAction}
+                            className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50"
+                          >
+                            Limpar seleção
+                          </button>
+                        </>
+                      )}
+                    </div>
                     {candidatos.map((candidato) => (
                       <div
                         key={candidato.id}
@@ -2153,7 +2351,21 @@ export default function EntrevistasPage() {
                           </div>
                         ) : (
                           <>
-                            <div>
+                            <div className="flex items-start gap-3 min-w-0 flex-1">
+                              {candidato.id ? (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedCandidatosIds.has(candidato.id)}
+                                  onChange={() => {
+                                    if (candidato.id) {
+                                      toggleCandidatoSelection(candidato.id);
+                                    }
+                                  }}
+                                  disabled={loadingAction}
+                                  className="mt-1 h-4 w-4 shrink-0 accent-[#004085] text-[#004085] focus:ring-2 focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded cursor-pointer disabled:opacity-50"
+                                />
+                              ) : null}
+                              <div className="min-w-0">
                               <p className="font-medium text-gray-900 dark:text-gray-100">
                                 {candidato.nome}
                               </p>
@@ -2175,6 +2387,7 @@ export default function EntrevistasPage() {
                               <p className="text-xs mt-1 text-[#004085] dark:text-blue-400">
                                 {ENTREVISTA_CANDIDATO_STATUS_LABELS[candidato.status]}
                               </p>
+                              </div>
                             </div>
                             <div className="flex flex-wrap gap-2">
                               <button
@@ -2338,21 +2551,95 @@ export default function EntrevistasPage() {
           </div>
         </AnimatedModal>
 
-        <AnimatedModal open={showHojeModal} onClose={() => setShowHojeModal(false)}>
+        <AnimatedModal open={showHojeModal} onClose={closeHojeModal}>
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
-            <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400 mb-1">
-              Entrevistas de hoje
-            </h2>
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4 capitalize">
-              {hojeLabel}
-            </p>
-            {entrevistasHoje.length === 0 ? (
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+              <div className="min-w-0">
+                <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400 mb-1">
+                  {hojeModalDateIso === todayIso
+                    ? 'Entrevistas de hoje'
+                    : 'Entrevistas do dia'}
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-300 capitalize">
+                  {hojeModalDateLabel}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Data em que a entrevista ocorreu na empresa
+                </p>
+              </div>
+              <div className="shrink-0 w-full sm:w-[17.5rem] rounded-lg border border-gray-200 dark:border-gray-600 p-3 bg-gray-50 dark:bg-slate-900/40">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={goToHojeModalPreviousMonth}
+                    className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm hover:bg-white dark:hover:bg-slate-700"
+                    aria-label="Mês anterior"
+                  >
+                    ‹
+                  </button>
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100 capitalize">
+                    {hojeModalMonthLabel}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={goToHojeModalNextMonth}
+                    className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm hover:bg-white dark:hover:bg-slate-700"
+                    aria-label="Próximo mês"
+                  >
+                    ›
+                  </button>
+                </div>
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {CALENDAR_WEEKDAY_LABELS.map((label, index) => (
+                    <span
+                      key={`${label}-${index}`}
+                      className="text-center text-[10px] font-medium text-gray-500 dark:text-gray-400"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {hojeModalCalendarCells.map((day, index) => {
+                    if (!day) {
+                      return <span key={`empty-${index}`} className="h-8" />;
+                    }
+                    const dayIso = toIsoDate(day);
+                    const isSelected = dayIso === hojeModalDateIso;
+                    const isToday = dayIso === todayIso;
+                    const hasEntrevistas = dataEntrevistaComRegistro.has(dayIso);
+                    return (
+                      <button
+                        key={dayIso}
+                        type="button"
+                        onClick={() => selectHojeModalDay(day)}
+                        className={`relative h-8 rounded text-xs font-medium transition-colors ${
+                          isSelected
+                            ? 'bg-[#004085] text-white'
+                            : isToday
+                              ? 'border border-[#004085] text-[#004085] dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                              : 'text-gray-700 dark:text-gray-200 hover:bg-white dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {day.getDate()}
+                        {hasEntrevistas && !isSelected && (
+                          <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full bg-[#004085] dark:bg-blue-400" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            {entrevistasNoDiaModal.length === 0 ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Nenhuma entrevista agendada para hoje.
+                {hojeModalDateIso === todayIso
+                  ? 'Nenhuma entrevista agendada para hoje.'
+                  : 'Nenhuma entrevista nesta data.'}
               </p>
             ) : (
               <div className="space-y-2">
-                {entrevistasHoje.map((entrevista) => {
+                {entrevistasNoDiaModal.map((entrevista) => {
                   const candidatosCount =
                     candidatosByEntrevistaId.get(entrevista.id ?? '')?.length ?? 0;
                   const calendarioIso = getDataCalendario(entrevista);
