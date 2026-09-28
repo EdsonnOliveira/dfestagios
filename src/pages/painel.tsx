@@ -14,6 +14,15 @@ function formatDateDisplay(dataString: string | undefined): string {
   return formatted || '-';
 }
 
+function formatCpfDisplay(value: string | undefined): string {
+  if (!value?.trim()) return '-';
+  const n = value.replace(/\D/g, '').slice(0, 11);
+  if (n.length <= 3) return n;
+  if (n.length <= 6) return `${n.slice(0, 3)}.${n.slice(3)}`;
+  if (n.length <= 9) return `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6)}`;
+  return `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6, 9)}-${n.slice(9)}`;
+}
+
 export default function Painel() {
   const [filtroNome, setFiltroNome] = useState('');
   const [filtroCidade, setFiltroCidade] = useState('');
@@ -354,6 +363,7 @@ export default function Painel() {
       const tableData = modoListaVinculadosEmpresa
         ? estagiariosFiltrados.map((estagiario) => [
             estagiario.nome,
+            formatCpfDisplay(estagiario.cpf),
             estagiario.telefone1 || '-',
             formatDateDisplay(estagiario.dataNascimento),
             getEmpresaVinculadaLabel(estagiario),
@@ -403,6 +413,7 @@ export default function Painel() {
           head: [
             [
               'Nome',
+              'CPF',
               'Telefone',
               'Data de Nascimento',
               'Empresa vinculada',
@@ -413,13 +424,14 @@ export default function Painel() {
           ],
           body: tableData,
           columnStyles: {
-            0: { cellWidth: 42, halign: 'left' as const },
-            1: { cellWidth: 28, halign: 'left' as const },
-            2: { cellWidth: 28, halign: 'center' as const },
-            3: { cellWidth: 40, halign: 'left' as const },
-            4: { cellWidth: 28, halign: 'center' as const },
-            5: { cellWidth: 28, halign: 'center' as const },
-            6: { cellWidth: 22, halign: 'center' as const },
+            0: { cellWidth: 40, halign: 'left' as const },
+            1: { cellWidth: 30, halign: 'center' as const },
+            2: { cellWidth: 26, halign: 'left' as const },
+            3: { cellWidth: 26, halign: 'center' as const },
+            4: { cellWidth: 38, halign: 'left' as const },
+            5: { cellWidth: 26, halign: 'center' as const },
+            6: { cellWidth: 26, halign: 'center' as const },
+            7: { cellWidth: 22, halign: 'center' as const },
           },
           ...tableStyles,
         });
@@ -773,7 +785,7 @@ export default function Painel() {
         </div>
 
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg overflow-hidden transition-colors">
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400">
                 Estagiários ({estagiariosFiltrados.length})
@@ -797,59 +809,90 @@ export default function Painel() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed min-w-[720px]">
+              <table
+                className={`w-full table-fixed ${
+                  modoListaVinculadosEmpresa ? 'min-w-[1140px]' : 'min-w-[1300px]'
+                }`}
+              >
+              {modoListaVinculadosEmpresa ? (
+                <colgroup>
+                  <col style={{ width: 230 }} />
+                  <col style={{ width: 135 }} />
+                  <col style={{ width: 125 }} />
+                  <col style={{ width: 125 }} />
+                  <col style={{ width: 200 }} />
+                  <col style={{ width: 115 }} />
+                  <col style={{ width: 115 }} />
+                  <col style={{ width: 95 }} />
+                </colgroup>
+              ) : (
+                <colgroup>
+                  <col style={{ width: 240 }} />
+                  <col style={{ width: 125 }} />
+                  <col style={{ width: 70 }} />
+                  <col style={{ width: 135 }} />
+                  <col style={{ width: 160 }} />
+                  <col style={{ width: 175 }} />
+                  <col style={{ width: 135 }} />
+                  <col style={{ width: 100 }} />
+                  <col style={{ width: 150 }} />
+                </colgroup>
+              )}
               <thead className="bg-gray-50 dark:bg-slate-700">
                 {modoListaVinculadosEmpresa ? (
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Nome
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      CPF
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Telefone
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Data de Nascimento
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Empresa vinculada
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Valor da bolsa
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Data de início
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Status
                     </th>
                   </tr>
                 ) : (
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Nome
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Telefone
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Idade
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Cidade
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Bairro
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Curso
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Grau de Instrução
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Ações
                     </th>
                   </tr>
@@ -859,67 +902,72 @@ export default function Painel() {
                 {estagiariosFiltrados.map((estagiario) =>
                   modoListaVinculadosEmpresa ? (
                     <tr key={estagiario.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      <td className="px-4 py-4 truncate" title={estagiario.nome}>
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                           {estagiario.nome}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {renderTelefoneCell(estagiario)}
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900 dark:text-gray-100">
+                          {formatCpfDisplay(estagiario.cpf)}
+                        </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-4 truncate">
+                        <div className="truncate">{renderTelefoneCell(estagiario)}</div>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-gray-100">
                           {formatDateDisplay(estagiario.dataNascimento)}
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-900 dark:text-gray-100">
+                      <td className="px-4 py-4 truncate" title={getEmpresaVinculadaLabel(estagiario)}>
+                        <div className="text-sm text-gray-900 dark:text-gray-100 truncate">
                           {getEmpresaVinculadaLabel(estagiario)}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-gray-100">
                           {formatBolsaDisplay(estagiario.estagioValorBolsa)}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-gray-100">
                           {formatDateDisplay(estagiario.estagioDataInicio)}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         {renderStatusBadge(estagiario)}
                       </td>
                     </tr>
                   ) : (
                     <tr key={estagiario.id} className="hover:bg-gray-50 dark:hover:bg-slate-700">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
+                      <td className="px-4 py-4 truncate" title={estagiario.nome}>
+                        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{estagiario.nome}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {renderTelefoneCell(estagiario)}
+                      <td className="px-4 py-4 truncate">
+                        <div className="truncate">{renderTelefoneCell(estagiario)}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 dark:text-gray-100">
                           {estagiario.dataNascimento ? `${calcularIdade(estagiario.dataNascimento)} anos` : '-'}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.cidade}</div>
+                      <td className="px-4 py-4 truncate" title={estagiario.cidade}>
+                        <div className="text-sm text-gray-900 dark:text-gray-100 truncate">{estagiario.cidade}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.bairro || '-'}</div>
+                      <td className="px-4 py-4 truncate" title={estagiario.bairro || '-'}>
+                        <div className="text-sm text-gray-900 dark:text-gray-100 truncate">{estagiario.bairro || '-'}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.curso || '-'}</div>
+                      <td className="px-4 py-4 truncate" title={estagiario.curso || '-'}>
+                        <div className="text-sm text-gray-900 dark:text-gray-100 truncate">{estagiario.curso || '-'}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900 dark:text-gray-100">{estagiario.grauInstrucao}</div>
+                      <td className="px-4 py-4 truncate" title={estagiario.grauInstrucao}>
+                        <div className="text-sm text-gray-900 dark:text-gray-100 truncate">{estagiario.grauInstrucao}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-4 whitespace-nowrap">
                         {renderStatusBadge(estagiario)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
                         <button
                           type="button"
                           onClick={() => handleEdit(estagiario)}
