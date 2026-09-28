@@ -2033,6 +2033,25 @@ export default function ClienteDetalhes() {
     }
   };
 
+  const toggleClienteExigeNotaFiscal = async () => {
+    if (!cliente?.id) return;
+    const nextValue = !cliente.exigeNotaFiscal;
+    try {
+      setLoadingAction(true);
+      await clientesService.update(cliente.id, { exigeNotaFiscal: nextValue });
+      setCliente((prev) => (prev ? { ...prev, exigeNotaFiscal: nextValue } : prev));
+      toast.success(
+        nextValue ? 'Exigência de NF marcada' : 'Exigência de NF removida'
+      );
+      fecharMenu();
+    } catch (error) {
+      console.error('Erro ao atualizar exigência de NF:', error);
+      toast.error('Erro ao atualizar exigência de nota fiscal');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
   const toggleMenu = (
     id: string,
     event: React.MouseEvent,
@@ -3592,8 +3611,15 @@ export default function ClienteDetalhes() {
                                   />
                                 </td>
                                 <td className="px-6 py-4">
-                                  <div className="text-sm text-gray-900 dark:text-gray-100">
-                                    {mensalidade.observacoes || '-'}
+                                  <div className="flex items-center gap-2">
+                                    <div className="text-sm text-gray-900 dark:text-gray-100">
+                                      {mensalidade.observacoes || '-'}
+                                    </div>
+                                    {cliente?.exigeNotaFiscal ? (
+                                      <span className="inline-flex shrink-0 px-2 py-1 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
+                                        NF
+                                      </span>
+                                    ) : null}
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
@@ -3742,6 +3768,17 @@ export default function ClienteDetalhes() {
                                             onClick={() => abrirModalFormaPagamento(mensalidade)}
                                           >
                                             Editar Parcela
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            className="block w-full text-left px-4 py-2 text-sm text-green-700 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            onClick={() => void toggleClienteExigeNotaFiscal()}
+                                            disabled={loadingAction || !cliente?.id}
+                                          >
+                                            {cliente?.exigeNotaFiscal
+                                              ? 'Remover exigência de NF'
+                                              : 'Marcar: exige NF'}
                                           </button>
 
                                           <button
