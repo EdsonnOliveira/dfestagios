@@ -1856,10 +1856,15 @@ export default function ClienteDetalhes() {
     }
     try {
       setGeneratingRescisao(true);
+      const filialDoEstagiario = resolveEstagiarioFilial(
+        cliente,
+        rescisaoEstagiarioSelecionado
+      );
       const blob = await generateRescisaoDocxBlob({
-        empresaRazaoSocial: cliente.razaoSocial,
-        empresaCnpj: cliente.cnpj,
-        empresaCidade: cliente.cidade,
+        empresaRazaoSocial:
+          filialDoEstagiario?.razaoSocial?.trim() || cliente.razaoSocial,
+        empresaCnpj: filialDoEstagiario?.cnpj?.trim() || cliente.cnpj,
+        empresaCidade: filialDoEstagiario?.cidade?.trim() || cliente.cidade,
         estagiarioNome: rescisaoEstagiarioSelecionado.nome,
         estagiarioCpf: formatCpfDisplay(
           rescisaoEstagiarioSelecionado.cpf
