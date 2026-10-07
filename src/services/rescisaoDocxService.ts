@@ -3,6 +3,7 @@ import PizZip from 'pizzip';
 import {
   calculateRescisao,
   formatDatePtBr,
+  formatDescontosComDescricao,
   type RescisaoCalcResult,
 } from './rescisaoCalcService';
 
@@ -17,6 +18,7 @@ export interface RescisaoDocxPayload {
   dataSaida: string;
   dataUltimoPagamento?: string;
   descontos?: string | number;
+  descontosDescricao?: string;
 }
 
 const MONTHS_PT = [
@@ -72,7 +74,10 @@ function buildTemplateData(
     saldoBolsa: calc.valorDiasTrabalhadosFmt,
     diasFerias: String(calc.diasFerias),
     saldoFerias: calc.proporcionalFeriasFmt,
-    descontos: calc.descontosFmt,
+    descontos: formatDescontosComDescricao(
+      calc.descontosFmt,
+      payload.descontosDescricao
+    ),
     valorTotal: calc.valorLiquidoFmt,
     cidadeData: formatCidadeData(payload.empresaCidade, payload.dataSaida),
   };

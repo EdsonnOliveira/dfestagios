@@ -106,6 +106,15 @@ export function formatBolsaInputFromDigits(digits: string): string {
   return formatCurrencyBr(numberValue);
 }
 
+export function formatDescontosComDescricao(
+  descontosFmt: string,
+  descricao?: string
+): string {
+  const texto = descricao?.trim() ?? '';
+  if (!texto) return descontosFmt;
+  return `${descontosFmt} (${texto})`;
+}
+
 export function calculateRescisao(
   input: RescisaoCalcInput
 ): RescisaoCalcResult | null {

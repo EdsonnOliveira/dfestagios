@@ -33,11 +33,21 @@ import {
   formatDatePtBr,
   formatBolsaDisplay,
   formatBolsaInputFromDigits,
+  formatDescontosComDescricao,
 } from '../services/rescisaoCalcService';
 import {
   downloadRescisaoDocx,
   generateRescisaoDocxBlob,
 } from '../services/rescisaoDocxService';
+import {
+  calculateReciboBolsa,
+  getLastDayOfMonthIsoFromDate,
+  type ReciboBolsaTipo,
+} from '../services/reciboBolsaCalcService';
+import {
+  downloadReciboBolsaDocx,
+  generateReciboBolsaDocxBlob,
+} from '../services/reciboBolsaDocxService';
 import { relatorioAdministrativoService } from '../services/relatorioAdministrativoService';
 
 const emptyFilialForm = {
@@ -118,6 +128,13 @@ function getTodayIsoDate(): string {
   return `${year}-${month}-${day}`;
 }
 
+function getCurrentMonthIso(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
 export default function ClienteDetalhes() {
   const router = useRouter();
   const { id } = router.query;
@@ -148,13 +165,30 @@ export default function ClienteDetalhes() {
   const [loadingCadastrar, setLoadingCadastrar] = useState(false);
   const [loadingMensalidade, setLoadingMensalidade] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'info' | 'estagiarios' | 'financeiro' | 'notaFiscal' | 'rescisao'
+    | 'info'
+    | 'estagiarios'
+    | 'financeiro'
+    | 'notaFiscal'
+    | 'rescisao'
+    | 'recibosBolsa'
   >('info');
   const [rescisaoEstagiarioId, setRescisaoEstagiarioId] = useState('');
   const [rescisaoDataSaida, setRescisaoDataSaida] = useState('');
   const [rescisaoUltimoPagamento, setRescisaoUltimoPagamento] = useState('');
   const [rescisaoDescontos, setRescisaoDescontos] = useState('');
+  const [rescisaoDescontosDescricao, setRescisaoDescontosDescricao] =
+    useState('');
   const [generatingRescisao, setGeneratingRescisao] = useState(false);
+  const [reciboBolsaEstagiarioId, setReciboBolsaEstagiarioId] = useState('');
+  const [reciboBolsaTipo, setReciboBolsaTipo] =
+    useState<ReciboBolsaTipo>('mesFechado');
+  const [reciboBolsaMesReferencia, setReciboBolsaMesReferencia] = useState(
+    getCurrentMonthIso()
+  );
+  const [reciboBolsaDataInicio, setReciboBolsaDataInicio] = useState('');
+  const [reciboBolsaDataFim, setReciboBolsaDataFim] = useState('');
+  const [reciboBolsaDescontos, setReciboBolsaDescontos] = useState('');
+  const [generatingReciboBolsa, setGeneratingReciboBolsa] = useState(false);
   const [nfseEmissions, setNfseEmissions] = useState<NfseEmission[]>([]);
   const [loadingNfse, setLoadingNfse] = useState(true);
   const [showEmitNfseModal, setShowEmitNfseModal] = useState(false);
@@ -1816,10 +1850,19 @@ export default function ClienteDetalhes() {
     setRescisaoDataSaida('');
     setRescisaoUltimoPagamento('');
     setRescisaoDescontos('');
+    setRescisaoDescontosDescricao('');
   }, []);
+
+  const rescisaoTemDesconto = useMemo(() => {
+    const digits = rescisaoDescontos.replace(/\D/g, '');
+    return digits.length > 0 && Number.parseInt(digits, 10) > 0;
+  }, [rescisaoDescontos]);
 
   const handleRescisaoDescontosChange = useCallback((value: string) => {
     const digits = value.replace(/\D/g, '');
+    if (!digits || Number.parseInt(digits, 10) === 0) {
+      setRescisaoDescontosDescricao('');
+    }
     setRescisaoDescontos(formatBolsaInputFromDigits(digits));
   }, []);
 
@@ -1874,6 +1917,7 @@ export default function ClienteDetalhes() {
         dataSaida: rescisaoDataSaida,
         dataUltimoPagamento: rescisaoUltimoPagamento,
         descontos: rescisaoDescontos,
+        descontosDescricao: rescisaoDescontosDescricao,
       });
       downloadRescisaoDocx(blob, rescisaoEstagiarioSelecionado.nome);
       try {
@@ -1904,6 +1948,142 @@ export default function ClienteDetalhes() {
     rescisaoDataSaida,
     rescisaoUltimoPagamento,
     rescisaoDescontos,
+    rescisaoDescontosDescricao,
+  ]);
+
+  const reciboBolsaEstagiarioSelecionado = useMemo(
+    () =>
+      estagiariosAtivosRescisao.find((e) => e.id === reciboBolsaEstagiarioId) ??
+      null,
+    [estagiariosAtivosRescisao, reciboBolsaEstagiarioId]
+  );
+
+  const reciboBolsaPreview = useMemo(() => {
+    if (!reciboBolsaEstagiarioSelecionado) return null;
+    const bolsa = reciboBolsaEstagiarioSelecionado.estagioValorBolsa ?? '';
+    if (!bolsa.trim()) return null;
+    if (reciboBolsaTipo === 'mesFechado') {
+      if (!reciboBolsaMesReferencia.trim()) return null;
+      return calculateReciboBolsa({
+        tipo: 'mesFechado',
+        bolsa,
+        mesReferencia: reciboBolsaMesReferencia,
+        descontos: reciboBolsaDescontos,
+      });
+    }
+    if (!reciboBolsaDataInicio.trim()) return null;
+    return calculateReciboBolsa({
+      tipo: 'proporcional',
+      bolsa,
+      dataInicio: reciboBolsaDataInicio,
+      dataFim: reciboBolsaDataFim,
+      descontos: reciboBolsaDescontos,
+    });
+  }, [
+    reciboBolsaEstagiarioSelecionado,
+    reciboBolsaTipo,
+    reciboBolsaMesReferencia,
+    reciboBolsaDataInicio,
+    reciboBolsaDataFim,
+    reciboBolsaDescontos,
+  ]);
+
+  const handleSelectReciboBolsaEstagiario = useCallback(
+    (estagiarioId: string) => {
+      setReciboBolsaEstagiarioId(estagiarioId);
+      setReciboBolsaDescontos('');
+      const estagiario = estagiariosAtivosRescisao.find(
+        (item) => item.id === estagiarioId
+      );
+      const dataInicio = estagiario?.estagioDataInicio?.trim() ?? '';
+      setReciboBolsaDataInicio(dataInicio);
+      setReciboBolsaDataFim(
+        dataInicio ? getLastDayOfMonthIsoFromDate(dataInicio) ?? '' : ''
+      );
+    },
+    [estagiariosAtivosRescisao]
+  );
+
+  const handleReciboBolsaDescontosChange = useCallback((value: string) => {
+    const digits = value.replace(/\D/g, '');
+    setReciboBolsaDescontos(formatBolsaInputFromDigits(digits));
+  }, []);
+
+  const handleReciboBolsaDataInicioChange = useCallback((value: string) => {
+    setReciboBolsaDataInicio(value);
+    setReciboBolsaDataFim(
+      value ? getLastDayOfMonthIsoFromDate(value) ?? '' : ''
+    );
+  }, []);
+
+  const handleGerarReciboBolsa = useCallback(async () => {
+    if (!cliente || !reciboBolsaEstagiarioSelecionado) {
+      toast.error('Selecione um estagiário ativo.');
+      return;
+    }
+    const bolsa = reciboBolsaEstagiarioSelecionado.estagioValorBolsa?.trim() ?? '';
+    if (!bolsa) {
+      toast.error('Complete o valor da bolsa do estagiário antes de gerar o recibo.');
+      return;
+    }
+    const preview = calculateReciboBolsa({
+      tipo: reciboBolsaTipo,
+      bolsa,
+      mesReferencia: reciboBolsaMesReferencia,
+      dataInicio: reciboBolsaDataInicio,
+      dataFim: reciboBolsaDataFim,
+      descontos: reciboBolsaDescontos,
+    });
+    if (!preview) {
+      toast.error('Preencha os campos obrigatórios para gerar o recibo.');
+      return;
+    }
+    try {
+      setGeneratingReciboBolsa(true);
+      const filialDoEstagiario = resolveEstagiarioFilial(
+        cliente,
+        reciboBolsaEstagiarioSelecionado
+      );
+      const blob = await generateReciboBolsaDocxBlob({
+        tipo: reciboBolsaTipo,
+        empresaRazaoSocial:
+          filialDoEstagiario?.razaoSocial?.trim() || cliente.razaoSocial,
+        empresaCnpj: filialDoEstagiario?.cnpj?.trim() || cliente.cnpj,
+        estagiarioNome: reciboBolsaEstagiarioSelecionado.nome,
+        estagiarioCpf: formatCpfDisplay(reciboBolsaEstagiarioSelecionado.cpf).replace(
+          /^-$/,
+          ''
+        ),
+        bolsa,
+        mesReferencia: reciboBolsaMesReferencia,
+        dataInicio: reciboBolsaDataInicio,
+        dataFim: reciboBolsaDataFim,
+        descontos: reciboBolsaDescontos,
+      });
+      downloadReciboBolsaDocx(
+        blob,
+        reciboBolsaEstagiarioSelecionado.nome,
+        reciboBolsaTipo
+      );
+      toast.success('Recibo de bolsa gerado com sucesso.');
+    } catch (error) {
+      console.error(error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível gerar o recibo de bolsa.'
+      );
+    } finally {
+      setGeneratingReciboBolsa(false);
+    }
+  }, [
+    cliente,
+    reciboBolsaEstagiarioSelecionado,
+    reciboBolsaTipo,
+    reciboBolsaMesReferencia,
+    reciboBolsaDataInicio,
+    reciboBolsaDataFim,
+    reciboBolsaDescontos,
   ]);
 
   const getStatusColor = (status: string) => {
@@ -2770,6 +2950,16 @@ export default function ClienteDetalhes() {
                 >
                   Rescisão
                 </button>
+                <button
+                  onClick={() => setActiveTab('recibosBolsa')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'recibosBolsa'
+                      ? 'border-[#004085] dark:border-blue-400 text-[#004085] dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+                  }`}
+                >
+                  Recibos de Bolsa
+                </button>
                 {isAdmin && (
                   <button
                     onClick={() => setActiveTab('notaFiscal')}
@@ -3519,6 +3709,16 @@ export default function ClienteDetalhes() {
                         Marcar como Pago
                       </button>
                       <button
+                        type="button"
+                        onClick={() => void toggleClienteExigeNotaFiscal()}
+                        disabled={loadingAction || !cliente?.id}
+                        className="px-3 py-1.5 text-sm bg-emerald-600 dark:bg-emerald-700 hover:bg-emerald-700 dark:hover:bg-emerald-600 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {cliente?.exigeNotaFiscal
+                          ? 'Remover exigência de NF'
+                          : 'Exigir NF'}
+                      </button>
+                      <button
                         onClick={marcarSelecionadasComoNaoPago}
                         disabled={loadingMensalidade}
                         className="px-3 py-1.5 text-sm bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-600 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
@@ -3968,6 +4168,22 @@ export default function ClienteDetalhes() {
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
                               />
                             </div>
+                            {rescisaoTemDesconto && (
+                              <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                  Descrição do desconto
+                                </label>
+                                <input
+                                  type="text"
+                                  value={rescisaoDescontosDescricao}
+                                  onChange={(e) =>
+                                    setRescisaoDescontosDescricao(e.target.value)
+                                  }
+                                  placeholder="Ex.: Vale Transporte Antecipado"
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                                />
+                              </div>
+                            )}
                           </div>
 
                           {rescisaoPreview && (
@@ -4029,7 +4245,10 @@ export default function ClienteDetalhes() {
                                     Descontos
                                   </p>
                                   <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                    {rescisaoPreview.descontosFmt}
+                                    {formatDescontosComDescricao(
+                                      rescisaoPreview.descontosFmt,
+                                      rescisaoDescontosDescricao
+                                    )}
                                   </p>
                                 </div>
                                 <div>
@@ -4060,6 +4279,249 @@ export default function ClienteDetalhes() {
                               {generatingRescisao
                                 ? 'Gerando...'
                                 : 'Gerar rescisão'}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'recibosBolsa' && (
+                <div>
+                  <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400 mb-6">
+                    Recibos de bolsa-auxílio
+                  </h2>
+
+                  {estagiariosAtivosRescisao.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-500 dark:text-gray-400">
+                        Nenhum estagiário ativo vinculado a este cliente.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Estagiário
+                        </label>
+                        <select
+                          value={reciboBolsaEstagiarioId}
+                          onChange={(e) =>
+                            handleSelectReciboBolsaEstagiario(e.target.value)
+                          }
+                          className="w-full max-w-xl px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                        >
+                          <option value="">Selecione um estagiário ativo</option>
+                          {estagiariosAtivosRescisao.map((estagiario) => (
+                            <option key={estagiario.id} value={estagiario.id}>
+                              {estagiario.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {reciboBolsaEstagiarioSelecionado && (
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Nome completo
+                              </label>
+                              <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold">
+                                {reciboBolsaEstagiarioSelecionado.nome}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                CPF
+                              </label>
+                              <p className="text-sm text-gray-900 dark:text-gray-100">
+                                {formatCpfDisplay(reciboBolsaEstagiarioSelecionado.cpf)}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Valor da bolsa
+                              </label>
+                              <p className="text-sm text-gray-900 dark:text-gray-100">
+                                {formatBolsaDisplay(
+                                  reciboBolsaEstagiarioSelecionado.estagioValorBolsa
+                                )}
+                              </p>
+                            </div>
+                          </div>
+
+                          {!reciboBolsaEstagiarioSelecionado.estagioValorBolsa?.trim() && (
+                            <div className="rounded-lg border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+                              Complete o valor da bolsa do estagiário antes de gerar o
+                              recibo.
+                            </div>
+                          )}
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                              Tipo de recibo
+                            </label>
+                            <div className="flex flex-wrap gap-4">
+                              <label className="inline-flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="reciboBolsaTipo"
+                                  checked={reciboBolsaTipo === 'mesFechado'}
+                                  onChange={() => setReciboBolsaTipo('mesFechado')}
+                                  className="text-[#004085] focus:ring-[#004085]"
+                                />
+                                Mês fechado (bolsa integral)
+                              </label>
+                              <label className="inline-flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="reciboBolsaTipo"
+                                  checked={reciboBolsaTipo === 'proporcional'}
+                                  onChange={() => setReciboBolsaTipo('proporcional')}
+                                  className="text-[#004085] focus:ring-[#004085]"
+                                />
+                                Proporcional
+                              </label>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {reciboBolsaTipo === 'mesFechado' ? (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                  Mês de referência
+                                </label>
+                                <input
+                                  type="month"
+                                  value={reciboBolsaMesReferencia}
+                                  onChange={(e) =>
+                                    setReciboBolsaMesReferencia(e.target.value)
+                                  }
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                                />
+                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                  Usa o valor integral da bolsa (menos descontos).
+                                </p>
+                              </div>
+                            ) : (
+                              <>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Data de início
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={reciboBolsaDataInicio}
+                                    onChange={(e) =>
+                                      handleReciboBolsaDataInicioChange(e.target.value)
+                                    }
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Data de fechamento
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={reciboBolsaDataFim}
+                                    onChange={(e) => setReciboBolsaDataFim(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                                  />
+                                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    Preenchida com o último dia do mês; pode ajustar.
+                                  </p>
+                                </div>
+                              </>
+                            )}
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Descontos
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={reciboBolsaDescontos}
+                                onChange={(e) =>
+                                  handleReciboBolsaDescontosChange(e.target.value)
+                                }
+                                placeholder="R$ 0,00"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                              />
+                            </div>
+                          </div>
+
+                          {reciboBolsaPreview && (
+                            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-slate-700/50">
+                              <h3 className="text-sm font-semibold text-[#004085] dark:text-blue-400 mb-4">
+                                Prévia do cálculo
+                              </h3>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Período de referência
+                                  </p>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {reciboBolsaPreview.periodoReferencia}
+                                  </p>
+                                </div>
+                                {reciboBolsaTipo === 'proporcional' && (
+                                  <>
+                                    <div>
+                                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        Dias
+                                      </p>
+                                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                        {reciboBolsaPreview.diasTrabalhados}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        Valor do dia
+                                      </p>
+                                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                        {reciboBolsaPreview.valorDiaFmt}
+                                      </p>
+                                    </div>
+                                  </>
+                                )}
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Descontos
+                                  </p>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {reciboBolsaPreview.descontosFmt}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Valor a receber
+                                  </p>
+                                  <p className="text-sm font-bold text-[#004085] dark:text-blue-400">
+                                    {reciboBolsaPreview.valorLiquidoFmt}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => void handleGerarReciboBolsa()}
+                              disabled={
+                                generatingReciboBolsa ||
+                                !reciboBolsaPreview ||
+                                !reciboBolsaEstagiarioSelecionado.estagioValorBolsa?.trim()
+                              }
+                              className="bg-[#004085] dark:bg-blue-600 hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                            >
+                              {generatingReciboBolsa
+                                ? 'Gerando...'
+                                : 'Gerar recibo em Word'}
                             </button>
                           </div>
                         </>

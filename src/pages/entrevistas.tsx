@@ -37,8 +37,13 @@ import type {
 import {
   ENTREVISTA_CANDIDATO_STATUS_LABELS,
 } from '../types/firebase';
+import {
+  formatBolsaInputFromDigits,
+} from '../services/rescisaoCalcService';
 
 const WEEKDAY_SHORT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'] as const;
+
+const BOLSA_MAX_DIGITS = 12;
 
 const CALENDAR_WEEKDAY_LABELS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'] as const;
 
@@ -71,6 +76,11 @@ interface ContratoLinkItem {
   createdAt: Date;
 }
 
+interface CandidatoAgendadoItem {
+  candidato: EntrevistaCandidato;
+  entrevista: Entrevista;
+}
+
 const emptyForm = {
   clienteId: '',
   filialId: '',
@@ -101,6 +111,13 @@ const inputClass =
 
 const labelClass =
   'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1';
+
+function formatValorBolsaField(value: string | undefined): string {
+  if (!value?.trim()) return '';
+  const digits = value.replace(/\D/g, '').slice(0, BOLSA_MAX_DIGITS);
+  if (!digits) return value.trim();
+  return formatBolsaInputFromDigits(digits);
+}
 
 function maskPhone(value: string): string {
   const n = value.replace(/\D/g, '').slice(0, 11);
@@ -191,6 +208,18 @@ function matchesFilialSearch(filial: ClienteFilial, term: string): boolean {
     filial.bairro,
   ];
   return fields.some((field) => matchesSearchTerm(field, term));
+}
+
+function matchesCandidatoAgendadoSearch(
+  item: CandidatoAgendadoItem,
+  term: string
+): boolean {
+  return (
+    matchesSearchTerm(item.candidato.nome, term) ||
+    matchesSearchTerm(item.candidato.telefone, term) ||
+    matchesSearchTerm(item.entrevista.empresaNome, term) ||
+    matchesSearchTerm(item.entrevista.tituloVaga, term)
+  );
 }
 
 function matchesContratoLinkSearch(item: ContratoLinkItem, term: string): boolean {
@@ -353,6 +382,8 @@ export default function EntrevistasPage() {
   });
   const [showTodasModal, setShowTodasModal] = useState(false);
   const [todasSearch, setTodasSearch] = useState('');
+  const [showTodosCandidatosModal, setShowTodosCandidatosModal] = useState(false);
+  const [todosCandidatosSearch, setTodosCandidatosSearch] = useState('');
   const [contratoFiltro, setContratoFiltro] = useState<ContratoFiltro>('todos');
   const [contratoSearch, setContratoSearch] = useState('');
   const [contratoLinks, setContratoLinks] = useState<ContratoLinkItem[]>([]);
@@ -475,6 +506,40 @@ export default function EntrevistasPage() {
     });
     return map;
   }, [allCandidatos]);
+
+  const entrevistasById = useMemo(() => {
+    const map = new Map<string, Entrevista>();
+    entrevistas.forEach((item) => {
+      if (item.id) map.set(item.id, item);
+    });
+    return map;
+  }, [entrevistas]);
+
+  const todosCandidatosAgendados = useMemo((): CandidatoAgendadoItem[] => {
+    const items: CandidatoAgendadoItem[] = [];
+    allCandidatos.forEach((candidato) => {
+      const entrevista = entrevistasById.get(candidato.entrevistaId);
+      if (entrevista) {
+        items.push({ candidato, entrevista });
+      }
+    });
+    return items.sort((a, b) => {
+      const dateCmp = b.entrevista.dataEntrevista.localeCompare(
+        a.entrevista.dataEntrevista,
+        'pt-BR'
+      );
+      if (dateCmp !== 0) return dateCmp;
+      return a.candidato.nome.localeCompare(b.candidato.nome, 'pt-BR');
+    });
+  }, [allCandidatos, entrevistasById]);
+
+  const filteredTodosCandidatos = useMemo(() => {
+    const term = todosCandidatosSearch.trim();
+    if (!term) return todosCandidatosAgendados;
+    return todosCandidatosAgendados.filter((item) =>
+      matchesCandidatoAgendadoSearch(item, term)
+    );
+  }, [todosCandidatosAgendados, todosCandidatosSearch]);
 
   const filteredTodasEntrevistas = useMemo(() => {
     const term = todasSearch.trim().toLowerCase();
@@ -669,7 +734,7 @@ export default function EntrevistasPage() {
       horarioEntrevista: entrevista.horarioEntrevista,
       tituloVaga: entrevista.tituloVaga,
       horarioTrabalho: entrevista.horarioTrabalho,
-      valorBolsa: entrevista.valorBolsa,
+      valorBolsa: formatValorBolsaField(entrevista.valorBolsa),
       beneficios: entrevista.beneficios ?? '',
       atividades: entrevista.atividades,
       requisitos: entrevista.requisitos,
@@ -677,6 +742,14 @@ export default function EntrevistasPage() {
     });
     setShowFormModal(true);
   };
+
+  const handleValorBolsaChange = useCallback((value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, BOLSA_MAX_DIGITS);
+    setFormData((prev) => ({
+      ...prev,
+      valorBolsa: formatBolsaInputFromDigits(digits),
+    }));
+  }, []);
 
   const closeFormModal = () => {
     setShowFormModal(false);
@@ -1180,6 +1253,12 @@ export default function EntrevistasPage() {
     await openDetailModal(entrevista);
   };
 
+  const handleOpenCandidatoEntrevista = async (entrevista: Entrevista) => {
+    setShowTodosCandidatosModal(false);
+    setTodosCandidatosSearch('');
+    await openDetailModal(entrevista);
+  };
+
   const openHojeModal = useCallback(() => {
     const now = new Date();
     setHojeModalDateIso(toIsoDate(now));
@@ -1523,6 +1602,18 @@ export default function EntrevistasPage() {
                   className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-700"
                 >
                   Todas as entrevistas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTodosCandidatosModal(true)}
+                  className="px-3 py-2 rounded-lg border border-[#004085] text-[#004085] dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 inline-flex items-center gap-2"
+                >
+                  Todos candidatos
+                  {allCandidatos.length > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-[#004085] text-white text-xs font-semibold">
+                      {allCandidatos.length}
+                    </span>
+                  )}
                 </button>
                 <button
                   type="button"
@@ -1956,11 +2047,10 @@ export default function EntrevistasPage() {
                 <label className={labelClass}>Valor da bolsa</label>
                 <input
                   type="text"
-                  placeholder="Ex: 700,00"
+                  inputMode="numeric"
+                  placeholder="Ex: 700,00 ou 1.000,00"
                   value={formData.valorBolsa}
-                  onChange={(e) =>
-                    setFormData({ ...formData, valorBolsa: e.target.value })
-                  }
+                  onChange={(e) => handleValorBolsaChange(e.target.value)}
                   className={inputClass}
                 />
               </div>
@@ -2670,6 +2760,90 @@ export default function EntrevistasPage() {
                           {new Date(calendarioIso + 'T12:00:00').toLocaleDateString('pt-BR')}
                         </p>
                       )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </AnimatedModal>
+
+        <AnimatedModal
+          open={showTodosCandidatosModal}
+          onClose={() => {
+            setShowTodosCandidatosModal(false);
+            setTodosCandidatosSearch('');
+          }}
+        >
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
+            <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400 mb-1">
+              Todos candidatos
+            </h2>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              Candidatos agendados em todas as entrevistas
+            </p>
+            <input
+              type="text"
+              placeholder="Buscar por nome, telefone ou empresa..."
+              value={todosCandidatosSearch}
+              onChange={(e) => setTodosCandidatosSearch(e.target.value)}
+              className={`${inputClass} mb-4`}
+            />
+            {filteredTodosCandidatos.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Nenhum candidato encontrado.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {filteredTodosCandidatos.map((item) => {
+                  const { candidato, entrevista } = item;
+                  const rowKey = candidato.id ?? `${candidato.entrevistaId}-${candidato.nome}`;
+                  const whatsappUrl = buildWhatsAppUrl(candidato.telefone);
+                  return (
+                    <button
+                      key={rowKey}
+                      type="button"
+                      onClick={() => void handleOpenCandidatoEntrevista(entrevista)}
+                      className="w-full text-left rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="font-semibold text-gray-900 dark:text-gray-100">
+                          {candidato.nome}
+                        </p>
+                        <span className="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full bg-[#004085]/10 text-[#004085] dark:text-blue-400">
+                          {ENTREVISTA_CANDIDATO_STATUS_LABELS[candidato.status]}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-700 dark:text-gray-200 mt-1 uppercase font-medium">
+                        {entrevista.empresaNome}
+                      </p>
+                      {candidato.telefone.trim() && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {whatsappUrl ? (
+                            <a
+                              href={whatsappUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-green-700 dark:text-green-400 hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {maskPhone(candidato.telefone)}
+                            </a>
+                          ) : (
+                            maskPhone(candidato.telefone)
+                          )}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Entrevista:{' '}
+                        {new Date(entrevista.dataEntrevista + 'T12:00:00').toLocaleDateString(
+                          'pt-BR'
+                        )}
+                        {entrevista.horarioEntrevista.trim()
+                          ? ` · ${entrevista.horarioEntrevista.trim()}`
+                          : ''}{' '}
+                        · {entrevista.tituloVaga}
+                      </p>
                     </button>
                   );
                 })}
