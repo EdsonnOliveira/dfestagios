@@ -1465,7 +1465,11 @@ export default function EntrevistasPage() {
 
   const handleGenerateContractLink = async (candidato: EntrevistaCandidato) => {
     if (!selectedEntrevista?.id || !candidato.id) return;
-    if (candidato.status !== 'selecionado' && candidato.status !== 'contrato_pendente') {
+    if (
+      candidato.status !== 'selecionado' &&
+      candidato.status !== 'contrato_pendente' &&
+      candidato.status !== 'contrato_preenchido'
+    ) {
       toast.error('Selecione o candidato antes de gerar o link.');
       return;
     }
@@ -1487,25 +1491,45 @@ export default function EntrevistasPage() {
             ? { empresaFilialId: selectedEntrevista.filialId }
             : {}),
         });
+      }
+      const trackingStatus: EntrevistaCandidatoStatus =
+        candidato.status === 'contrato_preenchido'
+          ? 'contrato_preenchido'
+          : 'contrato_pendente';
+      if (
+        candidato.estagiarioId !== estagiarioId ||
+        candidato.status !== trackingStatus
+      ) {
         await entrevistaCandidatosService.update(candidato.id, {
           estagiarioId,
-          status: 'contrato_pendente',
+          status: trackingStatus,
         });
-        setAllCandidatos((prev) =>
-          prev.map((item) =>
-            item.id === candidato.id
-              ? { ...item, estagiarioId, status: 'contrato_pendente' }
-              : item
-          )
-        );
       }
+      await clienteContratoLinksService.add({
+        clienteId: selectedEntrevista.clienteId,
+        estagiarioId,
+        nome: candidato.nome.trim(),
+        telefone: candidato.telefone.replace(/\D/g, ''),
+        ...(selectedEntrevista.filialId
+          ? { filialId: selectedEntrevista.filialId }
+          : {}),
+        status: trackingStatus,
+      });
+      const syncCandidato = (item: EntrevistaCandidato) =>
+        item.id === candidato.id
+          ? { ...item, estagiarioId, status: trackingStatus }
+          : item;
+      setCandidatos((prev) => prev.map(syncCandidato));
+      setAllCandidatos((prev) => prev.map(syncCandidato));
       const filialQuery = selectedEntrevista.filialId
         ? `&filialId=${encodeURIComponent(selectedEntrevista.filialId)}`
         : '';
       const url = `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(selectedEntrevista.clienteId)}&estagiarioId=${encodeURIComponent(estagiarioId)}${filialQuery}`;
       await navigator.clipboard.writeText(url);
       await refreshCandidatos(selectedEntrevista.id);
-      toast.success('Link do contrato copiado.');
+      toast.success(
+        'Link copiado. Acompanhe em Entrevistas → Links de contrato.'
+      );
     } catch (error) {
       console.error(error);
       toast.error('Erro ao gerar link de contrato.');

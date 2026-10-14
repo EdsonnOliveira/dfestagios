@@ -1,24 +1,16 @@
-const BRASIL_API_CNPJ = 'https://brasilapi.com.br/api/cnpj/v1';
-
-export interface BrasilApiCnpjQsa {
-  nome_socio: string;
-  qualificacao_socio: string;
-}
-
-export interface BrasilApiCnpjPayload {
-  razao_social?: string;
-  nome_fantasia?: string;
-  email?: string | null;
-  municipio?: string;
-  bairro?: string;
-  cep?: string;
-  uf?: string;
-  logradouro?: string;
-  numero?: string;
-  complemento?: string;
-  ddd_telefone_1?: string;
-  ddd_telefone_2?: string;
-  qsa?: BrasilApiCnpjQsa[];
+interface CnpjApiPayload {
+  razaoSocial: string;
+  nomeFantasia: string;
+  email: string;
+  municipio: string;
+  bairro: string;
+  cep: string;
+  uf: string;
+  logradouro: string;
+  numero: string;
+  complemento: string;
+  phoneDigits: string;
+  responsavel: string;
 }
 
 export interface CnpjLookupMapped {
@@ -54,52 +46,36 @@ function formatCepFromDigits(digits: string): string {
   return digits.substring(0, 5) + '-' + digits.substring(5, 8);
 }
 
-function extractPhoneDigits(data: BrasilApiCnpjPayload): string {
-  const t1 = data.ddd_telefone_1?.replace(/\D/g, '') ?? '';
-  const t2 = data.ddd_telefone_2?.replace(/\D/g, '') ?? '';
-  const raw = (t1.length >= 8 ? t1 : '') || (t2.length >= 8 ? t2 : '');
-  return raw.slice(0, 11);
+function mapApiPayloadToLookup(data: CnpjApiPayload): CnpjLookupMapped {
+  const partesEnd = [data.logradouro.trim()];
+  if (data.numero.trim()) partesEnd.push(`nº ${data.numero.trim()}`);
+  if (data.complemento.trim()) partesEnd.push(data.complemento.trim());
+  const endereco = partesEnd.filter(Boolean).join(', ');
+  return {
+    razaoSocial: data.razaoSocial,
+    nomeFantasia: data.nomeFantasia,
+    telefone: formatPhoneFromDigits(data.phoneDigits),
+    email: data.email,
+    cidade: data.municipio,
+    bairro: data.bairro,
+    cep: formatCepFromDigits(data.cep),
+    endereco,
+    uf: data.uf,
+    responsavel: data.responsavel,
+  };
 }
 
-function pickResponsavel(qsa: BrasilApiCnpjQsa[] | undefined): string {
-  if (!qsa?.length) return '';
-  const lower = (s: string) => s.toLowerCase();
-  const byRole = (needle: string) =>
-    qsa.find((s) => lower(s.qualificacao_socio).includes(needle));
-  const chosen = byRole('presidente') || byRole('diretor') || qsa[0];
-  const name = chosen?.nome_socio?.trim();
-  return name ?? '';
+async function fetchCnpjApiPayload(digits: string): Promise<CnpjApiPayload | null> {
+  if (digits.length !== 14) return null;
+  const res = await fetch(`/api/cnpj/${digits}`);
+  if (!res.ok) return null;
+  return (await res.json()) as CnpjApiPayload;
 }
 
 export async function fetchCnpjLookup(digits: string): Promise<CnpjLookupMapped | null> {
-  if (digits.length !== 14) return null;
-  const res = await fetch(`${BRASIL_API_CNPJ}/${digits}`);
-  if (!res.ok) return null;
-  const data = (await res.json()) as BrasilApiCnpjPayload;
-  const razao = (data.razao_social ?? '').trim();
-  if (!razao) return null;
-  const fantasiaRaw = (data.nome_fantasia ?? '').trim();
-  const cepDigits = (data.cep ?? '').replace(/\D/g, '').slice(0, 8);
-  const phoneDigits = extractPhoneDigits(data);
-  const logradouro = (data.logradouro ?? '').trim();
-  const numero = (data.numero ?? '').trim();
-  const comp = (data.complemento ?? '').trim();
-  const partesEnd = [logradouro];
-  if (numero) partesEnd.push(`nº ${numero}`);
-  if (comp) partesEnd.push(comp);
-  const endereco = partesEnd.filter(Boolean).join(', ');
-  return {
-    razaoSocial: razao,
-    nomeFantasia: fantasiaRaw || razao,
-    telefone: formatPhoneFromDigits(phoneDigits),
-    email: (data.email ?? '').trim(),
-    cidade: (data.municipio ?? '').trim(),
-    bairro: (data.bairro ?? '').trim(),
-    cep: formatCepFromDigits(cepDigits),
-    endereco,
-    uf: (data.uf ?? '').trim().slice(0, 2).toUpperCase(),
-    responsavel: pickResponsavel(data.qsa),
-  };
+  const data = await fetchCnpjApiPayload(digits);
+  if (!data?.razaoSocial?.trim()) return null;
+  return mapApiPayloadToLookup(data);
 }
 
 export interface InstituicaoEnsinoMapped {
@@ -126,35 +102,22 @@ function formatInstitutionDisplayName(raw: string): string {
 export async function fetchCnpjInstituicaoEnsino(
   digits: string
 ): Promise<InstituicaoEnsinoMapped | null> {
-  if (digits.length !== 14) return null;
-  const res = await fetch(`${BRASIL_API_CNPJ}/${digits}`);
-  if (!res.ok) return null;
-  const raw = (await res.json()) as Record<string, unknown>;
-  const razao = String(raw.razao_social ?? '').trim();
-  if (!razao) return null;
-  const fantasia = String(raw.nome_fantasia ?? '').trim();
-  const nome = formatInstitutionDisplayName(fantasia || razao);
-  const cepDigits = String(raw.cep ?? '').replace(/\D/g, '').slice(0, 8);
-  const logradouro = String(raw.logradouro ?? '').trim();
-  const numero = String(raw.numero ?? '').trim();
-  const comp = String(raw.complemento ?? '').trim();
-  const bairro = String(raw.bairro ?? '').trim();
-  const municipio = String(raw.municipio ?? '').trim();
-  const uf = String(raw.uf ?? '')
-    .trim()
-    .slice(0, 2)
-    .toUpperCase();
-  const partesLinha1 = [logradouro];
-  if (numero) partesLinha1.push(`nº ${numero}`);
-  if (comp) partesLinha1.push(comp);
+  const data = await fetchCnpjApiPayload(digits);
+  if (!data?.razaoSocial?.trim()) return null;
+  const nome = formatInstitutionDisplayName(data.nomeFantasia || data.razaoSocial);
+  const partesLinha1 = [data.logradouro.trim()];
+  if (data.numero.trim()) partesLinha1.push(`nº ${data.numero.trim()}`);
+  if (data.complemento.trim()) partesLinha1.push(data.complemento.trim());
   const linha1 = partesLinha1.filter(Boolean).join(', ');
   const cidadeUf =
-    municipio && uf ? `${municipio} - ${uf}` : municipio || uf || '';
-  const linha2 = [bairro, cidadeUf].filter(Boolean).join(', ');
+    data.municipio && data.uf
+      ? `${data.municipio} - ${data.uf}`
+      : data.municipio || data.uf || '';
+  const linha2 = [data.bairro, cidadeUf].filter(Boolean).join(', ');
   const endereco = [linha1, linha2].filter(Boolean).join(' - ');
   return {
     nome,
-    cep: formatCepFromDigits(cepDigits),
-    endereco
+    cep: formatCepFromDigits(data.cep),
+    endereco,
   };
 }
