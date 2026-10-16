@@ -49,6 +49,59 @@ type EmpresaContratoDados = {
   responsavelCargo?: string;
 };
 
+function buildEmpresaContratoDados(
+  empresa: Cliente,
+  selectedFilialId: string
+): EmpresaContratoDados {
+  if (selectedFilialId) {
+    const filial = empresa.filiais?.find((f) => f.id === selectedFilialId);
+    if (filial) {
+      return {
+        razaoSocial: filial.razaoSocial,
+        nomeFantasia: filial.nomeFantasia,
+        cnpj: filial.cnpj,
+        cidade: filial.cidade,
+        bairro: filial.bairro,
+        cep: filial.cep,
+        endereco: filial.endereco,
+        uf: filial.uf,
+        telefone: filial.telefone,
+        email: filial.email,
+        responsavel: filial.responsavel,
+        responsavelCargo: filial.responsavelCargo,
+      };
+    }
+  }
+  return {
+    razaoSocial: empresa.razaoSocial,
+    nomeFantasia: empresa.nomeFantasia,
+    cnpj: empresa.cnpj,
+    cidade: empresa.cidade,
+    bairro: empresa.bairro,
+    cep: empresa.cep,
+    endereco: empresa.endereco,
+    uf: empresa.uf,
+    telefone: empresa.telefone,
+    email: empresa.email,
+    responsavel: empresa.responsavel,
+    responsavelCargo: empresa.responsavelCargo,
+  };
+}
+
+function readFormLinkQueryParam(
+  query: ReturnType<typeof useRouter>['query'],
+  key: string
+): string {
+  const raw = query[key];
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  if (Array.isArray(raw) && raw[0]?.trim()) return raw[0].trim();
+  if (typeof window !== 'undefined') {
+    const fromUrl = new URLSearchParams(window.location.search).get(key);
+    if (fromUrl?.trim()) return fromUrl.trim();
+  }
+  return '';
+}
+
 interface FormState {
   nomeCompleto: string;
   rg: string;
@@ -307,6 +360,7 @@ export default function FormularioContratoEstagio() {
   const { user } = useAuth();
   const [empresa, setEmpresa] = useState<Cliente | null>(null);
   const [selectedFilialId, setSelectedFilialId] = useState('');
+  const [empresaLoading, setEmpresaLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
   const [submitting, setSubmitting] = useState(false);
@@ -317,27 +371,12 @@ export default function FormularioContratoEstagio() {
   const lastCepFetched = useRef<string>('');
 
   useEffect(() => {
-    if (!router.isReady) return;
-    const cId =
-      typeof router.query.clienteId === 'string'
-        ? router.query.clienteId
-        : Array.isArray(router.query.clienteId)
-          ? router.query.clienteId[0]
-          : '';
-    const eId =
-      typeof router.query.estagiarioId === 'string'
-        ? router.query.estagiarioId
-        : Array.isArray(router.query.estagiarioId)
-          ? router.query.estagiarioId[0]
-          : '';
-    const fId =
-      typeof router.query.filialId === 'string'
-        ? router.query.filialId
-        : Array.isArray(router.query.filialId)
-          ? router.query.filialId[0]
-          : '';
+    const cId = readFormLinkQueryParam(router.query, 'clienteId');
+    const eId = readFormLinkQueryParam(router.query, 'estagiarioId');
+    const fId = readFormLinkQueryParam(router.query, 'filialId');
     if (!cId && !eId) return;
     let cancelled = false;
+    setEmpresaLoading(true);
     void (async () => {
       try {
         const [c, e] = await Promise.all([
@@ -346,6 +385,7 @@ export default function FormularioContratoEstagio() {
         ]);
         if (cancelled) return;
         if (c) setEmpresa(c);
+        else if (cId) setLoadError(true);
         if (e) {
           setForm(estagiarioToFormState(e));
           const savedFilialId = e.empresaFilialId?.trim() ?? '';
@@ -362,6 +402,8 @@ export default function FormularioContratoEstagio() {
         }
       } catch {
         if (!cancelled) setLoadError(true);
+      } finally {
+        if (!cancelled) setEmpresaLoading(false);
       }
     })();
     return () => {
@@ -371,40 +413,13 @@ export default function FormularioContratoEstagio() {
 
   const empresaContrato: EmpresaContratoDados | null = useMemo(() => {
     if (!empresa) return null;
-    if (selectedFilialId) {
-      const filial = empresa.filiais?.find((f) => f.id === selectedFilialId);
-      if (filial) {
-        return {
-          razaoSocial: filial.razaoSocial,
-          nomeFantasia: filial.nomeFantasia,
-          cnpj: filial.cnpj,
-          cidade: filial.cidade,
-          bairro: filial.bairro,
-          cep: filial.cep,
-          endereco: filial.endereco,
-          uf: filial.uf,
-          telefone: filial.telefone,
-          email: filial.email,
-          responsavel: filial.responsavel,
-          responsavelCargo: filial.responsavelCargo,
-        };
-      }
-    }
-    return {
-      razaoSocial: empresa.razaoSocial,
-      nomeFantasia: empresa.nomeFantasia,
-      cnpj: empresa.cnpj,
-      cidade: empresa.cidade,
-      bairro: empresa.bairro,
-      cep: empresa.cep,
-      endereco: empresa.endereco,
-      uf: empresa.uf,
-      telefone: empresa.telefone,
-      email: empresa.email,
-      responsavel: empresa.responsavel,
-      responsavelCargo: empresa.responsavelCargo,
-    };
+    return buildEmpresaContratoDados(empresa, selectedFilialId);
   }, [empresa, selectedFilialId]);
+
+  const linkClienteId = useMemo(
+    () => readFormLinkQueryParam(router.query, 'clienteId'),
+    [router.query.clienteId]
+  );
 
   const idade = useMemo(() => calcularIdade(form.dataNascimento), [form.dataNascimento]);
   const formRef = useRef(form);
@@ -520,6 +535,7 @@ export default function FormularioContratoEstagio() {
 
   const handleSubmit = async (ev: FormEvent) => {
     ev.preventDefault();
+    if (submitting) return;
     if (form.estudando === 'sim') {
       const uniDigits = form.uniCnpj.replace(/\D/g, '');
       if (uniDigits.length === 14 && !form.uniNome.trim()) {
@@ -572,23 +588,36 @@ export default function FormularioContratoEstagio() {
       return;
     }
 
-    const clienteIdRaw =
-      typeof router.query.clienteId === 'string'
-        ? router.query.clienteId
-        : Array.isArray(router.query.clienteId)
-          ? router.query.clienteId[0]
-          : '';
-    if (!clienteIdRaw || !empresa || !empresaContrato) {
+    const clienteIdRaw = readFormLinkQueryParam(router.query, 'clienteId');
+    if (!clienteIdRaw) {
       toast.error('Abra este formulário pelo link enviado pela empresa.');
       return;
     }
+    if (empresaLoading) {
+      toast.error('Aguarde o carregamento dos dados da empresa.');
+      return;
+    }
 
-    const estagiarioIdEdit =
-      typeof router.query.estagiarioId === 'string'
-        ? router.query.estagiarioId
-        : Array.isArray(router.query.estagiarioId)
-          ? router.query.estagiarioId[0]
-          : '';
+    let empresaSubmit = empresa;
+    if (!empresaSubmit) {
+      try {
+        empresaSubmit = await clientesService.getById(clienteIdRaw);
+        if (empresaSubmit) setEmpresa(empresaSubmit);
+      } catch {
+        empresaSubmit = null;
+      }
+    }
+    const empresaContratoSubmit = empresaSubmit
+      ? buildEmpresaContratoDados(empresaSubmit, selectedFilialId)
+      : null;
+    if (!empresaSubmit || !empresaContratoSubmit) {
+      toast.error(
+        'Não foi possível carregar os dados da empresa. Verifique sua conexão ou peça um novo link à empresa.'
+      );
+      return;
+    }
+
+    const estagiarioIdEdit = readFormLinkQueryParam(router.query, 'estagiarioId');
 
     setSubmitting(true);
     try {
@@ -599,9 +628,9 @@ export default function FormularioContratoEstagio() {
       const cidadeFinal = form.cidade.trim() || 'Brasília';
       const ufFinal = form.uf.trim() || 'DF';
 
-      let empresaEnderecoContrato = empresaContrato.endereco?.trim() ?? '';
+      let empresaEnderecoContrato = empresaContratoSubmit.endereco?.trim() ?? '';
       if (!empresaEnderecoContrato) {
-        const empresaCepDigits = empresaContrato.cep.replace(/\D/g, '');
+        const empresaCepDigits = empresaContratoSubmit.cep.replace(/\D/g, '');
         if (empresaCepDigits.length === 8) {
           const viaEmpresa = await fetchCepLookup(empresaCepDigits);
           if (viaEmpresa?.enderecoCompleto?.trim()) {
@@ -611,18 +640,18 @@ export default function FormularioContratoEstagio() {
       }
 
       const contractPayload: TceContractPayload = {
-        empresaRazaoSocial: empresaContrato.razaoSocial,
-        empresaNomeFantasia: empresaContrato.nomeFantasia,
-        empresaCnpj: empresaContrato.cnpj,
-        empresaCidade: empresaContrato.cidade,
-        empresaBairro: empresaContrato.bairro,
-        empresaCep: empresaContrato.cep,
+        empresaRazaoSocial: empresaContratoSubmit.razaoSocial,
+        empresaNomeFantasia: empresaContratoSubmit.nomeFantasia,
+        empresaCnpj: empresaContratoSubmit.cnpj,
+        empresaCidade: empresaContratoSubmit.cidade,
+        empresaBairro: empresaContratoSubmit.bairro,
+        empresaCep: empresaContratoSubmit.cep,
         empresaEndereco: empresaEnderecoContrato,
-        empresaUf: empresaContrato.uf?.trim() ?? '',
-        empresaTelefone: empresaContrato.telefone,
-        empresaEmail: empresaContrato.email,
-        empresaResponsavel: empresaContrato.responsavel,
-        empresaRepresentanteCargo: empresaContrato.responsavelCargo?.trim() ?? '',
+        empresaUf: empresaContratoSubmit.uf?.trim() ?? '',
+        empresaTelefone: empresaContratoSubmit.telefone,
+        empresaEmail: empresaContratoSubmit.email,
+        empresaResponsavel: empresaContratoSubmit.responsavel,
+        empresaRepresentanteCargo: empresaContratoSubmit.responsavelCargo?.trim() ?? '',
         estagiarioNome: form.nomeCompleto.trim(),
         estagiarioRg: form.rg.trim(),
         estagiarioCpf: form.cpf.trim(),
@@ -822,7 +851,11 @@ export default function FormularioContratoEstagio() {
               <h2 className="text-base font-bold text-[#004085] dark:text-blue-400 border-b border-gray-200 dark:border-gray-600 pb-2">
                 🏢 DADOS DA EMPRESA
               </h2>
-              {empresa && empresaContrato ? (
+              {empresaLoading ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Carregando dados da empresa…
+                </p>
+              ) : empresa && empresaContrato ? (
                 <>
                   <div>
                     <label className={labelClass} htmlFor="empresaUnidade">
@@ -1378,10 +1411,18 @@ export default function FormularioContratoEstagio() {
             <div className="flex justify-center pb-8">
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={
+                  submitting ||
+                  empresaLoading ||
+                  (Boolean(linkClienteId) && !empresa)
+                }
                 className="px-8 py-3 bg-[#004085] dark:bg-blue-600 text-white font-medium rounded-lg hover:bg-[#0056B3] dark:hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {submitting ? 'Enviando…' : 'Concluir'}
+                {submitting
+                  ? 'Enviando…'
+                  : empresaLoading
+                    ? 'Carregando empresa…'
+                    : 'Concluir'}
               </button>
             </div>
           </form>
