@@ -53,7 +53,7 @@ function mapApiPayloadToLookup(data: CnpjApiPayload): CnpjLookupMapped {
   const endereco = partesEnd.filter(Boolean).join(', ');
   return {
     razaoSocial: data.razaoSocial,
-    nomeFantasia: data.nomeFantasia,
+    nomeFantasia: data.nomeFantasia.trim().toUpperCase(),
     telefone: formatPhoneFromDigits(data.phoneDigits),
     email: data.email,
     cidade: data.municipio,
@@ -67,7 +67,7 @@ function mapApiPayloadToLookup(data: CnpjApiPayload): CnpjLookupMapped {
 
 async function fetchCnpjApiPayload(digits: string): Promise<CnpjApiPayload | null> {
   if (digits.length !== 14) return null;
-  const res = await fetch(`/api/cnpj/${digits}`);
+  const res = await fetch(`/api/cnpj/${digits}/`);
   if (!res.ok) return null;
   return (await res.json()) as CnpjApiPayload;
 }
@@ -84,19 +84,10 @@ export interface InstituicaoEnsinoMapped {
   endereco: string;
 }
 
-const LOWER_WORDS = new Set(['da', 'de', 'do', 'das', 'dos', 'e', 'em', 'no', 'na', 'nos', 'nas']);
-
 function formatInstitutionDisplayName(raw: string): string {
   const s = raw.trim().replace(/\s+/g, ' ');
   if (!s) return '';
-  return s
-    .toLowerCase()
-    .split(' ')
-    .map((word, i) => {
-      if (i > 0 && LOWER_WORDS.has(word)) return word;
-      return word.charAt(0).toUpperCase() + word.slice(1);
-    })
-    .join(' ');
+  return s.toUpperCase();
 }
 
 export async function fetchCnpjInstituicaoEnsino(

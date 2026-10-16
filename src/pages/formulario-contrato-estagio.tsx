@@ -312,6 +312,7 @@ export default function FormularioContratoEstagio() {
   const [submitting, setSubmitting] = useState(false);
   const [loadingUniCnpj, setLoadingUniCnpj] = useState(false);
   const lastUniCnpjFetched = useRef<string>('');
+  const uniCnpjLookupSeq = useRef(0);
   const [loadingCep, setLoadingCep] = useState(false);
   const lastCepFetched = useRef<string>('');
 
@@ -457,70 +458,107 @@ export default function FormularioContratoEstagio() {
     }
   }, [form.cep]);
 
-  const handleUniCnpjBlur = useCallback(async (e: FocusEvent<HTMLInputElement>) => {
-    const masked = maskCnpj(e.currentTarget.value);
-    const digits = masked.replace(/\D/g, '');
-    setForm((p) => ({ ...p, uniCnpj: masked }));
-    if (digits.length !== 14) return;
-    if (lastUniCnpjFetched.current === digits && formRef.current.uniNome.trim()) return;
+  const lookupUniCnpj = useCallback(async (digits: string, showToast: boolean): Promise<boolean> => {
+    if (digits.length !== 14) return false;
+    if (lastUniCnpjFetched.current === digits && formRef.current.uniNome.trim()) {
+      return true;
+    }
+    const seq = ++uniCnpjLookupSeq.current;
     setLoadingUniCnpj(true);
     try {
       const data = await fetchCnpjInstituicaoEnsino(digits);
+      if (seq !== uniCnpjLookupSeq.current) return false;
       if (!data) {
         lastUniCnpjFetched.current = '';
         setForm((p) => ({ ...p, uniNome: '', uniCep: '', uniEndereco: '' }));
-        toast.error('CNPJ não encontrado. Verifique o número.');
-        return;
+        if (showToast) {
+          toast.error('CNPJ não encontrado. Verifique o número.');
+        }
+        return false;
       }
       lastUniCnpjFetched.current = digits;
       setForm((p) => ({
         ...p,
         uniNome: data.nome,
         uniCep: data.cep,
-        uniEndereco: data.endereco
+        uniEndereco: data.endereco,
       }));
+      return true;
     } catch {
+      if (seq !== uniCnpjLookupSeq.current) return false;
       lastUniCnpjFetched.current = '';
       setForm((p) => ({ ...p, uniNome: '', uniCep: '', uniEndereco: '' }));
-      toast.error('Não foi possível consultar o CNPJ. Tente novamente.');
+      if (showToast) {
+        toast.error('Não foi possível consultar o CNPJ. Tente novamente.');
+      }
+      return false;
     } finally {
-      setLoadingUniCnpj(false);
+      if (seq === uniCnpjLookupSeq.current) {
+        setLoadingUniCnpj(false);
+      }
     }
   }, []);
 
+  useEffect(() => {
+    if (!showUniFields) return;
+    const digits = form.uniCnpj.replace(/\D/g, '');
+    if (digits.length !== 14) return;
+    if (lastUniCnpjFetched.current === digits && form.uniNome.trim()) return;
+    const timer = window.setTimeout(() => {
+      void lookupUniCnpj(digits, false);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [showUniFields, form.uniCnpj, form.uniNome, lookupUniCnpj]);
+
+  const handleUniCnpjBlur = useCallback(async (e: FocusEvent<HTMLInputElement>) => {
+    const masked = maskCnpj(e.currentTarget.value);
+    const digits = masked.replace(/\D/g, '');
+    setForm((p) => ({ ...p, uniCnpj: masked }));
+    if (digits.length !== 14) return;
+    await lookupUniCnpj(digits, true);
+  }, [lookupUniCnpj]);
+
   const handleSubmit = async (ev: FormEvent) => {
     ev.preventDefault();
+    if (form.estudando === 'sim') {
+      const uniDigits = form.uniCnpj.replace(/\D/g, '');
+      if (uniDigits.length === 14 && !form.uniNome.trim()) {
+        await lookupUniCnpj(uniDigits, true);
+      }
+    }
+    const snapshot = formRef.current;
     const missing: string[] = [];
-    if (!form.nomeCompleto.trim()) missing.push('Nome completo');
-    if (!form.rg.trim()) missing.push('RG');
-    if (!form.cpf.trim()) missing.push('CPF');
-    if (!form.dataNascimento) missing.push('Data de nascimento');
-    if (!form.email.trim()) missing.push('E-mail');
-    if (!form.enderecoCompleto.trim()) missing.push('Endereço completo');
-    if (!form.bairro.trim()) missing.push('Bairro');
-    if (!form.cep.trim()) missing.push('CEP');
-    if (!form.telefone.trim()) missing.push('Telefone');
-    if (!form.dataInicioEstagio) missing.push('Data de início do estágio');
-    if (!form.horarioEntrada) missing.push('Horário de entrada');
-    if (!form.horarioSaida) missing.push('Horário de saída');
-    if (!form.funcaoSelect) missing.push('Função');
+    if (!snapshot.nomeCompleto.trim()) missing.push('Nome completo');
+    if (!snapshot.rg.trim()) missing.push('RG');
+    if (!snapshot.cpf.trim()) missing.push('CPF');
+    if (!snapshot.dataNascimento) missing.push('Data de nascimento');
+    if (!snapshot.email.trim()) missing.push('E-mail');
+    if (!snapshot.enderecoCompleto.trim()) missing.push('Endereço completo');
+    if (!snapshot.bairro.trim()) missing.push('Bairro');
+    if (!snapshot.cep.trim()) missing.push('CEP');
+    if (!snapshot.telefone.trim()) missing.push('Telefone');
+    if (!snapshot.dataInicioEstagio) missing.push('Data de início do estágio');
+    if (!snapshot.horarioEntrada) missing.push('Horário de entrada');
+    if (!snapshot.horarioSaida) missing.push('Horário de saída');
+    if (!snapshot.funcaoSelect) missing.push('Função');
     else if (
-      form.funcaoSelect === ESTAGIO_FUNCAO_OUTRA &&
-      !form.funcaoOutra.trim()
+      snapshot.funcaoSelect === ESTAGIO_FUNCAO_OUTRA &&
+      !snapshot.funcaoOutra.trim()
     ) {
       missing.push('Função (descreva a função)');
     }
-    if (!form.valorBolsa.trim()) missing.push('Valor da bolsa');
-    if (!form.estudando) missing.push('Está estudando?');
-    if (form.estudando === 'sim') {
-      if (!form.nivelEnsino) missing.push('Nível de ensino');
-      const uniTelDigits = form.uniTelefone.replace(/\D/g, '');
+    if (!snapshot.valorBolsa.trim()) missing.push('Valor da bolsa');
+    if (!snapshot.estudando) missing.push('Está estudando?');
+    if (snapshot.estudando === 'sim') {
+      if (!snapshot.nivelEnsino) missing.push('Nível de ensino');
+      const uniTelDigits = snapshot.uniTelefone.replace(/\D/g, '');
       if (uniTelDigits.length < 10) missing.push('Telefone da instituição de ensino');
-      const cnpjDigits = form.uniCnpj.replace(/\D/g, '');
+      const cnpjDigits = snapshot.uniCnpj.replace(/\D/g, '');
       if (cnpjDigits.length !== 14) missing.push('CNPJ da instituição de ensino');
-      else if (!form.uniNome.trim())
-        missing.push('Consulte o CNPJ da instituição (sair do campo para buscar)');
-      if (form.nivelEnsino === 'superior' && !form.uniReitor.trim()) {
+      else if (!snapshot.uniNome.trim()) {
+        missing.push('CNPJ da instituição inválido ou não encontrado na consulta');
+      }
+      if (snapshot.nivelEnsino === 'superior' && !snapshot.uniReitor.trim()) {
         missing.push('Nome do(a) reitor(a)');
     }
     }
@@ -1211,8 +1249,8 @@ export default function FormularioContratoEstagio() {
                     </p>
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Informe o CNPJ com 14 dígitos e saia do campo para buscar. Nome, CEP e endereço vêm
-                    formatados da Receita Federal (Brasil API).
+                    Ao completar os 14 dígitos do CNPJ, a busca é feita automaticamente. Nome, CEP e endereço
+                    vêm da consulta na Receita.
                   </p>
                   <div>
                     <label className={labelClass} htmlFor="uniCnpj">
