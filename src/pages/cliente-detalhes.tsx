@@ -49,6 +49,11 @@ import {
   generateReciboBolsaDocxBlob,
 } from '../services/reciboBolsaDocxService';
 import { relatorioAdministrativoService } from '../services/relatorioAdministrativoService';
+import {
+  formatContractEndDatePtBr,
+  hasCompletedOneYearContractTerm,
+  isOneYearContractCompanyNotified
+} from '../lib/contractTerm';
 
 const emptyFilialForm = {
   cnpj: '',
@@ -728,6 +733,25 @@ export default function ClienteDetalhes() {
       setLoadingEstagiarios(false);
     }
   }, [id]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ estagiarioId: string; notifiedAt: Date }>
+      ).detail;
+      if (!detail?.estagiarioId) return;
+      setEstagiarios((prev) =>
+        prev.map((est) =>
+          est.id === detail.estagiarioId
+            ? { ...est, oneYearContractCompanyNotifiedAt: detail.notifiedAt }
+            : est
+        )
+      );
+    };
+    window.addEventListener('estagiario-one-year-notified', handler);
+    return () =>
+      window.removeEventListener('estagiario-one-year-notified', handler);
+  }, []);
 
   const loadMensalidades = useCallback(async () => {
     try {
@@ -3470,6 +3494,30 @@ export default function ClienteDetalhes() {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{estagiario.nome}</div>
+                                  {estagiario.estagioDataInicio?.trim() &&
+                                    estagiario.status === 'ativo' &&
+                                    hasCompletedOneYearContractTerm(
+                                      estagiario.estagioDataInicio
+                                    ) && (
+                                      <span
+                                        className={`inline-flex mt-1 px-2 py-0.5 text-xs font-semibold rounded-full ${
+                                          isOneYearContractCompanyNotified(
+                                            estagiario.oneYearContractCompanyNotifiedAt
+                                          )
+                                            ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'
+                                            : 'bg-amber-200 dark:bg-amber-800/50 text-amber-950 dark:text-amber-100'
+                                        }`}
+                                        title={`Vigência até ${formatContractEndDatePtBr(
+                                          estagiario.estagioDataInicio
+                                        )}`}
+                                      >
+                                        {isOneYearContractCompanyNotified(
+                                          estagiario.oneYearContractCompanyNotifiedAt
+                                        )
+                                          ? '1 ano concluído — empresa informada'
+                                          : '1 ano de vigência concluído'}
+                                      </span>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                   {filial ? (

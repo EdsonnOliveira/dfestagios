@@ -37,6 +37,7 @@ export interface Estagiario {
   motivoInativacao?: string;
   contratoPdfDrivePath?: string;
   estagioDataInicio?: string;
+  oneYearContractCompanyNotifiedAt?: Date;
   estagioValorBolsa?: string;
   estagioHorarioEntrada?: string;
   estagioHorarioSaida?: string;

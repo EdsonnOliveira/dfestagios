@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import { useRouter } from 'next/router';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -10,7 +11,8 @@ import {
 } from '../services/firebase';
 import {
   formatContractEndDatePtBr,
-  hasCompletedOneYearContractTerm
+  hasCompletedOneYearContractTerm,
+  isOneYearContractCompanyNotified
 } from '../lib/contractTerm';
 
 import { isPanelAdminEmail } from '../constants/admin';
@@ -31,6 +33,9 @@ export default function PainelHeader() {
   const [contractAlerts, setContractAlerts] = useState<ContractYearAlert[]>(
     []
   );
+  const [ackingContractAlertIds, setAckingContractAlertIds] = useState<
+    Set<string>
+  >(() => new Set());
 
   const handleToggleTheme = () => {
     toggleTheme();
@@ -73,6 +78,9 @@ export default function PainelHeader() {
           const inicio = est.estagioDataInicio?.trim();
           if (!inicio) continue;
           if (!hasCompletedOneYearContractTerm(inicio)) continue;
+          if (isOneYearContractCompanyNotified(est.oneYearContractCompanyNotifiedAt)) {
+            continue;
+          }
           const link = estagToCliente.get(est.id);
           if (!link) continue;
           list.push({
@@ -97,20 +105,32 @@ export default function PainelHeader() {
     };
   }, [user?.email]);
 
-  const visibleContractAlerts = useMemo(() => {
-    if (!router.isReady) return contractAlerts;
-    const path = router.pathname.replace(/\/$/, '');
-    if (path !== '/cliente-detalhes') return contractAlerts;
-    const raw = router.query.id;
-    const pageClienteId =
-      typeof raw === 'string'
-        ? raw
-        : Array.isArray(raw)
-          ? raw[0]
-          : '';
-    if (!pageClienteId) return contractAlerts;
-    return contractAlerts.filter((a) => a.clienteId !== pageClienteId);
-  }, [contractAlerts, router.isReady, router.pathname, router.query.id]);
+  const handleMarkOneYearContractCompanyNotified = async (
+    estagiarioId: string
+  ) => {
+    setAckingContractAlertIds((prev) => new Set(prev).add(estagiarioId));
+    try {
+      const notifiedAt = new Date();
+      await estagiariosService.update(estagiarioId, {
+        oneYearContractCompanyNotifiedAt: notifiedAt
+      });
+      setContractAlerts((prev) => prev.filter((a) => a.key !== estagiarioId));
+      window.dispatchEvent(
+        new CustomEvent('estagiario-one-year-notified', {
+          detail: { estagiarioId, notifiedAt }
+        })
+      );
+    } catch (err) {
+      console.error(err);
+      toast.error('Não foi possível salvar. Tente novamente.');
+    } finally {
+      setAckingContractAlertIds((prev) => {
+        const next = new Set(prev);
+        next.delete(estagiarioId);
+        return next;
+      });
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -245,30 +265,48 @@ export default function PainelHeader() {
         </button>
       </div>
 
-      {isPanelAdminEmail(user?.email) && visibleContractAlerts.length > 0 && (
+      {isPanelAdminEmail(user?.email) && contractAlerts.length > 0 && (
         <div className="border-t border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 max-h-52 overflow-y-auto">
           <div className="max-w-7xl mx-auto px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
               Contratos — 1 ano de vigência concluído
             </p>
             <ul className="mt-2 space-y-2 text-sm text-amber-950 dark:text-amber-100">
-              {visibleContractAlerts.map((a) => (
-                <li key={a.key}>
-                  O contrato do estagiário{' '}
-                  <span className="font-semibold">{a.nomeEstagiario}</span> da
-                  empresa <span className="font-semibold">{a.nomeEmpresa}</span>{' '}
-                  completou 1 ano (vigência até {a.dataFimLabel}).{' '}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void router.push(
-                        `/cliente-detalhes?id=${encodeURIComponent(a.clienteId)}`
-                      )
-                    }
-                    className="text-[#004085] dark:text-blue-400 underline font-medium"
+              {contractAlerts.map((a) => (
+                <li
+                  key={a.key}
+                  className="flex flex-wrap items-start gap-x-4 gap-y-2 justify-between"
+                >
+                  <span className="min-w-0 flex-1">
+                    O contrato do estagiário{' '}
+                    <span className="font-semibold">{a.nomeEstagiario}</span> da
+                    empresa <span className="font-semibold">{a.nomeEmpresa}</span>{' '}
+                    completou 1 ano (vigência até {a.dataFimLabel}).{' '}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void router.push(
+                          `/cliente-detalhes?id=${encodeURIComponent(a.clienteId)}`
+                        )
+                      }
+                      className="text-[#004085] dark:text-blue-400 underline font-medium"
+                    >
+                      Ver ficha do cliente
+                    </button>
+                  </span>
+                  <label
+                    className="inline-flex items-center gap-2 shrink-0 cursor-pointer text-xs font-medium text-amber-900 dark:text-amber-100"
                   >
-                    Ver ficha do cliente
-                  </button>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-amber-400 text-amber-700 focus:ring-amber-500"
+                      disabled={ackingContractAlertIds.has(a.key)}
+                      onChange={() =>
+                        void handleMarkOneYearContractCompanyNotified(a.key)
+                      }
+                    />
+                    Empresa informada
+                  </label>
                 </li>
               ))}
             </ul>
