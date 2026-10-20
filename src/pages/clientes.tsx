@@ -7,6 +7,7 @@ import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
 import AdminRoute from '../components/AdminRoute';
 import { clientesService } from '../services/firebase';
+import { mensalidadesService } from '../services/mensalidadesService';
 import { fetchCnpjLookup } from '../services/brasilApiCnpj';
 import { Cliente, ClienteFilial, FormaCaptacao, FORMA_CAPTACAO_OPTIONS } from '../types/firebase';
 import {
@@ -147,10 +148,14 @@ export default function Clientes() {
   const [filtroEstagiario, setFiltroEstagiario] = useState('');
   const [filtroFilial, setFiltroFilial] = useState('');
   const [filtroReposicao, setFiltroReposicao] = useState('');
+  const [filtroMensalidade, setFiltroMensalidade] = useState('');
   const [filtroResponsavel, setFiltroResponsavel] = useState('');
   const [filtroCnpj, setFiltroCnpj] = useState('');
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [clienteIdsComMensalidade, setClienteIdsComMensalidade] = useState<Set<string>>(
+    () => new Set()
+  );
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -480,8 +485,14 @@ export default function Clientes() {
   const loadClientes = async () => {
     try {
       setLoading(true);
-      const data = await clientesService.getAll();
+      const [data, mensalidades] = await Promise.all([
+        clientesService.getAll(),
+        mensalidadesService.getAll(),
+      ]);
       setClientes(data);
+      setClienteIdsComMensalidade(
+        new Set(mensalidades.map((m) => m.clienteId).filter((id): id is string => Boolean(id)))
+      );
     } catch (error) {
       console.error('Erro ao carregar clientes:', error);
     } finally {
@@ -737,7 +748,12 @@ export default function Clientes() {
             : 'Sem reposição pendente';
         filtrosAplicados.push(`Reposição: "${reposicaoText}"`);
       }
-      
+      if (filtroMensalidade) {
+        const mensalidadeText =
+          filtroMensalidade === 'com-mensalidade' ? 'Com mensalidade' : 'Sem mensalidade';
+        filtrosAplicados.push(`Mensalidade: "${mensalidadeText}"`);
+      }
+
       if (filtrosAplicados.length > 0) {
         filtrosTexto = `Filtros: ${filtrosAplicados.join(', ')}`;
       }
@@ -910,6 +926,16 @@ export default function Clientes() {
     return trimmed.split(/\s+/)[0];
   }, []);
 
+  const clienteTemMensalidade = useCallback(
+    (cliente: Cliente) => {
+      const valorCadastro =
+        parseFloat(String(cliente.valor || '').replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+      if (valorCadastro > 0) return true;
+      return Boolean(cliente.id && clienteIdsComMensalidade.has(cliente.id));
+    },
+    [clienteIdsComMensalidade]
+  );
+
   const filtrarClientes = () => {
     return clientes.filter(cliente => {
       const matchRazaoSocial = cliente.razaoSocial.toLowerCase().includes(filtroRazaoSocial.toLowerCase());
@@ -941,6 +967,11 @@ export default function Clientes() {
         filtroReposicao === '' ||
         (filtroReposicao === 'com-reposicao-pendente' && reposicoesPendentesCount > 0) ||
         (filtroReposicao === 'sem-reposicao-pendente' && reposicoesPendentesCount === 0);
+      const temMensalidade = clienteTemMensalidade(cliente);
+      const matchMensalidade =
+        filtroMensalidade === '' ||
+        (filtroMensalidade === 'com-mensalidade' && temMensalidade) ||
+        (filtroMensalidade === 'sem-mensalidade' && !temMensalidade);
 
       return (
         matchRazaoSocial &&
@@ -952,7 +983,8 @@ export default function Clientes() {
         matchStatus &&
         matchEstagiario &&
         matchFilial &&
-        matchReposicao
+        matchReposicao &&
+        matchMensalidade
       );
     });
   };
@@ -1489,6 +1521,21 @@ export default function Clientes() {
                   <option value="">Todos</option>
                   <option value="com-reposicao-pendente">Aguardando reposição</option>
                   <option value="sem-reposicao-pendente">Sem reposição pendente</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Tem Mensalidade
+                </label>
+                <select
+                  value={filtroMensalidade}
+                  onChange={(e) => setFiltroMensalidade(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">Todos</option>
+                  <option value="com-mensalidade">Sim</option>
+                  <option value="sem-mensalidade">Não</option>
                 </select>
               </div>
 
