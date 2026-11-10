@@ -6,6 +6,8 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import { AnimatedModal } from '../components/AnimatedModal';
 import {
   buildRelatorioAdministrativoDiario,
+  buildRelatorioAdministrativoPeriodo,
+  exportRelatorioAdministrativoPeriodoPdf,
   formatDateLongPtBr,
   formatDateShortPtBr,
   getTodayIsoDate,
@@ -45,6 +47,9 @@ export default function RelatorioAdministrativoPage() {
     null
   );
   const [showExcluirDiaModal, setShowExcluirDiaModal] = useState(false);
+  const [periodoInicio, setPeriodoInicio] = useState(getTodayIsoDate());
+  const [periodoFim, setPeriodoFim] = useState(getTodayIsoDate());
+  const [exportPeriodoLoading, setExportPeriodoLoading] = useState(false);
 
   const relatorioTexto = useMemo(
     () => buildRelatorioAdministrativoDiario(selectedDate, eventos),
@@ -106,6 +111,74 @@ export default function RelatorioAdministrativoPage() {
       toast(relatorioTexto, { duration: 10000 });
     }
   };
+
+  const resolvePeriodoRange = useCallback(() => {
+    const inicio = periodoInicio.trim();
+    const fim = periodoFim.trim();
+    if (!inicio || !fim) {
+      toast.error('Informe a data inicial e a data final.');
+      return null;
+    }
+    if (inicio > fim) {
+      toast.error('A data inicial não pode ser maior que a final.');
+      return null;
+    }
+    return { inicio, fim };
+  }, [periodoInicio, periodoFim]);
+
+  const loadEventosPeriodo = useCallback(async () => {
+    const range = resolvePeriodoRange();
+    if (!range) return null;
+    return relatorioAdministrativoService.getByPeriodo(range.inicio, range.fim);
+  }, [resolvePeriodoRange]);
+
+  const handleCopyRelatorioPeriodo = useCallback(async () => {
+    if (typeof window === 'undefined') return;
+    const range = resolvePeriodoRange();
+    if (!range) return;
+    try {
+      setExportPeriodoLoading(true);
+      const periodoEventos = await loadEventosPeriodo();
+      if (!periodoEventos) return;
+      const texto = buildRelatorioAdministrativoPeriodo(
+        range.inicio,
+        range.fim,
+        periodoEventos
+      );
+      await navigator.clipboard.writeText(texto);
+      toast.success(
+        periodoEventos.length > 0
+          ? 'Relatório do período copiado.'
+          : 'Nenhum registro no período. Texto copiado mesmo assim.'
+      );
+    } catch (error) {
+      console.error(error);
+      toast.error('Não foi possível copiar o período.');
+    } finally {
+      setExportPeriodoLoading(false);
+    }
+  }, [loadEventosPeriodo, resolvePeriodoRange]);
+
+  const handleExportRelatorioPeriodoPdf = useCallback(async () => {
+    const range = resolvePeriodoRange();
+    if (!range) return;
+    try {
+      setExportPeriodoLoading(true);
+      const periodoEventos = await loadEventosPeriodo();
+      if (!periodoEventos) return;
+      if (periodoEventos.length === 0) {
+        toast.error('Nenhum registro no período selecionado.');
+        return;
+      }
+      exportRelatorioAdministrativoPeriodoPdf(range.inicio, range.fim, periodoEventos);
+      toast.success('PDF gerado.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao gerar PDF do período.');
+    } finally {
+      setExportPeriodoLoading(false);
+    }
+  }, [loadEventosPeriodo, resolvePeriodoRange]);
 
   const handleOpenEdit = (evento: RelatorioAdministrativoEvento) => {
     setEventoEmEdicao(evento);
@@ -272,6 +345,75 @@ export default function RelatorioAdministrativoPage() {
             >
               Recarregar
             </button>
+          </div>
+
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 mb-6 transition-colors">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-[#004085] dark:text-blue-400">
+                  Exportar por período
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Escolha o intervalo e exporte em PDF compacto para imprimir, ou copie o texto.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:flex-wrap">
+                <div>
+                  <label
+                    htmlFor="periodoInicio"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  >
+                    De
+                  </label>
+                  <input
+                    id="periodoInicio"
+                    type="date"
+                    value={periodoInicio}
+                    onChange={(e) => setPeriodoInicio(e.target.value)}
+                    className="w-full sm:w-auto px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="periodoFim"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  >
+                    Até
+                  </label>
+                  <input
+                    id="periodoFim"
+                    type="date"
+                    value={periodoFim}
+                    onChange={(e) => setPeriodoFim(e.target.value)}
+                    className="w-full sm:w-auto px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleCopyRelatorioPeriodo()}
+                  disabled={exportPeriodoLoading}
+                  className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {exportPeriodoLoading ? 'Gerando...' : 'Copiar período'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleExportRelatorioPeriodoPdf()}
+                  disabled={exportPeriodoLoading}
+                  className="flex items-center justify-center px-4 py-2 bg-[#004085] hover:bg-[#0056B3] dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
+                  </svg>
+                  {exportPeriodoLoading ? 'Gerando...' : 'Exportar PDF'}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

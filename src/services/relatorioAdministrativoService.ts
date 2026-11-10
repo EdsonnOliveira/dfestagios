@@ -243,6 +243,29 @@ export const relatorioAdministrativoService = {
     return getEventosByDataRegistroRaw(dataRegistro);
   },
 
+  async getByPeriodo(
+    dataInicio: string,
+    dataFim: string
+  ): Promise<RelatorioAdministrativoEvento[]> {
+    const start = dataInicio.trim();
+    const end = dataFim.trim();
+    if (!start || !end) return [];
+    const q = query(
+      collection(db, 'relatorioAdministrativoEventos'),
+      where('dataRegistro', '>=', start),
+      where('dataRegistro', '<=', end),
+      orderBy('dataRegistro', 'asc')
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs
+      .map((item) => mapEvento(item.id, item.data() as Record<string, unknown>))
+      .sort((a, b) => {
+        const byDate = a.dataRegistro.localeCompare(b.dataRegistro);
+        if (byDate !== 0) return byDate;
+        return a.createdAt.getTime() - b.createdAt.getTime();
+      });
+  },
+
   async getHistoricoDatas(limit = 90): Promise<string[]> {
     const q = query(
       collection(db, 'relatorioAdministrativoEventos'),

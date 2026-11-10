@@ -1,3 +1,4 @@
+import jsPDF from 'jspdf';
 import type { RelatorioAdministrativoEvento } from '../types/firebase';
 
 export function getTodayIsoDate(): string {
@@ -93,4 +94,187 @@ export function buildRelatorioAdministrativoDiario(
       index < rescisaoLines.length - 1 ? [line, ''] : [line]
     ),
   ].join('\n');
+}
+
+export function groupEventosByDataRegistro(
+  eventos: RelatorioAdministrativoEvento[]
+): Array<{ dataRegistro: string; eventos: RelatorioAdministrativoEvento[] }> {
+  const byDate = new Map<string, RelatorioAdministrativoEvento[]>();
+  for (const evento of eventos) {
+    const key = evento.dataRegistro?.trim();
+    if (!key) continue;
+    const list = byDate.get(key) ?? [];
+    list.push(evento);
+    byDate.set(key, list);
+  }
+  return Array.from(byDate.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([dataRegistro, items]) => ({
+      dataRegistro,
+      eventos: items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
+    }));
+}
+
+function buildContratoLine(item: RelatorioAdministrativoEvento): string {
+  return `${item.clienteNome.toUpperCase()} - ${item.estagiarioNome.toUpperCase()} - INÍCIO ${formatDateShortPtBr(item.dataReferencia)}`;
+}
+
+function buildRescisaoLine(item: RelatorioAdministrativoEvento): string {
+  return `${item.clienteNome.toUpperCase()} - ${item.estagiarioNome.toUpperCase()} - SAÍDA ${formatDateShortPtBr(item.dataReferencia)} ${formatReposicaoLabel(item.haveraReposicao)}`.trim();
+}
+
+export function buildRelatorioAdministrativoPeriodo(
+  dataInicio: string,
+  dataFim: string,
+  eventos: RelatorioAdministrativoEvento[]
+): string {
+  const groups = groupEventosByDataRegistro(eventos);
+  if (groups.length === 0) {
+    return [
+      `Relatório Administrativo - ${formatDateLongPtBr(dataInicio)} a ${formatDateLongPtBr(dataFim)}`,
+      '',
+      'Nenhum registro no período selecionado.',
+    ].join('\n');
+  }
+
+  const blocks = groups.map(({ dataRegistro, eventos: dayEventos }) => {
+    const contratos = dayEventos
+      .filter((item) => item.tipo === 'contrato')
+      .sort((a, b) => a.estagiarioNome.localeCompare(b.estagiarioNome, 'pt-BR'));
+    const rescisoes = dayEventos
+      .filter((item) => item.tipo === 'rescisao')
+      .sort((a, b) => a.estagiarioNome.localeCompare(b.estagiarioNome, 'pt-BR'));
+
+    const lines = [`*${formatDateLongPtBr(dataRegistro)}*`];
+    if (contratos.length > 0) {
+      lines.push('CONTRATOS:');
+      lines.push(...contratos.map(buildContratoLine));
+    }
+    if (rescisoes.length > 0) {
+      lines.push('RESCISÕES:');
+      lines.push(...rescisoes.map(buildRescisaoLine));
+    }
+    if (contratos.length === 0 && rescisoes.length === 0) {
+      lines.push('Sem registros.');
+    }
+    return lines.join('\n');
+  });
+
+  return [
+    `Relatório Administrativo - ${formatDateLongPtBr(dataInicio)} a ${formatDateLongPtBr(dataFim)}`,
+    '',
+    ...blocks,
+  ].join('\n\n');
+}
+
+export function exportRelatorioAdministrativoPeriodoPdf(
+  dataInicio: string,
+  dataFim: string,
+  eventos: RelatorioAdministrativoEvento[]
+): void {
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const contentWidth = pageWidth - margin * 2;
+  const lineHeight = 3.6;
+  const primaryColor: [number, number, number] = [0, 64, 133];
+  let y = 0;
+
+  const ensureSpace = (needed: number) => {
+    if (y + needed > pageHeight - 10) {
+      doc.addPage();
+      y = 10;
+    }
+  };
+
+  const writeLine = (
+    text: string,
+    options?: { fontSize?: number; fontStyle?: 'normal' | 'bold'; color?: [number, number, number] }
+  ) => {
+    const fontSize = options?.fontSize ?? 8;
+    const fontStyle = options?.fontStyle ?? 'normal';
+    doc.setFont('helvetica', fontStyle);
+    doc.setFontSize(fontSize);
+    if (options?.color) {
+      doc.setTextColor(options.color[0], options.color[1], options.color[2]);
+    } else {
+      doc.setTextColor(0, 0, 0);
+    }
+    const lines = doc.splitTextToSize(text, contentWidth) as string[];
+    for (const line of lines) {
+      ensureSpace(lineHeight);
+      doc.text(line, margin, y);
+      y += lineHeight;
+    }
+  };
+
+  doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+  doc.rect(0, 0, pageWidth, 16, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text('RELATÓRIO ADMINISTRATIVO', pageWidth / 2, 7, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.text(
+    `${formatDateLongPtBr(dataInicio)} a ${formatDateLongPtBr(dataFim)}`,
+    pageWidth / 2,
+    12.5,
+    { align: 'center' }
+  );
+
+  y = 20;
+  const groups = groupEventosByDataRegistro(eventos);
+  if (groups.length === 0) {
+    writeLine('Nenhum registro no período selecionado.');
+  } else {
+    for (const { dataRegistro, eventos: dayEventos } of groups) {
+      const contratos = dayEventos
+        .filter((item) => item.tipo === 'contrato')
+        .sort((a, b) => a.estagiarioNome.localeCompare(b.estagiarioNome, 'pt-BR'));
+      const rescisoes = dayEventos
+        .filter((item) => item.tipo === 'rescisao')
+        .sort((a, b) => a.estagiarioNome.localeCompare(b.estagiarioNome, 'pt-BR'));
+
+      ensureSpace(lineHeight * 2);
+      writeLine(formatDateLongPtBr(dataRegistro), {
+        fontSize: 9,
+        fontStyle: 'bold',
+        color: primaryColor,
+      });
+
+      if (contratos.length > 0) {
+        writeLine(`CONTRATOS (${contratos.length})`, {
+          fontSize: 8,
+          fontStyle: 'bold',
+          color: [22, 101, 52],
+        });
+        for (const item of contratos) {
+          writeLine(buildContratoLine(item));
+        }
+      }
+
+      if (rescisoes.length > 0) {
+        writeLine(`RESCISÕES (${rescisoes.length})`, {
+          fontSize: 8,
+          fontStyle: 'bold',
+          color: [153, 27, 27],
+        });
+        for (const item of rescisoes) {
+          writeLine(buildRescisaoLine(item));
+        }
+      }
+
+      y += 1.5;
+    }
+  }
+
+  const now = new Date();
+  const stamp = `${now.toLocaleDateString('pt-BR').replace(/\//g, '-')}_${now
+    .toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    .replace(/:/g, '-')}`;
+  doc.save(
+    `Relatorio_Administrativo_${formatDateLongPtBr(dataInicio).replace(/\//g, '-')}_a_${formatDateLongPtBr(dataFim).replace(/\//g, '-')}_${stamp}.pdf`
+  );
 }
