@@ -1123,13 +1123,17 @@ export default function EntrevistasPage() {
           const status: EntrevistaCandidatoStatus = hasContract
             ? 'contrato_preenchido'
             : 'contrato_pendente';
-          const filialQuery = clienteLink.filialId
-            ? `&filialId=${encodeURIComponent(clienteLink.filialId)}`
+          const resolvedFilialId =
+            clienteLink.filialId?.trim() ||
+            estagiario.empresaFilialId?.trim() ||
+            '';
+          const filialQuery = resolvedFilialId
+            ? `&filialId=${encodeURIComponent(resolvedFilialId)}`
             : '';
           const link = `${window.location.origin}/formulario-contrato-estagio?clienteId=${encodeURIComponent(clienteLink.clienteId)}&estagiarioId=${encodeURIComponent(clienteLink.estagiarioId)}${filialQuery}`;
           return {
             id: `cliente-${clienteLink.id}`,
-            empresaNome: cliente.nomeFantasia || cliente.razaoSocial,
+            empresaNome: resolveEmpresaNome(cliente, resolvedFilialId),
             candidatoNome: estagiario.nome?.trim() || clienteLink.nome,
             telefone:
               estagiario.telefone1?.trim() ||

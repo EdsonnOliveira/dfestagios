@@ -388,18 +388,17 @@ export default function FormularioContratoEstagio() {
         else if (cId) setLoadError(true);
         if (e) {
           setForm(estagiarioToFormState(e));
-          const savedFilialId = e.empresaFilialId?.trim() ?? '';
-          const filialExists = Boolean(
-            savedFilialId &&
-              c?.filiais?.some((f) => f.id === savedFilialId)
-          );
-          setSelectedFilialId(filialExists ? savedFilialId : '');
-        } else {
-          const queryFilialExists = Boolean(
-            fId && c?.filiais?.some((f) => f.id === fId)
-          );
-          setSelectedFilialId(queryFilialExists ? fId : '');
         }
+        const savedFilialId = e?.empresaFilialId?.trim() ?? '';
+        const queryFilialExists = Boolean(
+          fId && c?.filiais?.some((f) => f.id === fId)
+        );
+        const savedFilialExists = Boolean(
+          savedFilialId && c?.filiais?.some((f) => f.id === savedFilialId)
+        );
+        setSelectedFilialId(
+          queryFilialExists ? fId : savedFilialExists ? savedFilialId : ''
+        );
       } catch {
         if (!cancelled) setLoadError(true);
       } finally {
