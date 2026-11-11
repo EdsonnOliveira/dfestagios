@@ -1,37 +1,14 @@
 import Image from 'next/image';
-import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
+import heroStyles from '../styles/HomeHero.module.css';
 
 // import { whatsapp } from '../constants/var';
 
 export default function Home() {
   const router = useRouter();
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const slides = [
-    { 
-      id: 1, 
-      image: '/bg-1.jpg',
-      title: 'Há mais de 10 anos',
-      subtitle: 'Conectando talentos e oportunidades',
-      cta: 'QUERO CONTRATAR'
-    },
-    { 
-      id: 2, 
-      image: '/bg-2.jpg',
-      title: 'Estágios de qualidade',
-      subtitle: 'Para estudantes e empresas',
-      cta: 'QUERO CONTRATAR'
-    },
-    { 
-      id: 3, 
-      image: '/bg-3.webp',
-      title: 'Processo simplificado',
-      subtitle: 'Contratação rápida e segura',
-      cta: 'QUERO CONTRATAR'
-    }
-  ];
 
   // const openWhatsApp = () => {
   //   const message = 'Olá! Gostaria de contratar estagiários através da DF Estágios.';
@@ -51,94 +28,92 @@ export default function Home() {
     router.push('/empresa');
   };
 
-  const nextSlide = () => {
-    setCurrentSlide((prev) => {
-      const next = (prev + 1) % slides.length;
-      return next;
-    });
-  };
-
-  const prevSlide = () => {
-    setCurrentSlide((prev) => {
-      const next = (prev - 1 + slides.length) % slides.length;
-      return next;
-    });
-  };
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % slides.length);
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [currentSlide, slides.length]);
-
   return (
     <div className="min-h-screen bg-white">
       <Header />
 
-      <section className="relative h-[400px] sm:h-[500px] md:h-[600px] overflow-hidden pt-20 sm:pt-24">
-        <div className="relative h-full">
-          <Image
-            src={slides[currentSlide].image}
-            alt="Slide"
-            fill
-            className="object-cover transition-all duration-1000 ease-in-out"
-            priority
-          />
-          {
-            currentSlide === 0 && (
-              <div className="absolute inset-0 bg-[#00408570]"></div>
-            )
-          }
-          {
-            currentSlide === 1 && (
-              <div className="absolute inset-0 bg-[#FFC10750]"></div>
-            )
-          }
-          {
-            currentSlide === 2 && (
-              <div className="absolute inset-0 bg-[#28A74550]"></div>
-            )
-          }
-        </div>
-        
-        <div className="absolute inset-0 z-10 h-full max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 px-4">{slides[currentSlide].title}</h1>
-              <p className="text-lg sm:text-xl text-white mb-6 sm:mb-8 px-4">{slides[currentSlide].subtitle}</p>
+      <section className={heroStyles.hero} aria-labelledby="home-hero-title">
+        <Image
+          src="/home-hero-background.png"
+          alt="Estudante em Brasília com o Congresso Nacional ao fundo"
+          fill
+          priority
+          sizes="100vw"
+          className={heroStyles.background}
+        />
+        <div className={heroStyles.shade} aria-hidden="true" />
+
+        <div className={heroStyles.content}>
+          <div className={heroStyles.intro}>
+            <h1 id="home-hero-title" className={heroStyles.title}>
+              Conectando<br /><span>talentos</span> a grandes<br />oportunidades
+            </h1>
+            <p className={heroStyles.description}>
+              A DF Estágios é a sua ponte entre o futuro e o mercado de trabalho. Ajudamos estudantes a conquistarem estágios e apoiamos empresas a encontrarem os melhores talentos.
+            </p>
+
+            <div className={heroStyles.actions}>
+              <Link href="/formulario" className={heroStyles.actionCard}>
+                <span className={heroStyles.studentIcon} aria-hidden="true">
+                  <Image src="/home-hero-icons/graduation-cap.svg" alt="" width={42} height={42} />
+                </span>
+                <span className={heroStyles.actionCopy}>
+                  <strong>Sou Estudante</strong>
+                  <small>Cadastre-se, encontre vagas e acompanhe suas candidaturas.</small>
+                </span>
+                <span className={heroStyles.arrow} aria-hidden="true">
+                  <Image src="/home-hero-icons/arrow-right.svg" alt="" width={19} height={19} />
+                </span>
+              </Link>
+
+              <Link href="/empresa" className={heroStyles.actionCard}>
+                <span className={heroStyles.companyIcon} aria-hidden="true">
+                  <Image src="/home-hero-icons/building-2.svg" alt="" width={39} height={39} />
+                </span>
+                <span className={heroStyles.actionCopy}>
+                  <strong>Sou Empresa</strong>
+                  <small>Contrate estagiários e fortaleça sua equipe.</small>
+                </span>
+                <span className={`${heroStyles.arrow} ${heroStyles.companyArrow}`} aria-hidden="true">
+                  <Image src="/home-hero-icons/arrow-right.svg" alt="" width={19} height={19} />
+                </span>
+              </Link>
             </div>
           </div>
 
-          <div className="absolute inset-y-0 left-2 sm:left-4 flex items-center">
-            <button 
-              onClick={prevSlide}
-              className="p-1 sm:p-2 hover:bg-white hover:bg-opacity-20 rounded-full transition-colors"
-            >
-              <Image src="/chevron-left.svg" alt="Previous" width={20} height={20} className="sm:w-6 sm:h-6" />
-            </button>
+          <div className={heroStyles.quote}>
+            O estágio de hoje constrói o seu <strong>amanhã</strong>
+            <span aria-hidden="true" />
           </div>
 
-          <div className="absolute inset-y-0 right-2 sm:right-4 flex items-center">
-            <button 
-              onClick={nextSlide}
-              className="p-1 sm:p-2 hover:bg-white hover:bg-opacity-20 rounded-full transition-colors"
-            >
-              <Image src="/chevron-right.svg" alt="Next" width={20} height={20} className="sm:w-6 sm:h-6" />
-            </button>
+          <div className={heroStyles.benefits} aria-label="Vantagens da DF Estágios">
+            <div className={heroStyles.benefit}>
+              <Image src="/home-hero-icons/users-round.svg" alt="" width={36} height={36} />
+              <span>Vagas em<br />diversas áreas</span>
+            </div>
+            <div className={heroStyles.benefit}>
+              <Image src="/home-hero-icons/file-text.svg" alt="" width={36} height={36} />
+              <span>Processo simples<br />e sem burocracia</span>
+            </div>
+            <div className={heroStyles.benefit}>
+              <Image src="/home-hero-icons/shield-check.svg" alt="" width={36} height={36} />
+              <span>Segurança e suporte<br />em todo o processo</span>
+            </div>
           </div>
 
-          <div className="absolute bottom-4 sm:bottom-6 left-1/2 transform -translate-x-1/2 flex gap-2">
-            {slides.map((_, index) => (
-              <button
-                key={index}
-                onClick={() => setCurrentSlide(index)}
-                className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full transition-colors ${
-                  index === currentSlide ? 'bg-white' : 'bg-white bg-opacity-50'
-                }`}
-              />
-            ))}
+          <div className={heroStyles.stats}>
+            <div className={heroStyles.stat}>
+              <Image src="/home-hero-icons/briefcase-business.svg" alt="" width={35} height={35} />
+              <span><strong>+ de 1.000</strong><small>empresas parceiras</small></span>
+            </div>
+            <div className={heroStyles.stat}>
+              <Image src="/home-hero-icons/users-round.svg" alt="" width={38} height={38} />
+              <span><strong>Milhares</strong><small>de estudantes conectados</small></span>
+            </div>
+            <div className={heroStyles.stat}>
+              <Image src="/home-hero-icons/map-pin.svg" alt="" width={38} height={38} />
+              <span><strong>Brasília e entorno</strong><small>Atendemos todo o DF e cidades satélites</small></span>
+            </div>
           </div>
         </div>
       </section>
