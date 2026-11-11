@@ -2326,26 +2326,71 @@ export default function ClienteDetalhes() {
     }
     try {
       setLoadingCopyFormularioLink(true);
-      const estagiarioId = await estagiariosService.add({
-        nome: copyFormularioNome.trim(),
-        telefone1: copyFormularioTelefone.replace(/\D/g, ''),
-        email: '',
-        uf: 'DF',
-        cidade: '',
-        bairro: '',
-        endereco: '',
-        grauInstrucao: 'medio',
-        status: 'ativo',
-        ...(copyFormularioFilialId ? { empresaFilialId: copyFormularioFilialId } : {}),
-      });
-      await clienteContratoLinksService.add({
-        clienteId: clienteIdParam,
-        estagiarioId,
-        nome: copyFormularioNome.trim(),
-        telefone: copyFormularioTelefone.replace(/\D/g, ''),
-        ...(copyFormularioFilialId ? { filialId: copyFormularioFilialId } : {}),
-        status: 'contrato_pendente',
-      });
+      const telefoneDigits = copyFormularioTelefone.replace(/\D/g, '');
+      const nomeTrimmed = copyFormularioNome.trim();
+      const existingLinks =
+        await clienteContratoLinksService.findByClienteAndTelefone(
+          clienteIdParam,
+          telefoneDigits
+        );
+      const reusableLink =
+        existingLinks.find((link) => link.status === 'contrato_preenchido') ??
+        existingLinks.find((link) => link.status === 'contrato_pendente') ??
+        existingLinks[0] ??
+        null;
+      let estagiarioId = reusableLink?.estagiarioId ?? '';
+      if (estagiarioId) {
+        await estagiariosService.update(estagiarioId, {
+          nome: nomeTrimmed,
+          telefone1: telefoneDigits,
+          ...(copyFormularioFilialId
+            ? { empresaFilialId: copyFormularioFilialId }
+            : {}),
+        });
+        if (reusableLink?.id) {
+          await clienteContratoLinksService.update(reusableLink.id, {
+            nome: nomeTrimmed,
+            telefone: telefoneDigits,
+            ...(copyFormularioFilialId
+              ? { filialId: copyFormularioFilialId }
+              : {}),
+            status:
+              reusableLink.status === 'contrato_preenchido'
+                ? 'contrato_preenchido'
+                : 'contrato_pendente',
+          });
+        }
+        await Promise.all(
+          existingLinks
+            .filter((link) => link.id && link.id !== reusableLink?.id)
+            .map((link) => clienteContratoLinksService.delete(link.id!))
+        );
+      } else {
+        estagiarioId = await estagiariosService.add({
+          nome: nomeTrimmed,
+          telefone1: telefoneDigits,
+          email: '',
+          uf: 'DF',
+          cidade: '',
+          bairro: '',
+          endereco: '',
+          grauInstrucao: 'medio',
+          status: 'ativo',
+          ...(copyFormularioFilialId
+            ? { empresaFilialId: copyFormularioFilialId }
+            : {}),
+        });
+        await clienteContratoLinksService.add({
+          clienteId: clienteIdParam,
+          estagiarioId,
+          nome: nomeTrimmed,
+          telefone: telefoneDigits,
+          ...(copyFormularioFilialId
+            ? { filialId: copyFormularioFilialId }
+            : {}),
+          status: 'contrato_pendente',
+        });
+      }
       const params = new URLSearchParams({
         clienteId: clienteIdParam,
         estagiarioId,

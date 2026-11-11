@@ -12,6 +12,7 @@ import {
   entrevistaCandidatosService,
   entrevistasService,
   estagiariosService,
+  normalizeContratoPhone,
 } from '../services/firebase';
 import {
   buildEntrevistaConfirmacaoMessage,
@@ -305,42 +306,59 @@ function parseLinkDate(value: unknown): Date {
   return new Date(0);
 }
 
+function preferContratoLinkItem(
+  item: ContratoLinkItem,
+  existing: ContratoLinkItem
+): boolean {
+  if (
+    item.status === 'contrato_preenchido' &&
+    existing.status !== 'contrato_preenchido'
+  ) {
+    return true;
+  }
+  if (
+    item.status !== 'contrato_preenchido' &&
+    existing.status === 'contrato_preenchido'
+  ) {
+    return false;
+  }
+  if (
+    item.sourceType === 'entrevista' &&
+    existing.sourceType === 'cliente' &&
+    item.status === existing.status
+  ) {
+    return true;
+  }
+  return item.createdAt.getTime() > existing.createdAt.getTime();
+}
+
 function dedupeContratoLinks(items: ContratoLinkItem[]): ContratoLinkItem[] {
-  const byKey = new Map<string, ContratoLinkItem>();
+  const byEstagiario = new Map<string, ContratoLinkItem>();
   items.forEach((item) => {
     if (!item.estagiarioId || !item.clienteId) {
-      byKey.set(item.id, item);
+      byEstagiario.set(item.id, item);
       return;
     }
     const key = buildVinculadoKey(item.clienteId, item.estagiarioId);
-    const existing = byKey.get(key);
-    if (!existing) {
-      byKey.set(key, item);
-      return;
-    }
-    const preferCurrent =
-      item.status === 'contrato_preenchido' &&
-      existing.status !== 'contrato_preenchido';
-    if (preferCurrent) {
-      byKey.set(key, item);
-      return;
-    }
-    if (
-      item.sourceType === 'entrevista' &&
-      existing.sourceType === 'cliente' &&
-      item.status === existing.status
-    ) {
-      byKey.set(key, item);
-      return;
-    }
-    if (
-      item.status === existing.status &&
-      item.createdAt.getTime() > existing.createdAt.getTime()
-    ) {
-      byKey.set(key, item);
+    const existing = byEstagiario.get(key);
+    if (!existing || preferContratoLinkItem(item, existing)) {
+      byEstagiario.set(key, item);
     }
   });
-  return Array.from(byKey.values());
+  const byPhone = new Map<string, ContratoLinkItem>();
+  Array.from(byEstagiario.values()).forEach((item) => {
+    const phone = normalizeContratoPhone(item.telefone);
+    if (!item.clienteId || phone.length < 8) {
+      byPhone.set(`id:${item.id}`, item);
+      return;
+    }
+    const key = `${item.clienteId}:${phone}`;
+    const existing = byPhone.get(key);
+    if (!existing || preferContratoLinkItem(item, existing)) {
+      byPhone.set(key, item);
+    }
+  });
+  return Array.from(byPhone.values());
 }
 
 export default function EntrevistasPage() {
@@ -1103,6 +1121,24 @@ export default function EntrevistasPage() {
           buildVinculadoKey(item.clienteId!, item.estagiarioId!)
         )
       );
+      const filledPhonesByCliente = new Map<string, Set<string>>();
+      const getFilledPhonesForCliente = async (cliente: Cliente) => {
+        const clienteId = cliente.id?.trim() ?? '';
+        if (!clienteId) return new Set<string>();
+        const cached = filledPhonesByCliente.get(clienteId);
+        if (cached) return cached;
+        const phones = new Set<string>();
+        await Promise.all(
+          (cliente.estagiariosVinculados ?? []).map(async (vinculadoId) => {
+            const vinculado = await estagiariosService.getById(vinculadoId);
+            if (!estagiarioHasContratoPreenchido(vinculado)) return;
+            const phone = normalizeContratoPhone(vinculado?.telefone1);
+            if (phone) phones.add(phone);
+          })
+        );
+        filledPhonesByCliente.set(clienteId, phones);
+        return phones;
+      };
       const clienteItems = await Promise.all(
         clienteLinksData.map(async (clienteLink) => {
           if (!clienteLink.id) return null;
@@ -1120,6 +1156,16 @@ export default function EntrevistasPage() {
           const estagiario = await estagiariosService.getById(clienteLink.estagiarioId);
           if (!estagiario) return null;
           const hasContract = estagiarioHasContratoPreenchido(estagiario);
+          const phone = normalizeContratoPhone(
+            estagiario.telefone1 || clienteLink.telefone
+          );
+          if (!hasContract && phone) {
+            const filledPhones = await getFilledPhonesForCliente(cliente);
+            if (filledPhones.has(phone)) {
+              await clienteContratoLinksService.delete(clienteLink.id);
+              return null;
+            }
+          }
           const status: EntrevistaCandidatoStatus = hasContract
             ? 'contrato_preenchido'
             : 'contrato_pendente';
@@ -1509,16 +1555,58 @@ export default function EntrevistasPage() {
           status: trackingStatus,
         });
       }
-      await clienteContratoLinksService.add({
-        clienteId: selectedEntrevista.clienteId,
-        estagiarioId,
-        nome: candidato.nome.trim(),
-        telefone: candidato.telefone.replace(/\D/g, ''),
-        ...(selectedEntrevista.filialId
-          ? { filialId: selectedEntrevista.filialId }
-          : {}),
-        status: trackingStatus,
-      });
+      const telefoneDigits = candidato.telefone.replace(/\D/g, '');
+      const linksByPhone =
+        await clienteContratoLinksService.findByClienteAndTelefone(
+          selectedEntrevista.clienteId,
+          telefoneDigits
+        );
+      const existingLink =
+        (await clienteContratoLinksService.findByClienteAndEstagiario(
+          selectedEntrevista.clienteId,
+          estagiarioId
+        )) ??
+        linksByPhone.find((link) => link.status === 'contrato_preenchido') ??
+        linksByPhone.find((link) => link.status === 'contrato_pendente') ??
+        linksByPhone[0] ??
+        null;
+      if (existingLink?.id) {
+        const nextStatus: EntrevistaCandidatoStatus =
+          existingLink.status === 'contrato_preenchido' ||
+          trackingStatus === 'contrato_preenchido'
+            ? 'contrato_preenchido'
+            : trackingStatus;
+        await clienteContratoLinksService.update(existingLink.id, {
+          estagiarioId,
+          nome: candidato.nome.trim(),
+          telefone: telefoneDigits,
+          ...(selectedEntrevista.filialId
+            ? { filialId: selectedEntrevista.filialId }
+            : {}),
+          status: nextStatus,
+        });
+        const duplicateLinks =
+          await clienteContratoLinksService.findByClienteAndTelefone(
+            selectedEntrevista.clienteId,
+            telefoneDigits
+          );
+        await Promise.all(
+          duplicateLinks
+            .filter((link) => link.id && link.id !== existingLink.id)
+            .map((link) => clienteContratoLinksService.delete(link.id!))
+        );
+      } else {
+        await clienteContratoLinksService.add({
+          clienteId: selectedEntrevista.clienteId,
+          estagiarioId,
+          nome: candidato.nome.trim(),
+          telefone: telefoneDigits,
+          ...(selectedEntrevista.filialId
+            ? { filialId: selectedEntrevista.filialId }
+            : {}),
+          status: trackingStatus,
+        });
+      }
       const syncCandidato = (item: EntrevistaCandidato) =>
         item.id === candidato.id
           ? { ...item, estagiarioId, status: trackingStatus }

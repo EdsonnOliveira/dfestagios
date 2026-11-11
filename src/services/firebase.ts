@@ -693,6 +693,24 @@ export const entrevistaCandidatosService = {
   },
 };
 
+export function normalizeContratoPhone(value: string | undefined): string {
+  const digits = (value ?? '').replace(/\D/g, '');
+  if (digits.length >= 12 && digits.startsWith('55')) {
+    return digits.slice(-11);
+  }
+  return digits;
+}
+
+function estagiarioRecordHasContratoPreenchido(
+  estagiario: Estagiario | null | undefined
+): boolean {
+  if (!estagiario) return false;
+  return Boolean(
+    estagiario.contratoPdfDrivePath?.trim() ||
+      (estagiario.cpf?.trim() && estagiario.estagioDataInicio?.trim())
+  );
+}
+
 export const clienteContratoLinksService = {
   async add(
     link: Omit<ClienteContratoLink, 'id' | 'createdAt' | 'updatedAt'>
@@ -713,6 +731,42 @@ export const clienteContratoLinksService = {
       id: docSnap.id,
       ...docSnap.data(),
     })) as ClienteContratoLink[];
+  },
+
+  async getByClienteId(clienteId: string) {
+    const q = query(
+      collection(db, 'clienteContratoLinks'),
+      where('clienteId', '==', clienteId)
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((docSnap) => ({
+      id: docSnap.id,
+      ...docSnap.data(),
+    })) as ClienteContratoLink[];
+  },
+
+  async findByClienteAndEstagiario(clienteId: string, estagiarioId: string) {
+    const q = query(
+      collection(db, 'clienteContratoLinks'),
+      where('clienteId', '==', clienteId),
+      where('estagiarioId', '==', estagiarioId)
+    );
+    const querySnapshot = await getDocs(q);
+    if (querySnapshot.empty) return null;
+    const docSnap = querySnapshot.docs[0];
+    return {
+      id: docSnap.id,
+      ...docSnap.data(),
+    } as ClienteContratoLink;
+  },
+
+  async findByClienteAndTelefone(clienteId: string, telefone: string) {
+    const phone = normalizeContratoPhone(telefone);
+    if (!phone) return [] as ClienteContratoLink[];
+    const links = await this.getByClienteId(clienteId);
+    return links.filter(
+      (link) => normalizeContratoPhone(link.telefone) === phone
+    );
   },
 
   async update(id: string, data: Partial<ClienteContratoLink>) {
@@ -769,6 +823,34 @@ export async function syncContratoPreenchidoStatus(
     )
   );
   await clienteContratoLinksService.markContratoPreenchido(estagiarioId, clienteId);
+  const estagiario = await estagiariosService.getById(estagiarioId);
+  const phone = normalizeContratoPhone(estagiario?.telefone1);
+  if (!phone) return;
+  const siblings = await clienteContratoLinksService.findByClienteAndTelefone(
+    clienteId,
+    phone
+  );
+  await Promise.all(
+    siblings.map(async (link) => {
+      if (!link.id) return;
+      if (link.estagiarioId === estagiarioId) {
+        if (link.status !== 'contrato_preenchido') {
+          await clienteContratoLinksService.update(link.id, {
+            status: 'contrato_preenchido',
+          });
+        }
+        return;
+      }
+      const siblingEstagiario = await estagiariosService.getById(link.estagiarioId);
+      if (estagiarioRecordHasContratoPreenchido(siblingEstagiario)) {
+        await clienteContratoLinksService.update(link.id, {
+          status: 'contrato_preenchido',
+        });
+        return;
+      }
+      await clienteContratoLinksService.delete(link.id);
+    })
+  );
 }
 
 export async function cancelContratoLinkTracking(
