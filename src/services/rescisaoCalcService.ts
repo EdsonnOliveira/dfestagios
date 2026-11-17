@@ -128,9 +128,8 @@ export function getUltimoPagamentoMesFechado(
   const year = prev.getFullYear();
   const month = prev.getMonth();
   const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
-  const day = Math.min(30, lastDayOfMonth);
   const mm = String(month + 1).padStart(2, '0');
-  const dd = String(day).padStart(2, '0');
+  const dd = String(lastDayOfMonth).padStart(2, '0');
   return `${year}-${mm}-${dd}`;
 }
 

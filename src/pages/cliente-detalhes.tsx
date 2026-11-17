@@ -4374,7 +4374,7 @@ export default function ClienteDetalhes() {
                                     {formatDatePtBr(
                                       rescisaoDataUltimoPagamentoEfetiva
                                     )}{' '}
-                                    (dia 30 do mês anterior à saída).
+                                    (último dia do mês anterior à saída).
                                   </p>
                                 )}
                             </div>
