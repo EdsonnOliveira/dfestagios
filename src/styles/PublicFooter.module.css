@@ -1,0 +1,8 @@
+.footer { padding: 14px 24px; background: #07336f; color: #dce9fb; }
+.inner { display: grid; width: min(1390px, 100%); min-height: 52px; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; margin: 0 auto; }
+.inner > span, .admin { font-size: 12px; }
+.brand { display: grid; width: 190px; min-height: 70px; place-items: center; }
+.brand img { width: 185px; height: auto; filter: grayscale(1) brightness(0) invert(1); }
+.admin { display: inline-flex; align-items: center; gap: 12px; justify-self: end; color: #dce9fb; text-decoration: none; }
+.admin:hover, .admin:focus-visible { color: #fff; text-decoration: underline; }
+@media (max-width: 600px) { .inner { grid-template-columns: 1fr auto; } .brand { grid-column: 1 / -1; grid-row: 1; justify-self: center; } .inner > span { grid-row: 2; } .admin { grid-row: 2; } }

@@ -10,6 +10,7 @@ import AdminRoute from '../components/AdminRoute';
 import { clientesService } from '../services/firebase';
 import { mensalidadesService, Mensalidade } from '../services/mensalidadesService';
 import { Cliente } from '../types/firebase';
+import { formatBolsaInputFromDigits } from '../services/rescisaoCalcService';
 
 export default function Mensalidades() {
   // const router = useRouter(); // Removido - não utilizado
@@ -44,6 +45,8 @@ export default function Mensalidades() {
     responsavel: '',
     dataVencimento: '',
     valor: '',
+    valorPorEstagiario: '',
+    validarQuadroFinanceiro: true,
     servico: '',
     status: 'ativo' as 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo'
   });
@@ -452,21 +455,27 @@ export default function Mensalidades() {
   };
 
   const abrirModalCliente = (cliente: any) => {
-    setClienteParaEditar(cliente);
+    const clienteId = (cliente.clienteId || cliente.id) as string | undefined;
+    const clienteCadastro = clienteId
+      ? clientes.find((item) => item.id === clienteId)
+      : undefined;
+    setClienteParaEditar(clienteCadastro || cliente);
     setFormDataCliente({
-      cnpj: cliente.cnpj || '',
-      razaoSocial: cliente.razaoSocial || '',
-      nomeFantasia: cliente.nomeFantasia || '',
-      telefone: cliente.telefone || '',
-      email: cliente.email || '',
-      cidade: cliente.cidade || '',
-      bairro: cliente.bairro || '',
-      cep: cliente.cep || '',
-      responsavel: cliente.responsavel || '',
-      dataVencimento: cliente.dataVencimento || '',
-      valor: cliente.valor || '',
-      servico: cliente.servico || '',
-      status: cliente.status || 'ativo'
+      cnpj: clienteCadastro?.cnpj || cliente.cnpj || '',
+      razaoSocial: clienteCadastro?.razaoSocial || cliente.razaoSocial || '',
+      nomeFantasia: clienteCadastro?.nomeFantasia || cliente.nomeFantasia || '',
+      telefone: clienteCadastro?.telefone || cliente.telefone || '',
+      email: clienteCadastro?.email || cliente.email || '',
+      cidade: clienteCadastro?.cidade || cliente.cidade || '',
+      bairro: clienteCadastro?.bairro || cliente.bairro || '',
+      cep: clienteCadastro?.cep || cliente.cep || '',
+      responsavel: clienteCadastro?.responsavel || cliente.responsavel || '',
+      dataVencimento: clienteCadastro?.dataVencimento || '',
+      valor: clienteCadastro?.valor || '',
+      valorPorEstagiario: clienteCadastro?.valorPorEstagiario || '',
+      validarQuadroFinanceiro: clienteCadastro?.validarQuadroFinanceiro !== false,
+      servico: clienteCadastro?.servico || cliente.servico || '',
+      status: clienteCadastro?.status || cliente.status || 'ativo'
     });
     setShowClienteModal(true);
     fecharMenu();
@@ -487,8 +496,18 @@ export default function Mensalidades() {
       responsavel: '',
       dataVencimento: '',
       valor: '',
+      valorPorEstagiario: '',
+      validarQuadroFinanceiro: true,
       servico: '',
       status: 'ativo'
+    });
+  };
+
+  const handleValorPorEstagiarioClienteChange = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    setFormDataCliente({
+      ...formDataCliente,
+      valorPorEstagiario: formatBolsaInputFromDigits(digits),
     });
   };
 
@@ -2332,6 +2351,43 @@ export default function Mensalidades() {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
                   placeholder="Ex: R$ 1.200,00"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Valor por estagiário
+                </label>
+                <input
+                  type="text"
+                  value={formDataCliente.valorPorEstagiario}
+                  onChange={(e) => handleValorPorEstagiarioClienteChange(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                  placeholder="Ex: R$ 120,00"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Padrão: R$ 120,00. Em branco = não aplica a regra do quadro.
+                </p>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <input
+                  id="validarQuadroFinanceiroMensalidade"
+                  type="checkbox"
+                  checked={formDataCliente.validarQuadroFinanceiro}
+                  onChange={(e) =>
+                    setFormDataCliente({
+                      ...formDataCliente,
+                      validarQuadroFinanceiro: e.target.checked,
+                    })
+                  }
+                  className="mt-1 h-4 w-4 accent-[#004085] text-[#004085] focus:ring-2 focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded cursor-pointer"
+                />
+                <label
+                  htmlFor="validarQuadroFinanceiroMensalidade"
+                  className="text-sm text-gray-700 dark:text-gray-300"
+                >
+                  Validar quadro de ativos com mensalidade em aberto
+                </label>
               </div>
 
               <div>

@@ -17,7 +17,9 @@ export interface Estagiario {
   endereco: string;
   complemento?: string;
   grauInstrucao: string;
+  anoEscolar?: string;
   curso?: string;
+  periodoCurso?: string;
   matricula?: string;
   horarioDisponivel?: string[];
   horarioEstudo?: string[];
@@ -101,6 +103,8 @@ export interface Cliente {
   responsavelCargo?: string;
   dataVencimento: string; // Dia do mês (1-31) ou formato antigo (YYYY-MM-DD) para compatibilidade
   valor: string;
+  valorPorEstagiario?: string;
+  validarQuadroFinanceiro?: boolean;
   servico?: string; // Serviço prestado ao cliente
   status: 'ativo' | 'em-andamento' | 'bloqueado' | 'inativo';
   motivoStatus?: string;
@@ -220,6 +224,7 @@ export interface Entrevista {
   dataEntrevista: string;
   horarioEntrevista: string;
   tituloVaga: string;
+  sexoVaga?: 'rapazes' | 'mocas' | 'ambos' | '';
   horarioTrabalho: string;
   valorBolsa: string;
   beneficios?: string;

@@ -99,6 +99,7 @@ const emptyForm = {
   dataEntrevista: '',
   horarioEntrevista: '',
   tituloVaga: '',
+  sexoVaga: '' as '' | 'rapazes' | 'mocas' | 'ambos',
   horarioTrabalho: '',
   valorBolsa: '',
   beneficios: '',
@@ -751,6 +752,7 @@ export default function EntrevistasPage() {
       dataEntrevista: entrevista.dataEntrevista,
       horarioEntrevista: entrevista.horarioEntrevista,
       tituloVaga: entrevista.tituloVaga,
+      sexoVaga: entrevista.sexoVaga ?? '',
       horarioTrabalho: entrevista.horarioTrabalho,
       valorBolsa: formatValorBolsaField(entrevista.valorBolsa),
       beneficios: entrevista.beneficios ?? '',
@@ -822,6 +824,7 @@ export default function EntrevistasPage() {
           ? formData.horarioEntrevista.trim() || 'Á combinar'
           : formData.horarioEntrevista.trim(),
       tituloVaga: formData.tituloVaga.trim(),
+      sexoVaga: formData.sexoVaga,
       horarioTrabalho: formData.horarioTrabalho.trim(),
       valorBolsa: formData.valorBolsa.trim(),
       beneficios: formData.beneficios.trim(),
@@ -878,6 +881,7 @@ export default function EntrevistasPage() {
         dataEntrevista: entrevista.dataEntrevista,
         horarioEntrevista: entrevista.horarioEntrevista,
         tituloVaga: entrevista.tituloVaga,
+        sexoVaga: entrevista.sexoVaga ?? '',
         horarioTrabalho: entrevista.horarioTrabalho,
         valorBolsa: entrevista.valorBolsa,
         beneficios: entrevista.beneficios ?? '',
@@ -2146,6 +2150,19 @@ export default function EntrevistasPage() {
                   }
                   className={inputClass}
                 />
+              </div>
+              <div>
+                <label className={labelClass}>Público da vaga no site</label>
+                <select
+                  value={formData.sexoVaga}
+                  onChange={(e) => setFormData({ ...formData, sexoVaga: e.target.value as '' | 'rapazes' | 'mocas' | 'ambos' })}
+                  className={inputClass}
+                >
+                  <option value="">Não informado</option>
+                  <option value="rapazes">Somente rapazes</option>
+                  <option value="mocas">Somente moças</option>
+                  <option value="ambos">Moças e rapazes</option>
+                </select>
               </div>
               <div className="sm:col-span-2">
                 <label className={labelClass}>Horário de trabalho</label>

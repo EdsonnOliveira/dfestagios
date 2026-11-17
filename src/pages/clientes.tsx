@@ -7,13 +7,17 @@ import { AnimatedModal } from '../components/AnimatedModal';
 import ProtectedRoute from '../components/ProtectedRoute';
 import AdminRoute from '../components/AdminRoute';
 import { clientesService } from '../services/firebase';
-import { mensalidadesService } from '../services/mensalidadesService';
+import { mensalidadesService, Mensalidade } from '../services/mensalidadesService';
 import { fetchCnpjLookup } from '../services/brasilApiCnpj';
 import { Cliente, ClienteFilial, FormaCaptacao, FORMA_CAPTACAO_OPTIONS } from '../types/firebase';
 import {
   formatBolsaDisplay,
   formatBolsaInputFromDigits,
 } from '../services/rescisaoCalcService';
+import {
+  getAtivosCount,
+  getMensalidadeQuadroDivergencia,
+} from '../lib/mensalidadeQuadro';
 
 const emptyFilialForm = {
   cnpj: '',
@@ -149,10 +153,11 @@ export default function Clientes() {
   const [filtroFilial, setFiltroFilial] = useState('');
   const [filtroReposicao, setFiltroReposicao] = useState('');
   const [filtroMensalidade, setFiltroMensalidade] = useState('');
-  const [filtroResponsavel, setFiltroResponsavel] = useState('');
+  const [filtroDivergenciaQuadro, setFiltroDivergenciaQuadro] = useState('');
   const [filtroCnpj, setFiltroCnpj] = useState('');
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [mensalidades, setMensalidades] = useState<Mensalidade[]>([]);
   const [clienteIdsComMensalidade, setClienteIdsComMensalidade] = useState<Set<string>>(
     () => new Set()
   );
@@ -490,6 +495,7 @@ export default function Clientes() {
         mensalidadesService.getAll(),
       ]);
       setClientes(data);
+      setMensalidades(mensalidades);
       setClienteIdsComMensalidade(
         new Set(mensalidades.map((m) => m.clienteId).filter((id): id is string => Boolean(id)))
       );
@@ -721,7 +727,11 @@ export default function Clientes() {
       
       if (filtroRazaoSocial) filtrosAplicados.push(`Razão Social: "${filtroRazaoSocial}"`);
       if (filtroNomeFantasia) filtrosAplicados.push(`Nome Fantasia: "${filtroNomeFantasia}"`);
-      if (filtroResponsavel) filtrosAplicados.push(`Responsável: "${filtroResponsavel}"`);
+      if (filtroDivergenciaQuadro === 'com-divergencia') {
+        filtrosAplicados.push('Divergência quadro: Com divergência');
+      } else if (filtroDivergenciaQuadro === 'sem-divergencia') {
+        filtrosAplicados.push('Divergência quadro: Sem divergência');
+      }
       if (filtroCnpj) filtrosAplicados.push(`CNPJ: "${filtroCnpj}"`);
       if (filtroCidade) filtrosAplicados.push(`Cidade: "${filtroCidade}"`);
       if (filtroBairro) filtrosAplicados.push(`Bairro: "${filtroBairro}"`);
@@ -936,13 +946,49 @@ export default function Clientes() {
     [clienteIdsComMensalidade]
   );
 
+  const mensalidadesPorCliente = useMemo(() => {
+    const map = new Map<string, Mensalidade[]>();
+    mensalidades.forEach((item) => {
+      if (!item.clienteId) return;
+      const list = map.get(item.clienteId);
+      if (list) {
+        list.push(item);
+      } else {
+        map.set(item.clienteId, [item]);
+      }
+    });
+    return map;
+  }, [mensalidades]);
+
+  const clienteTemDivergenciaQuadro = useCallback(
+    (cliente: Cliente) => {
+      if (!cliente.id) return false;
+      const ativosCount = getAtivosCount(
+        getEstagiariosCount(cliente),
+        getReposicoesPendentesCount(cliente)
+      );
+      const clienteMensalidades = mensalidadesPorCliente.get(cliente.id) ?? [];
+      return getMensalidadeQuadroDivergencia({
+        valorPorEstagiario: cliente.valorPorEstagiario,
+        validarQuadroFinanceiro: cliente.validarQuadroFinanceiro,
+        ativosCount,
+        mensalidades: clienteMensalidades.map((item) => ({
+          valor: item.valor,
+          status: item.status,
+        })),
+      }).hasDivergence;
+    },
+    [
+      getEstagiariosCount,
+      getReposicoesPendentesCount,
+      mensalidadesPorCliente,
+    ]
+  );
+
   const filtrarClientes = () => {
     return clientes.filter(cliente => {
       const matchRazaoSocial = cliente.razaoSocial.toLowerCase().includes(filtroRazaoSocial.toLowerCase());
       const matchNomeFantasia = cliente.nomeFantasia.toLowerCase().includes(filtroNomeFantasia.toLowerCase());
-      const matchResponsavel = cliente.responsavel
-        .toLowerCase()
-        .includes(filtroResponsavel.toLowerCase());
       const cnpjDigits = cliente.cnpj.replace(/\D/g, '');
       const filtroCnpjDigits = filtroCnpj.replace(/\D/g, '');
       const matchCnpj =
@@ -972,11 +1018,15 @@ export default function Clientes() {
         filtroMensalidade === '' ||
         (filtroMensalidade === 'com-mensalidade' && temMensalidade) ||
         (filtroMensalidade === 'sem-mensalidade' && !temMensalidade);
+      const temDivergencia = clienteTemDivergenciaQuadro(cliente);
+      const matchDivergencia =
+        filtroDivergenciaQuadro === '' ||
+        (filtroDivergenciaQuadro === 'com-divergencia' && temDivergencia) ||
+        (filtroDivergenciaQuadro === 'sem-divergencia' && !temDivergencia);
 
       return (
         matchRazaoSocial &&
         matchNomeFantasia &&
-        matchResponsavel &&
         matchCnpj &&
         matchCidade &&
         matchBairro &&
@@ -984,7 +1034,8 @@ export default function Clientes() {
         matchEstagiario &&
         matchFilial &&
         matchReposicao &&
-        matchMensalidade
+        matchMensalidade &&
+        matchDivergencia
       );
     });
   };
@@ -1558,15 +1609,17 @@ export default function Clientes() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Responsável
+                  Divergência quadro
                 </label>
-                <input
-                  type="text"
-                  placeholder="Buscar por responsável..."
-                  value={filtroResponsavel}
-                  onChange={(e) => setFiltroResponsavel(e.target.value)}
+                <select
+                  value={filtroDivergenciaQuadro}
+                  onChange={(e) => setFiltroDivergenciaQuadro(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
-                />
+                >
+                  <option value="">Todos</option>
+                  <option value="com-divergencia">Com divergência</option>
+                  <option value="sem-divergencia">Sem divergência</option>
+                </select>
               </div>
 
               <div>

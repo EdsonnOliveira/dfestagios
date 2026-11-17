@@ -30,6 +30,7 @@ import { getNfseServicoOptions } from '../constants/nfseServicos';
 import { VERSAO_TERMOS } from '../constants/termosContratacao';
 import {
   calculateRescisao,
+  formatCurrencyBr,
   formatDatePtBr,
   formatBolsaDisplay,
   formatBolsaInputFromDigits,
@@ -49,6 +50,10 @@ import {
   generateReciboBolsaDocxBlob,
 } from '../services/reciboBolsaDocxService';
 import { relatorioAdministrativoService } from '../services/relatorioAdministrativoService';
+import {
+  getAtivosCount,
+  getMensalidadeQuadroDivergencia,
+} from '../lib/mensalidadeQuadro';
 import {
   formatContractEndDatePtBr,
   hasCompletedOneYearContractTerm,
@@ -277,6 +282,8 @@ export default function ClienteDetalhes() {
     formaCaptacao: '' as FormaCaptacao | '',
     formaCaptacaoDetalhe: '',
     adesaoRestante: '',
+    valorPorEstagiario: '',
+    validarQuadroFinanceiro: true,
   });
   
   const [formDataEstagiario, setFormDataEstagiario] = useState({
@@ -1033,6 +1040,8 @@ export default function ClienteDetalhes() {
       formaCaptacao: cliente.formaCaptacao ?? '',
       formaCaptacaoDetalhe: cliente.formaCaptacaoDetalhe ?? '',
       adesaoRestante: cliente.adesaoRestante ?? '',
+      valorPorEstagiario: cliente.valorPorEstagiario ?? '',
+      validarQuadroFinanceiro: cliente.validarQuadroFinanceiro !== false,
     });
     setFiliais(cliente.filiais ? [...cliente.filiais] : []);
     resetFilialForm();
@@ -1044,6 +1053,14 @@ export default function ClienteDetalhes() {
     setFormData({
       ...formData,
       adesaoRestante: formatBolsaInputFromDigits(digits),
+    });
+  };
+
+  const handleValorPorEstagiarioChange = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    setFormData({
+      ...formData,
+      valorPorEstagiario: formatBolsaInputFromDigits(digits),
     });
   };
 
@@ -1060,6 +1077,8 @@ export default function ClienteDetalhes() {
         ...restForm,
         formaCaptacao: formaCaptacao || null,
         formaCaptacaoDetalhe: needsDetalhe ? detalheTrimmed : '',
+        valorPorEstagiario: formData.valorPorEstagiario.trim(),
+        validarQuadroFinanceiro: formData.validarQuadroFinanceiro,
         filiais,
       };
       await clientesService.update(editingCliente.id!, updateData);
@@ -1109,6 +1128,8 @@ export default function ClienteDetalhes() {
       formaCaptacao: '',
       formaCaptacaoDetalhe: '',
       adesaoRestante: '',
+      valorPorEstagiario: '',
+      validarQuadroFinanceiro: true,
     });
   };
 
@@ -1837,6 +1858,26 @@ export default function ClienteDetalhes() {
   );
 
   const totalEstagiariosExibidos = estagiarios.length + reposicoesPendentes.length;
+
+  const mensalidadeQuadroDivergencia = useMemo(
+    () =>
+      getMensalidadeQuadroDivergencia({
+        valorPorEstagiario: cliente?.valorPorEstagiario,
+        validarQuadroFinanceiro: cliente?.validarQuadroFinanceiro,
+        ativosCount: getAtivosCount(estagiarios.length, reposicoesPendentes.length),
+        mensalidades: mensalidades.map((item) => ({
+          valor: item.valor,
+          status: item.status,
+        })),
+      }),
+    [
+      cliente?.valorPorEstagiario,
+      cliente?.validarQuadroFinanceiro,
+      estagiarios.length,
+      reposicoesPendentes.length,
+      mensalidades,
+    ]
+  );
 
   const estagiariosAtivosRescisao = useMemo(
     () => estagiarios.filter((e) => e.status === 'ativo'),
@@ -2975,6 +3016,24 @@ export default function ClienteDetalhes() {
             </div>
           </div>
 
+          {mensalidadeQuadroDivergencia.hasDivergence && (
+            <div className="mb-6 rounded-lg border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/40 p-4">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                Divergência entre quadro de ativos e mensalidade em aberto
+              </p>
+              <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                {mensalidadeQuadroDivergencia.ativosCount} ativo(s) ×{' '}
+                {formatCurrencyBr(mensalidadeQuadroDivergencia.valorPorEstagiario)} ={' '}
+                {formatCurrencyBr(mensalidadeQuadroDivergencia.expectedValor)}, mas a
+                mensalidade em aberto está em{' '}
+                {[...new Set(mensalidadeQuadroDivergencia.openValores)]
+                  .map((valor) => formatCurrencyBr(valor))
+                  .join(' / ')}
+                .
+              </p>
+            </div>
+          )}
+
           {/* Abas */}
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg mb-6 transition-colors">
             <div className="border-b border-gray-200 dark:border-gray-700">
@@ -3237,6 +3296,26 @@ export default function ClienteDetalhes() {
                         Valor
                       </label>
                       <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold">{cliente.valor || 'R$ 0,00'}</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Valor por estagiário
+                      </label>
+                      <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold">
+                        {cliente.valorPorEstagiario?.trim()
+                          ? formatBolsaDisplay(cliente.valorPorEstagiario)
+                          : '-'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Validar quadro × financeiro
+                      </label>
+                      <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold">
+                        {cliente.validarQuadroFinanceiro === false ? 'Não' : 'Sim'}
+                      </p>
                     </div>
                   </div>
 
@@ -6391,6 +6470,48 @@ export default function ClienteDetalhes() {
                   </p>
                 </div>
               )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Valor por estagiário
+                </label>
+                <input
+                  type="text"
+                  value={formData.valorPorEstagiario}
+                  onChange={(e) => handleValorPorEstagiarioChange(e.target.value)}
+                  disabled={loadingCnpjLookup}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 disabled:opacity-60"
+                  placeholder="Ex: R$ 120,00"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Padrão da operação: R$ 120,00. Deixe em branco para clientes com acordo fixo ou valor simbólico.
+                </p>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <input
+                  id="validarQuadroFinanceiro"
+                  type="checkbox"
+                  checked={formData.validarQuadroFinanceiro}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      validarQuadroFinanceiro: e.target.checked,
+                    })
+                  }
+                  disabled={loadingCnpjLookup}
+                  className="mt-1 h-4 w-4 accent-[#004085] text-[#004085] focus:ring-2 focus:ring-[#004085] border-gray-300 dark:border-gray-600 rounded cursor-pointer disabled:opacity-60"
+                />
+                <label
+                  htmlFor="validarQuadroFinanceiro"
+                  className="text-sm text-gray-700 dark:text-gray-300"
+                >
+                  Validar quadro de ativos com mensalidade em aberto
+                  <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Desmarque para clientes com valor fixo ou faturamento que não deve entrar na regra.
+                  </span>
+                </label>
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

@@ -1,0 +1,200 @@
+.section { padding: 76px 24px; background: #fff; color: #0a2c5c; }
+.container { width: min(1390px, 100%); margin: 0 auto; }
+.eyebrow { display: block; color: #bd8d27; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.sectionTitle { margin: 12px 0 12px; color: #072c63; font-size: clamp(32px, 3.4vw, 52px); font-weight: 800; line-height: 1.06; letter-spacing: -.035em; }
+.sectionTitle em, .pageTitle em { color: #0864e8; font-style: normal; }
+.lead { max-width: 680px; margin: 0; color: #697684; font-size: 17px; line-height: 1.55; }
+.primaryButton { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 48px; padding: 12px 24px; border: 0; border-radius: 11px; background: #0755c9; box-shadow: 0 8px 20px #0755c936; color: #fff; font-size: 15px; font-weight: 750; text-decoration: none; transition: transform .2s, background .2s; cursor: pointer; }
+.primaryButton:hover, .primaryButton:focus-visible { transform: translateY(-2px); background: #003f9f; }
+.primaryButton:focus-visible, .applyButton:focus-visible { outline: 3px solid #f5bd37; outline-offset: 3px; }
+.jobsLayout { display: grid; grid-template-columns: minmax(260px, 350px) 1fr; gap: 35px; align-items: stretch; }
+.jobsVisual { position: relative; display: flex; min-height: 425px; overflow: hidden; flex-direction: column; align-items: flex-start; justify-content: center; padding: 29px; border-radius: 19px; background: linear-gradient(145deg, #00317b, #0868e9); color: #fff; }
+.jobsVisual img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; }
+.jobsVisual::after { position: absolute; inset: 0; content: ''; background: linear-gradient(90deg, #00276f88, transparent 72%); }
+.jobsVisual > *:not(img) { position: relative; z-index: 1; }
+.jobsVisual h2 { max-width: 230px; margin: 10px 0 10px; font-size: 31px; line-height: 1.02; letter-spacing: -.035em; }
+.jobsVisual p { max-width: 245px; font-size: 14px; line-height: 1.4; }
+.jobsVisual a { display: inline-block; margin-top: 12px; padding: 10px 17px; border-radius: 25px; background: #f5bf33; color: #063775; font-size: 13px; font-weight: 800; text-decoration: none; }
+.jobsHeader { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 23px; }
+.jobsHeader .sectionTitle { margin-top: 0; scroll-margin-top: 125px; font-size: clamp(30px, 2.6vw, 42px); }
+.jobGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.vacancyCard { display: flex; min-width: 0; flex-direction: column; gap: 13px; padding: 21px; border: 1px solid #e1e8f3; border-radius: 15px; background: #fff; box-shadow: 0 8px 28px #0a3c8210; }
+.vacancyIcon { display: grid; width: 43px; height: 43px; place-items: center; border-radius: 11px; background: #eaf3ff; }
+.vacancyBody { display: flex; flex: 1; flex-direction: column; }
+.vacancyCard h3 { margin: 12px 0 8px; color: #0a2f68; font-size: 18px; line-height: 1.16; }
+.vacancyCard p { margin: 0 0 10px; color: #677486; font-size: 13px; line-height: 1.4; }
+.vacancyFacts { display: flex; flex-wrap: wrap; gap: 7px; margin: auto 0 15px; }
+.vacancyFacts span { padding: 5px 8px; border-radius: 6px; background: #f1f5fc; color: #526478; font-size: 11px; line-height: 1.25; }
+.applyButton { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 8px 13px; border-radius: 8px; background: #0753c7; color: #fff; font-size: 13px; font-weight: 750; text-decoration: none; transition: background .2s; }
+.applyButton:hover { background: #003d99; }
+.empty { grid-column: 1 / -1; display: grid; min-height: 210px; place-items: center; padding: 25px; border: 1px dashed #b5c8e5; border-radius: 15px; color: #526b8e; text-align: center; }
+.allVacancies { display: flex; justify-content: flex-end; margin-top: 15px; }
+.allVacancies button { padding: 0; border: 0; background: none; color: #0755c9; font: inherit; font-weight: 750; cursor: pointer; }
+.allVacancies button:hover, .allVacancies button:focus-visible { text-decoration: underline; }
+.groupsSection { position: relative; overflow: hidden; padding: 66px 24px 75px; background: #003787 url('/paulo/whatsapp-background.png') center / cover no-repeat; color: #fff; }
+.groupsHeader { margin-bottom: 32px; text-align: center; }
+.groupsHeader h2 { margin: 0 0 8px; font-size: clamp(29px, 3.2vw, 45px); line-height: 1.08; }
+.groupsHeader h2 span { color: #f8c42f; }
+.groupsHeader p { margin: 0; color: #e4efff; font-size: 15px; }
+.groupGrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 15px; }
+.groupCard { display: flex; min-height: 185px; flex-direction: column; align-items: center; padding: 20px 12px 13px; border-radius: 10px; background: #fff; box-shadow: 0 14px 28px #001c4a47; color: #0a326d; text-align: center; }
+.groupIcon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; background: #eaf4ff; }
+.groupCard strong { margin: 12px 0 5px; font-size: 15px; }
+.groupCard p { margin: 0; color: #64738a; font-size: 12px; line-height: 1.35; }
+.groupCard a { display: block; width: 100%; margin-top: auto; padding: 9px 4px; border-radius: 7px; background: #0752c7; color: #fff; font-size: 12px; font-weight: 750; text-decoration: none; }
+.groupCard a:hover { background: #003c9c; }
+.groupsFoot { margin: 20px 0 0; color: #d4e3f8; font-size: 12px; text-align: center; }
+.instagramLayout { display: grid; grid-template-columns: minmax(250px, .8fr) 1.2fr; gap: 40px; align-items: center; }
+.instagramCards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; }
+.instagramCards img { width: 100%; height: auto; object-fit: contain; filter: drop-shadow(0 18px 15px #082e622b); }
+.instagramCards img:nth-child(2) { transform: translateY(-15px) rotate(-3deg); }
+.instagramCards img:nth-child(1) { transform: rotate(-7deg); }
+.instagramCards img:nth-child(3) { transform: rotate(6deg); }
+.instagramCopy p { margin-bottom: 24px; }
+.page { min-height: 100vh; padding-top: 110px; background: #fff; color: #092d63; }
+.pageHero { position: relative; display: grid; width: min(1390px, calc(100% - 48px)); min-height: 620px; grid-template-columns: 52% 48%; align-items: center; gap: 8px; margin: 0 auto; }
+.pageHeroCopy { position: relative; z-index: 2; padding: 30px 0; }
+.pageTitle { margin: 12px 0 15px; font-size: clamp(44px, 3.8vw, 60px); font-weight: 820; line-height: .99; letter-spacing: -.05em; }
+.pageHeroCopy > p { max-width: 560px; margin: 0 0 25px; color: #667489; font-size: 18px; line-height: 1.5; }
+.pageHeroImage { width: 100%; height: auto; max-height: 620px; object-fit: contain; }
+.featureList { display: grid; gap: 15px; margin: 24px 0 26px; }
+.feature { display: flex; align-items: flex-start; gap: 13px; }
+.featureIcon { display: grid; flex: 0 0 38px; height: 38px; place-items: center; border-radius: 10px; background: #ecf4ff; }
+.feature strong { display: block; color: #0a2f65; font-size: 16px; }
+.feature small { display: block; max-width: 435px; color: #69798d; font-size: 13px; line-height: 1.4; }
+.featureRow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 25px 0 29px; }
+.featureRow .feature { align-items: center; gap: 8px; }
+.featureRow .featureIcon { flex-basis: 36px; height: 36px; }
+.secondarySection { padding: 50px 24px 80px; background: #f7faff; }
+.secondaryTitle { margin: 0 0 28px; color: #092e66; font-size: clamp(30px, 3vw, 42px); font-weight: 800; text-align: center; }
+.secondaryGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.secondaryCard { padding: 25px; border: 1px solid #e6edf7; border-radius: 13px; background: #fff; }
+.secondaryCard h3 { margin: 0 0 8px; color: #0b3473; font-size: 19px; }
+.secondaryCard p { margin: 0; color: #67768b; font-size: 14px; line-height: 1.5; }
+.aboutLinks { display: flex; gap: 24px; margin-top: 15px; }
+.aboutLinks a { color: #0755c9; font-size: 14px; font-weight: 700; text-decoration: none; }
+.aboutLinks a:hover, .aboutLinks a:focus-visible { text-decoration: underline; }
+@media (max-width: 1050px) { .jobGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .groupGrid { grid-template-columns: repeat(3, 1fr); } .pageHero { min-height: 520px; } }
+@media (max-width: 760px) { .section { padding: 55px 18px; } .jobsLayout, .instagramLayout, .pageHero { grid-template-columns: 1fr; } .jobsVisual { min-height: 275px; } .jobGrid { grid-template-columns: 1fr; } .groupGrid { grid-template-columns: repeat(2, 1fr); } .page { padding-top: 105px; } .pageHero { width: calc(100% - 36px); gap: 0; } .pageHeroCopy { padding: 15px 0; } .pageTitle { font-size: clamp(40px, 10vw, 58px); } .pageHeroImage { max-height: 410px; } .instagramCards { max-width: 540px; margin: 0 auto; } .featureRow, .secondaryGrid { grid-template-columns: 1fr; } }
+@media (max-width: 480px) { .groupGrid { grid-template-columns: 1fr; } .groupCard { min-height: 145px; } .instagramCards { gap: 0; } .jobsHeader { display: block; } .pageHeroImage { max-height: 330px; } }
+
+/* Public sections pictured in the supplied layouts. */
+.whyIntro { padding: 30px 20px 20px; color: #06336c; text-align: center; }
+.whyIntro span { color: #5d6473; font-size: 16px; font-weight: 700; letter-spacing: .08em; }
+.whyIntro span::before { display: inline-block; width: 27px; height: 3px; margin: 0 10px 5px 0; background: #d8a52d; content: ''; }
+.whyIntro h2 { margin: 5px 0; font-size: clamp(27px, 2.4vw, 38px); line-height: 1.1; }
+.whyIntro p { margin: 0; color: #7c8189; font-size: 17px; line-height: 1.3; }
+.section:has(.jobsLayout) { padding: 42px 32px 48px; }
+.jobsLayout { width: min(1534px, 100%); grid-template-columns: minmax(340px, 540px) minmax(0, 1fr); gap: 44px; }
+.jobsVisual { min-height: 552px; justify-content: flex-start; padding: 102px 42px 35px; border-radius: 20px; }
+.jobsVisual::after { background: linear-gradient(90deg, #00296f7a, transparent 75%); }
+.jobsVisual h2 { max-width: 360px; margin: 0 0 12px; font-size: clamp(38px, 3.2vw, 52px); font-weight: 850; line-height: .98; }
+.jobsVisual p { max-width: 240px; margin: 0 0 10px; font-size: 20px; line-height: 1.35; }
+.jobsVisual a { margin-top: 8px; padding: 14px 27px; border-radius: 30px; font-size: 17px; }
+.jobsHeader { margin: 11px 0 18px; }
+.jobsHeader .sectionTitle { margin-bottom: 5px; font-size: clamp(35px, 3vw, 47px); }
+.jobsHeader .lead { font-size: 20px; }
+.jobFilters { display: flex; gap: 13px; margin-bottom: 18px; }
+.jobFilters button { min-width: 146px; padding: 10px 19px; border: 1px solid #dde4ed; border-radius: 24px; background: #fff; color: #617596; font-size: 15px; cursor: pointer; }
+.jobFilters .selectedFilter { border-color: #0755c9; background: #0755c9; color: #fff; }
+.jobGrid { gap: 16px; }
+.vacancyCard { min-height: 320px; padding: 30px 20px 19px; border-radius: 17px; box-shadow: 0 10px 25px #142d4b12; }
+.vacancyIcon { width: 64px; height: 64px; border-radius: 16px; }
+.vacancyIcon svg { color: #0754ba; }
+.vacancyIcon img { width: 35px; height: 35px; }
+.vacancyCard h3 { margin: 17px 0 11px; font-size: 20px; }
+.vacancyCard p { margin: 0 0 20px; font-size: 15px; }
+.vacancyFacts { min-height: 52px; align-items: center; gap: 6px; margin: auto 0 14px; border-top: 1px solid #e8edf2; }
+.vacancyFacts span { padding: 0; background: none; color: #344e72; font-size: 12px; }
+.applyButton { min-height: 47px; border-radius: 25px; font-size: 14px; font-weight: 600; }
+.allVacancies { align-items: center; gap: 17px; margin-top: 22px; }
+.allVacancies button:not(:last-child) { width: 41px; height: 41px; border: 1px solid #e0e8f0; border-radius: 50%; color: #113c74; font-size: 29px; line-height: 1; }
+.allVacancies button:last-child { margin-left: auto; text-decoration: underline; }
+.allVacancies button:disabled, .groupControls button:disabled { opacity: .4; cursor: default; }
+.groupsSection { min-height: 702px; padding: 18px 36px 26px; }
+.groupsSection .container { width: min(1535px, 100%); }
+.groupsHeader { margin-bottom: 23px; }
+.groupsHeader > img { width: 275px; height: 105px; margin: 0 auto 7px; object-fit: contain; filter: grayscale(1) brightness(0) invert(1); }
+.groupsHeader h2 { margin-bottom: 11px; font-size: clamp(34px, 3.2vw, 52px); }
+.groupsHeader p { max-width: 850px; margin: auto; font-size: 21px; line-height: 1.35; }
+.groupGrid { gap: 20px; }
+.groupCard { min-height: 310px; padding: 25px 18px 19px; border-radius: 10px; }
+.groupIcon { position: relative; width: 108px; height: 108px; background: #e8f2ff; }
+.groupIconInner { display: grid; width: 76px; height: 76px; place-items: center; border-radius: 50%; background: #0758ce; }
+.groupIconInner svg { color: #fff; }
+.groupWhatsapp { position: absolute; right: -2px; bottom: 1px; display: grid; width: 36px; height: 36px; place-items: center; border: 3px solid #fff; border-radius: 50%; background: #16bd5a; color: #fff; }
+.groupCard strong { margin: 15px 0 6px; color: #091d4d; font-size: 20px; }
+.groupCard p { color: #697a97; font-size: 15px; line-height: 1.4; }
+.groupCard a { display: flex; min-height: 52px; align-items: center; justify-content: center; gap: 12px; padding: 10px; border-radius: 8px; font-size: 15px; }
+.groupCard a span { margin-left: auto; font-size: 22px; }
+.groupCard a svg { flex: 0 0 auto; }
+.groupControls { display: flex; align-items: center; justify-content: center; margin-top: 22px; }
+.groupControls > span { display: flex; gap: 9px; }
+.groupControls > span button { width: 10px; height: 10px; padding: 0; border: 0; border-radius: 50%; background: #7799ce; cursor: pointer; }
+.groupControls > span .currentDot { background: #fff; }
+.groupControls > div { position: absolute; right: 4%; display: flex; gap: 13px; }
+.groupControls > div button { width: 40px; height: 40px; border: 0; border-radius: 50%; background: #fff; color: #0a428f; font-size: 27px; cursor: pointer; }
+.groupsFoot { margin-top: 13px; font-size: 14px; }
+.section:has(.instagramLayout) { padding: 55px 65px 35px; }
+.instagramLayout { width: min(1500px, 100%); grid-template-columns: 40% 60%; gap: 0; }
+.instagramCopy .eyebrow { font-size: 18px; }
+.instagramCopy .sectionTitle { max-width: 610px; margin: 32px 0 24px; font-size: clamp(43px, 3.65vw, 58px); }
+.instagramCopy .sectionTitle em { color: inherit; }
+.instagramCopy .lead { max-width: 560px; margin-bottom: 33px; color: #495065; font-size: 22px; }
+.instagramCopy .primaryButton { min-width: 435px; min-height: 80px; justify-content: flex-start; padding: 18px 26px; border-radius: 16px; background: linear-gradient(100deg, #062e77, #0878f9); font-size: 23px; }
+.instagramCopy .primaryButton span { margin-left: auto; color: #ffc635; font-size: 35px; }
+.instagramCards { min-height: 480px; gap: 0; }
+.instagramCards img { width: 120%; max-width: none; filter: none; }
+.instagramCards img:nth-child(1) { transform: translateX(9%) rotate(-7deg); }
+.instagramCards img:nth-child(2) { position: relative; z-index: 2; transform: translateY(-8px) rotate(-3deg); }
+.instagramCards img:nth-child(3) { transform: translateX(-10%) rotate(6deg); }
+
+@media (max-width: 1100px) { .jobsLayout { grid-template-columns: minmax(280px, 36%) 1fr; gap: 25px; } .jobFilters { flex-wrap: wrap; } .jobFilters button { min-width: 110px; } .jobGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .groupGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .whyIntro p br { display: none; } .jobsLayout, .instagramLayout { grid-template-columns: 1fr; } .jobsVisual { min-height: 400px; padding-top: 55px; } .jobGrid { grid-template-columns: 1fr; } .groupGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .section:has(.instagramLayout) { padding: 50px 20px; } .instagramCopy .primaryButton { min-width: 0; width: 100%; } .instagramCards { min-height: 0; margin-top: 35px; } }
+@media (max-width: 520px) { .groupGrid { grid-template-columns: 1fr; } .groupsSection { padding-inline: 20px; } .groupControls > div { display: none; } }
+
+.studentPage, .companyPage, .aboutPage { background: #fff; }
+.studentPage .pageHero, .companyPage .pageHero, .aboutPage .pageHero { width: min(1600px, 100%); grid-template-columns: 43% 57%; gap: 0; }
+.studentPage .pageHero { min-height: 620px; }
+.companyPage .pageHero { min-height: 775px; }
+.aboutPage .pageHero { min-height: 645px; }
+.studentPage .pageHeroCopy, .companyPage .pageHeroCopy, .aboutPage .pageHeroCopy { padding: 35px 10px 35px 5.5vw; }
+.studentPage .pageHeroCopy { padding-top: 25px; }
+.pageHero .eyebrow { font-size: 14px; letter-spacing: .16em; }
+.pageHero .eyebrow::before { display: inline-block; width: 30px; height: 3px; margin: 0 14px 4px 0; background: #d5a630; content: ''; }
+.studentPage .pageTitle { max-width: 610px; font-size: clamp(47px, 3.6vw, 58px); }
+.companyPage .pageTitle { width: 900px; max-width: 90vw; font-size: clamp(55px, 5.1vw, 85px); }
+.aboutPage .pageTitle { width: 790px; max-width: 90vw; font-size: clamp(51px, 4vw, 64px); }
+.companyPage .pageHero { grid-template-columns: 52% 48%; }
+.companyPage .pageHeroCopy { padding-left: 4vw; }
+.pageHeroCopy > p { max-width: 650px; font-size: 20px; line-height: 1.4; }
+.companyPage .pageHeroCopy > p { max-width: 760px; font-size: 26px; }
+.aboutPage .pageHeroCopy > p { max-width: 680px; font-size: 20px; }
+.studentPage .pageHeroImage { width: 100%; max-height: 620px; }
+.companyPage .pageHeroImage { width: 100%; max-height: 770px; }
+.aboutPage .pageHeroImage { width: 100%; max-height: 650px; }
+.studentPage .featureList { gap: 20px; margin: 27px 0 25px; }
+.studentPage .featureIcon { flex-basis: 56px; height: 56px; border-radius: 14px; }
+.studentPage .featureIcon img { width: 30px; height: 30px; }
+.studentPage .feature strong { font-size: 18px; }
+.studentPage .feature small { font-size: 15px; }
+.studentPage .primaryButton { min-width: 340px; min-height: 57px; font-size: 17px; }
+.companyPage .featureRow { width: 790px; max-width: 100%; gap: 15px; margin: 36px 0; }
+.companyPage .feature { align-items: flex-start; }
+.companyPage .featureIcon { flex-basis: 58px; height: 58px; border-radius: 50%; }
+.companyPage .featureIcon img { width: 29px; height: 29px; }
+.companyPage .feature strong { font-size: 18px; }
+.companyPage .feature small { font-size: 15px; }
+.companyPage .primaryButton { min-width: 710px; min-height: 76px; border-radius: 42px; font-size: 22px; }
+.aboutPage .featureRow { width: 700px; max-width: 100%; margin: 28px 0 32px; }
+.aboutPage .featureIcon { flex-basis: 55px; height: 55px; background: none; }
+.aboutPage .featureIcon img { width: 41px; height: 41px; }
+.aboutPage .feature strong { font-size: 15px; font-weight: 500; }
+.aboutPage .primaryButton { min-width: 430px; min-height: 65px; border-radius: 35px; font-size: 21px; }
+.aboutPage .aboutLinks { gap: 32px; margin-top: 17px; }
+.aboutPage .aboutLinks a { font-size: 16px; }
+.aboutPage .secondarySection { padding-top: 18px; }
+.aboutPage .secondaryTitle { font-size: 48px; }
+.aboutPage .secondaryCard { min-height: 115px; padding: 22px 30px; }
+@media (max-width: 1100px) { .companyPage .pageTitle, .aboutPage .pageTitle { width: auto; max-width: 100%; font-size: clamp(45px, 5vw, 65px); } .companyPage .primaryButton { min-width: 0; } .pageHeroCopy > p, .companyPage .pageHeroCopy > p { font-size: 18px; } }
+@media (max-width: 760px) { .studentPage .pageHero, .companyPage .pageHero, .aboutPage .pageHero { grid-template-columns: 1fr; } .studentPage .pageHeroCopy, .companyPage .pageHeroCopy, .aboutPage .pageHeroCopy { padding: 28px 20px; } .studentPage .pageHeroImage, .companyPage .pageHeroImage, .aboutPage .pageHeroImage { max-height: 420px; } .companyPage .featureRow, .aboutPage .featureRow { grid-template-columns: 1fr; width: auto; } .companyPage .primaryButton, .aboutPage .primaryButton { width: 100%; min-width: 0; min-height: 60px; font-size: 17px; } }
