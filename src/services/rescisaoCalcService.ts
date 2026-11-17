@@ -115,6 +115,25 @@ export function formatDescontosComDescricao(
   return `${descontosFmt} (${texto})`;
 }
 
+export type RescisaoFormaPagamentoBolsa =
+  | 'quintoDiaUtil'
+  | 'aCada30Dias';
+
+export function getUltimoPagamentoMesFechado(
+  dataSaidaIso: string
+): string {
+  const saida = parseIsoDateLocal(dataSaidaIso);
+  if (!saida) return '';
+  const prev = new Date(saida.getFullYear(), saida.getMonth() - 1, 1);
+  const year = prev.getFullYear();
+  const month = prev.getMonth();
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+  const day = Math.min(30, lastDayOfMonth);
+  const mm = String(month + 1).padStart(2, '0');
+  const dd = String(day).padStart(2, '0');
+  return `${year}-${mm}-${dd}`;
+}
+
 export function calculateRescisao(
   input: RescisaoCalcInput
 ): RescisaoCalcResult | null {

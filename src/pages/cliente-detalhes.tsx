@@ -35,6 +35,8 @@ import {
   formatBolsaDisplay,
   formatBolsaInputFromDigits,
   formatDescontosComDescricao,
+  getUltimoPagamentoMesFechado,
+  type RescisaoFormaPagamentoBolsa,
 } from '../services/rescisaoCalcService';
 import {
   downloadRescisaoDocx,
@@ -184,6 +186,8 @@ export default function ClienteDetalhes() {
   >('info');
   const [rescisaoEstagiarioId, setRescisaoEstagiarioId] = useState('');
   const [rescisaoDataSaida, setRescisaoDataSaida] = useState('');
+  const [rescisaoFormaPagamentoBolsa, setRescisaoFormaPagamentoBolsa] =
+    useState<RescisaoFormaPagamentoBolsa>('quintoDiaUtil');
   const [rescisaoUltimoPagamento, setRescisaoUltimoPagamento] = useState('');
   const [rescisaoDescontos, setRescisaoDescontos] = useState('');
   const [rescisaoDescontosDescricao, setRescisaoDescontosDescricao] =
@@ -1891,6 +1895,18 @@ export default function ClienteDetalhes() {
     [estagiariosAtivosRescisao, rescisaoEstagiarioId]
   );
 
+  const rescisaoDataUltimoPagamentoEfetiva = useMemo(() => {
+    if (rescisaoFormaPagamentoBolsa === 'quintoDiaUtil') {
+      if (!rescisaoDataSaida.trim()) return '';
+      return getUltimoPagamentoMesFechado(rescisaoDataSaida);
+    }
+    return rescisaoUltimoPagamento;
+  }, [
+    rescisaoFormaPagamentoBolsa,
+    rescisaoDataSaida,
+    rescisaoUltimoPagamento,
+  ]);
+
   const rescisaoPreview = useMemo(() => {
     if (!rescisaoEstagiarioSelecionado || !rescisaoDataSaida) return null;
     const bolsa = rescisaoEstagiarioSelecionado.estagioValorBolsa ?? '';
@@ -1900,19 +1916,20 @@ export default function ClienteDetalhes() {
       bolsa,
       dataInicio,
       dataSaida: rescisaoDataSaida,
-      dataUltimoPagamento: rescisaoUltimoPagamento,
+      dataUltimoPagamento: rescisaoDataUltimoPagamentoEfetiva,
       descontos: rescisaoDescontos,
     });
   }, [
     rescisaoEstagiarioSelecionado,
     rescisaoDataSaida,
-    rescisaoUltimoPagamento,
+    rescisaoDataUltimoPagamentoEfetiva,
     rescisaoDescontos,
   ]);
 
   const handleSelectRescisaoEstagiario = useCallback((estagiarioId: string) => {
     setRescisaoEstagiarioId(estagiarioId);
     setRescisaoDataSaida('');
+    setRescisaoFormaPagamentoBolsa('quintoDiaUtil');
     setRescisaoUltimoPagamento('');
     setRescisaoDescontos('');
     setRescisaoDescontosDescricao('');
@@ -1953,7 +1970,7 @@ export default function ClienteDetalhes() {
       bolsa,
       dataInicio,
       dataSaida: rescisaoDataSaida,
-      dataUltimoPagamento: rescisaoUltimoPagamento,
+      dataUltimoPagamento: rescisaoDataUltimoPagamentoEfetiva,
       descontos: rescisaoDescontos,
     });
     if (!preview) {
@@ -1980,7 +1997,7 @@ export default function ClienteDetalhes() {
         bolsa,
         dataInicio,
         dataSaida: rescisaoDataSaida,
-        dataUltimoPagamento: rescisaoUltimoPagamento,
+        dataUltimoPagamento: rescisaoDataUltimoPagamentoEfetiva,
         descontos: rescisaoDescontos,
         descontosDescricao: rescisaoDescontosDescricao,
       });
@@ -2011,7 +2028,7 @@ export default function ClienteDetalhes() {
     cliente,
     rescisaoEstagiarioSelecionado,
     rescisaoDataSaida,
-    rescisaoUltimoPagamento,
+    rescisaoDataUltimoPagamentoEfetiva,
     rescisaoDescontos,
     rescisaoDescontosDescricao,
   ]);
@@ -4309,22 +4326,76 @@ export default function ClienteDetalhes() {
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
                               />
                             </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                Data do último pagamento
+                            <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                Forma de pagamento da Bolsa
                               </label>
-                              <input
-                                type="date"
-                                value={rescisaoUltimoPagamento}
-                                onChange={(e) =>
-                                  setRescisaoUltimoPagamento(e.target.value)
-                                }
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
-                              />
-                              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                Opcional. Se vazio, calcula da data de início.
-                              </p>
+                              <div className="flex flex-wrap gap-4">
+                                <label className="inline-flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="rescisaoFormaPagamentoBolsa"
+                                    checked={
+                                      rescisaoFormaPagamentoBolsa ===
+                                      'quintoDiaUtil'
+                                    }
+                                    onChange={() =>
+                                      setRescisaoFormaPagamentoBolsa(
+                                        'quintoDiaUtil'
+                                      )
+                                    }
+                                    className="text-[#004085] focus:ring-[#004085]"
+                                  />
+                                  Todo 5º dia útil (Mês Fechado)
+                                </label>
+                                <label className="inline-flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100 cursor-pointer">
+                                  <input
+                                    type="radio"
+                                    name="rescisaoFormaPagamentoBolsa"
+                                    checked={
+                                      rescisaoFormaPagamentoBolsa ===
+                                      'aCada30Dias'
+                                    }
+                                    onChange={() =>
+                                      setRescisaoFormaPagamentoBolsa(
+                                        'aCada30Dias'
+                                      )
+                                    }
+                                    className="text-[#004085] focus:ring-[#004085]"
+                                  />
+                                  A cada 30 dias (Mesmo dia de início)
+                                </label>
+                              </div>
+                              {rescisaoFormaPagamentoBolsa ===
+                                'quintoDiaUtil' &&
+                                rescisaoDataUltimoPagamentoEfetiva && (
+                                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                    Último pagamento considerado:{' '}
+                                    {formatDatePtBr(
+                                      rescisaoDataUltimoPagamentoEfetiva
+                                    )}{' '}
+                                    (dia 30 do mês anterior à saída).
+                                  </p>
+                                )}
                             </div>
+                            {rescisaoFormaPagamentoBolsa === 'aCada30Dias' && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                  Data do último pagamento
+                                </label>
+                                <input
+                                  type="date"
+                                  value={rescisaoUltimoPagamento}
+                                  onChange={(e) =>
+                                    setRescisaoUltimoPagamento(e.target.value)
+                                  }
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                                />
+                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                  Opcional. Se vazio, calcula da data de início.
+                                </p>
+                              </div>
+                            )}
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Descontos
