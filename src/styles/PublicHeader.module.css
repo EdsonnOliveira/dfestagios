@@ -9,7 +9,8 @@
 .actions { display: flex; align-items: center; gap: 10px; }
 .actions a { display: inline-flex; min-height: 46px; align-items: center; justify-content: center; gap: 9px; padding: 10px 15px; border-radius: 12px; font-size: 14px; font-weight: 720; text-decoration: none; white-space: nowrap; }
 .search { width: 44px; padding: 10px !important; }
-.actions .login { display: inline-flex; min-width: 141px; min-height: 55px; align-items: center; justify-content: center; gap: 10px; padding: 9px 15px; border: 2px solid #0c5fd0; border-radius: 14px; background: #fff; color: #084aaf; font-size: 17px; font-weight: 700; cursor: default; }
+.actions .login { display: inline-flex; min-width: 141px; min-height: 55px; align-items: center; justify-content: center; gap: 10px; padding: 9px 15px; border: 2px solid #0c5fd0; border-radius: 14px; background: #fff; color: #084aaf; font-size: 17px; font-weight: 700; cursor: pointer; }
+.actions .login:hover { background: #edf5ff; }
 .login svg { flex: 0 0 auto; }
 .signup { background: linear-gradient(100deg, #0867da, #0644b4); box-shadow: 0 7px 16px #0755bc30; color: #fff; }
 .actions .signup { min-width: 180px; min-height: 55px; font-size: 17px; }

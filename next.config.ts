@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  ...(process.env.GIT_BUILD_DIST_DIR
+    ? { distDir: process.env.GIT_BUILD_DIST_DIR }
+    : {}),
   reactStrictMode: true,
   trailingSlash: true,
   webpack: (config, { dev, isServer }) => {
