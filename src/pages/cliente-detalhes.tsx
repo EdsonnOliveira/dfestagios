@@ -189,6 +189,7 @@ export default function ClienteDetalhes() {
   const [rescisaoFormaPagamentoBolsa, setRescisaoFormaPagamentoBolsa] =
     useState<RescisaoFormaPagamentoBolsa>('quintoDiaUtil');
   const [rescisaoUltimoPagamento, setRescisaoUltimoPagamento] = useState('');
+  const [rescisaoBolsa, setRescisaoBolsa] = useState('');
   const [rescisaoDescontos, setRescisaoDescontos] = useState('');
   const [rescisaoDescontosDescricao, setRescisaoDescontosDescricao] =
     useState('');
@@ -1895,44 +1896,71 @@ export default function ClienteDetalhes() {
     [estagiariosAtivosRescisao, rescisaoEstagiarioId]
   );
 
-  const rescisaoDataUltimoPagamentoEfetiva = useMemo(() => {
-    if (rescisaoFormaPagamentoBolsa === 'quintoDiaUtil') {
-      if (!rescisaoDataSaida.trim()) return '';
-      return getUltimoPagamentoMesFechado(rescisaoDataSaida);
-    }
-    return rescisaoUltimoPagamento;
-  }, [
-    rescisaoFormaPagamentoBolsa,
-    rescisaoDataSaida,
-    rescisaoUltimoPagamento,
-  ]);
-
   const rescisaoPreview = useMemo(() => {
     if (!rescisaoEstagiarioSelecionado || !rescisaoDataSaida) return null;
-    const bolsa = rescisaoEstagiarioSelecionado.estagioValorBolsa ?? '';
     const dataInicio = rescisaoEstagiarioSelecionado.estagioDataInicio ?? '';
-    if (!bolsa.trim() || !dataInicio.trim()) return null;
+    if (!rescisaoBolsa.trim() || !dataInicio.trim()) return null;
     return calculateRescisao({
-      bolsa,
+      bolsa: rescisaoBolsa,
       dataInicio,
       dataSaida: rescisaoDataSaida,
-      dataUltimoPagamento: rescisaoDataUltimoPagamentoEfetiva,
+      dataUltimoPagamento: rescisaoUltimoPagamento,
       descontos: rescisaoDescontos,
     });
   }, [
     rescisaoEstagiarioSelecionado,
     rescisaoDataSaida,
-    rescisaoDataUltimoPagamentoEfetiva,
+    rescisaoBolsa,
+    rescisaoUltimoPagamento,
     rescisaoDescontos,
   ]);
 
-  const handleSelectRescisaoEstagiario = useCallback((estagiarioId: string) => {
-    setRescisaoEstagiarioId(estagiarioId);
-    setRescisaoDataSaida('');
-    setRescisaoFormaPagamentoBolsa('quintoDiaUtil');
-    setRescisaoUltimoPagamento('');
-    setRescisaoDescontos('');
-    setRescisaoDescontosDescricao('');
+  const handleSelectRescisaoEstagiario = useCallback(
+    (estagiarioId: string) => {
+      const selected =
+        estagiariosAtivosRescisao.find((item) => item.id === estagiarioId) ??
+        null;
+      const bolsaDigits = (selected?.estagioValorBolsa ?? '').replace(/\D/g, '');
+      setRescisaoEstagiarioId(estagiarioId);
+      setRescisaoDataSaida('');
+      setRescisaoFormaPagamentoBolsa('quintoDiaUtil');
+      setRescisaoUltimoPagamento('');
+      setRescisaoBolsa(
+        bolsaDigits && Number.parseInt(bolsaDigits, 10) > 0
+          ? formatBolsaInputFromDigits(bolsaDigits)
+          : ''
+      );
+      setRescisaoDescontos('');
+      setRescisaoDescontosDescricao('');
+    },
+    [estagiariosAtivosRescisao]
+  );
+
+  const handleRescisaoDataSaidaChange = useCallback(
+    (value: string) => {
+      setRescisaoDataSaida(value);
+      if (rescisaoFormaPagamentoBolsa === 'quintoDiaUtil' && value.trim()) {
+        setRescisaoUltimoPagamento(getUltimoPagamentoMesFechado(value));
+      }
+    },
+    [rescisaoFormaPagamentoBolsa]
+  );
+
+  const handleRescisaoFormaPagamentoChange = useCallback(
+    (forma: RescisaoFormaPagamentoBolsa) => {
+      setRescisaoFormaPagamentoBolsa(forma);
+      if (forma === 'quintoDiaUtil' && rescisaoDataSaida.trim()) {
+        setRescisaoUltimoPagamento(
+          getUltimoPagamentoMesFechado(rescisaoDataSaida)
+        );
+      }
+    },
+    [rescisaoDataSaida]
+  );
+
+  const handleRescisaoBolsaChange = useCallback((value: string) => {
+    const digits = value.replace(/\D/g, '');
+    setRescisaoBolsa(formatBolsaInputFromDigits(digits));
   }, []);
 
   const rescisaoTemDesconto = useMemo(() => {
@@ -1953,12 +1981,12 @@ export default function ClienteDetalhes() {
       toast.error('Selecione um estagiário ativo.');
       return;
     }
-    const bolsa = rescisaoEstagiarioSelecionado.estagioValorBolsa?.trim() ?? '';
+    const bolsa = rescisaoBolsa.trim();
     const dataInicio =
       rescisaoEstagiarioSelecionado.estagioDataInicio?.trim() ?? '';
     if (!bolsa || !dataInicio) {
       toast.error(
-        'Complete o contrato do estagiário (bolsa e data de início) antes de gerar a rescisão.'
+        'Informe o valor da bolsa e a data de início do estagiário antes de gerar a rescisão.'
       );
       return;
     }
@@ -1970,12 +1998,12 @@ export default function ClienteDetalhes() {
       bolsa,
       dataInicio,
       dataSaida: rescisaoDataSaida,
-      dataUltimoPagamento: rescisaoDataUltimoPagamentoEfetiva,
+      dataUltimoPagamento: rescisaoUltimoPagamento,
       descontos: rescisaoDescontos,
     });
     if (!preview) {
       toast.error(
-        'Datas inválidas. A data de saída deve ser igual ou posterior à data de início e ao último pagamento.'
+        'Datas inválidas ou bolsa zerada. A data de saída deve ser igual ou posterior à data de início e ao último pagamento.'
       );
       return;
     }
@@ -1997,7 +2025,7 @@ export default function ClienteDetalhes() {
         bolsa,
         dataInicio,
         dataSaida: rescisaoDataSaida,
-        dataUltimoPagamento: rescisaoDataUltimoPagamentoEfetiva,
+        dataUltimoPagamento: rescisaoUltimoPagamento,
         descontos: rescisaoDescontos,
         descontosDescricao: rescisaoDescontosDescricao,
       });
@@ -2028,7 +2056,8 @@ export default function ClienteDetalhes() {
     cliente,
     rescisaoEstagiarioSelecionado,
     rescisaoDataSaida,
-    rescisaoDataUltimoPagamentoEfetiva,
+    rescisaoBolsa,
+    rescisaoUltimoPagamento,
     rescisaoDescontos,
     rescisaoDescontosDescricao,
   ]);
@@ -4269,10 +4298,16 @@ export default function ClienteDetalhes() {
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Valor da bolsa
                               </label>
-                              <p className="text-sm text-gray-900 dark:text-gray-100">
-                                {rescisaoEstagiarioSelecionado.estagioValorBolsa ||
-                                  '—'}
-                              </p>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={rescisaoBolsa}
+                                onChange={(e) =>
+                                  handleRescisaoBolsaChange(e.target.value)
+                                }
+                                placeholder="R$ 0,00"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                              />
                             </div>
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -4304,11 +4339,11 @@ export default function ClienteDetalhes() {
                             </div>
                           </div>
 
-                          {(!rescisaoEstagiarioSelecionado.estagioValorBolsa?.trim() ||
-                            !rescisaoEstagiarioSelecionado.estagioDataInicio?.trim()) && (
+                          {(!rescisaoEstagiarioSelecionado.estagioDataInicio?.trim() ||
+                            !rescisaoBolsa.trim()) && (
                             <div className="rounded-lg border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
-                              Complete o contrato do estagiário (bolsa e data de
-                              início) antes de gerar a rescisão.
+                              Informe a data de início no contrato e o valor da
+                              bolsa acima para calcular a rescisão.
                             </div>
                           )}
 
@@ -4321,7 +4356,7 @@ export default function ClienteDetalhes() {
                                 type="date"
                                 value={rescisaoDataSaida}
                                 onChange={(e) =>
-                                  setRescisaoDataSaida(e.target.value)
+                                  handleRescisaoDataSaidaChange(e.target.value)
                                 }
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
                               />
@@ -4340,7 +4375,7 @@ export default function ClienteDetalhes() {
                                       'quintoDiaUtil'
                                     }
                                     onChange={() =>
-                                      setRescisaoFormaPagamentoBolsa(
+                                      handleRescisaoFormaPagamentoChange(
                                         'quintoDiaUtil'
                                       )
                                     }
@@ -4357,7 +4392,7 @@ export default function ClienteDetalhes() {
                                       'aCada30Dias'
                                     }
                                     onChange={() =>
-                                      setRescisaoFormaPagamentoBolsa(
+                                      handleRescisaoFormaPagamentoChange(
                                         'aCada30Dias'
                                       )
                                     }
@@ -4366,36 +4401,25 @@ export default function ClienteDetalhes() {
                                   A cada 30 dias (Mesmo dia de início)
                                 </label>
                               </div>
-                              {rescisaoFormaPagamentoBolsa ===
-                                'quintoDiaUtil' &&
-                                rescisaoDataUltimoPagamentoEfetiva && (
-                                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                                    Último pagamento considerado:{' '}
-                                    {formatDatePtBr(
-                                      rescisaoDataUltimoPagamentoEfetiva
-                                    )}{' '}
-                                    (último dia do mês anterior à saída).
-                                  </p>
-                                )}
                             </div>
-                            {rescisaoFormaPagamentoBolsa === 'aCada30Dias' && (
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                  Data do último pagamento
-                                </label>
-                                <input
-                                  type="date"
-                                  value={rescisaoUltimoPagamento}
-                                  onChange={(e) =>
-                                    setRescisaoUltimoPagamento(e.target.value)
-                                  }
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
-                                />
-                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                  Opcional. Se vazio, calcula da data de início.
-                                </p>
-                              </div>
-                            )}
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Data do último pagamento
+                              </label>
+                              <input
+                                type="date"
+                                value={rescisaoUltimoPagamento}
+                                onChange={(e) =>
+                                  setRescisaoUltimoPagamento(e.target.value)
+                                }
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
+                              />
+                              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                {rescisaoFormaPagamentoBolsa === 'quintoDiaUtil'
+                                  ? 'Em mês fechado, sugerimos o último dia do mês anterior. Ajuste se o acerto foi em outra data.'
+                                  : 'Opcional. Se vazio, calcula da data de início.'}
+                              </p>
+                            </div>
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Descontos
