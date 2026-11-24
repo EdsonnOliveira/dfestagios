@@ -189,7 +189,6 @@ export default function ClienteDetalhes() {
   const [rescisaoFormaPagamentoBolsa, setRescisaoFormaPagamentoBolsa] =
     useState<RescisaoFormaPagamentoBolsa>('quintoDiaUtil');
   const [rescisaoUltimoPagamento, setRescisaoUltimoPagamento] = useState('');
-  const [rescisaoBolsa, setRescisaoBolsa] = useState('');
   const [rescisaoDescontos, setRescisaoDescontos] = useState('');
   const [rescisaoDescontosDescricao, setRescisaoDescontosDescricao] =
     useState('');
@@ -1898,10 +1897,11 @@ export default function ClienteDetalhes() {
 
   const rescisaoPreview = useMemo(() => {
     if (!rescisaoEstagiarioSelecionado || !rescisaoDataSaida) return null;
+    const bolsa = rescisaoEstagiarioSelecionado.estagioValorBolsa ?? '';
     const dataInicio = rescisaoEstagiarioSelecionado.estagioDataInicio ?? '';
-    if (!rescisaoBolsa.trim() || !dataInicio.trim()) return null;
+    if (!bolsa.trim() || !dataInicio.trim()) return null;
     return calculateRescisao({
-      bolsa: rescisaoBolsa,
+      bolsa,
       dataInicio,
       dataSaida: rescisaoDataSaida,
       dataUltimoPagamento: rescisaoUltimoPagamento,
@@ -1910,31 +1910,18 @@ export default function ClienteDetalhes() {
   }, [
     rescisaoEstagiarioSelecionado,
     rescisaoDataSaida,
-    rescisaoBolsa,
     rescisaoUltimoPagamento,
     rescisaoDescontos,
   ]);
 
-  const handleSelectRescisaoEstagiario = useCallback(
-    (estagiarioId: string) => {
-      const selected =
-        estagiariosAtivosRescisao.find((item) => item.id === estagiarioId) ??
-        null;
-      const bolsaDigits = (selected?.estagioValorBolsa ?? '').replace(/\D/g, '');
-      setRescisaoEstagiarioId(estagiarioId);
-      setRescisaoDataSaida('');
-      setRescisaoFormaPagamentoBolsa('quintoDiaUtil');
-      setRescisaoUltimoPagamento('');
-      setRescisaoBolsa(
-        bolsaDigits && Number.parseInt(bolsaDigits, 10) > 0
-          ? formatBolsaInputFromDigits(bolsaDigits)
-          : ''
-      );
-      setRescisaoDescontos('');
-      setRescisaoDescontosDescricao('');
-    },
-    [estagiariosAtivosRescisao]
-  );
+  const handleSelectRescisaoEstagiario = useCallback((estagiarioId: string) => {
+    setRescisaoEstagiarioId(estagiarioId);
+    setRescisaoDataSaida('');
+    setRescisaoFormaPagamentoBolsa('quintoDiaUtil');
+    setRescisaoUltimoPagamento('');
+    setRescisaoDescontos('');
+    setRescisaoDescontosDescricao('');
+  }, []);
 
   const handleRescisaoDataSaidaChange = useCallback(
     (value: string) => {
@@ -1958,11 +1945,6 @@ export default function ClienteDetalhes() {
     [rescisaoDataSaida]
   );
 
-  const handleRescisaoBolsaChange = useCallback((value: string) => {
-    const digits = value.replace(/\D/g, '');
-    setRescisaoBolsa(formatBolsaInputFromDigits(digits));
-  }, []);
-
   const rescisaoTemDesconto = useMemo(() => {
     const digits = rescisaoDescontos.replace(/\D/g, '');
     return digits.length > 0 && Number.parseInt(digits, 10) > 0;
@@ -1981,12 +1963,12 @@ export default function ClienteDetalhes() {
       toast.error('Selecione um estagiário ativo.');
       return;
     }
-    const bolsa = rescisaoBolsa.trim();
+    const bolsa = rescisaoEstagiarioSelecionado.estagioValorBolsa?.trim() ?? '';
     const dataInicio =
       rescisaoEstagiarioSelecionado.estagioDataInicio?.trim() ?? '';
     if (!bolsa || !dataInicio) {
       toast.error(
-        'Informe o valor da bolsa e a data de início do estagiário antes de gerar a rescisão.'
+        'Complete o contrato do estagiário (bolsa e data de início) antes de gerar a rescisão.'
       );
       return;
     }
@@ -2003,7 +1985,7 @@ export default function ClienteDetalhes() {
     });
     if (!preview) {
       toast.error(
-        'Datas inválidas ou bolsa zerada. A data de saída deve ser igual ou posterior à data de início e ao último pagamento.'
+        'Datas inválidas. A data de saída deve ser igual ou posterior à data de início e ao último pagamento.'
       );
       return;
     }
@@ -2056,7 +2038,6 @@ export default function ClienteDetalhes() {
     cliente,
     rescisaoEstagiarioSelecionado,
     rescisaoDataSaida,
-    rescisaoBolsa,
     rescisaoUltimoPagamento,
     rescisaoDescontos,
     rescisaoDescontosDescricao,
@@ -4298,16 +4279,10 @@ export default function ClienteDetalhes() {
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 Valor da bolsa
                               </label>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={rescisaoBolsa}
-                                onChange={(e) =>
-                                  handleRescisaoBolsaChange(e.target.value)
-                                }
-                                placeholder="R$ 0,00"
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400"
-                              />
+                              <p className="text-sm text-gray-900 dark:text-gray-100">
+                                {rescisaoEstagiarioSelecionado.estagioValorBolsa ||
+                                  '—'}
+                              </p>
                             </div>
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -4339,11 +4314,11 @@ export default function ClienteDetalhes() {
                             </div>
                           </div>
 
-                          {(!rescisaoEstagiarioSelecionado.estagioDataInicio?.trim() ||
-                            !rescisaoBolsa.trim()) && (
+                          {(!rescisaoEstagiarioSelecionado.estagioValorBolsa?.trim() ||
+                            !rescisaoEstagiarioSelecionado.estagioDataInicio?.trim()) && (
                             <div className="rounded-lg border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
-                              Informe a data de início no contrato e o valor da
-                              bolsa acima para calcular a rescisão.
+                              Complete o contrato do estagiário (bolsa e data de
+                              início) antes de gerar a rescisão.
                             </div>
                           )}
 
