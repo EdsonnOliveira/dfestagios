@@ -27,7 +27,7 @@ const tabs: { id: Tab; label: string; icon: PublicIconName; href: string }[] = [
 
 
 function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
-  return <div className="mb-7"><h1 className="text-3xl font-extrabold tracking-tight text-[#0b174c] sm:text-4xl">{title}</h1><p className="mt-1 text-[#71809a]">{subtitle}</p></div>;
+  return <div className="mb-5 sm:mb-7"><h1 className="text-2xl font-extrabold tracking-tight text-[#0b174c] sm:text-4xl">{title}</h1><p className="mt-1 text-sm text-[#71809a] sm:text-base">{subtitle}</p></div>;
 }
 
 function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -49,6 +49,7 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
   const [tcePreview, setTcePreview] = useState<TcePreview | null>(null);
   const [documentError, setDocumentError] = useState('');
   const [generatingCertificate, setGeneratingCertificate] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -59,6 +60,15 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
       setTab(initialTab);
     }
   }, [initialTab, router.isReady, router.query.aba]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [menuOpen]);
 
   useEffect(() => {
     if (loading) return;
@@ -119,6 +129,7 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
 
   function selectTab(next: Tab) {
     setTab(next);
+    setMenuOpen(false);
     const destination = tabs.find((item) => item.id === next)?.href ?? '/area-estudante';
     void router.push(destination);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -159,22 +170,37 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
   if (loading || !user || !isStudentAccountEmail(user.email)) return <div className="grid min-h-screen place-items-center">Carregando...</div>;
 
   return (
-    <div className="min-h-screen bg-[#f4f9ff] text-[#0b174c]">
-      <header className="border-b border-[#e6edf6] bg-white">
-        <div className="mx-auto flex min-h-[98px] max-w-[1510px] items-center gap-7 px-6">
-          <Link href="/" aria-label="DF Estágios — página inicial" className="shrink-0"><Image src="/logo.png" alt="DF Estágios" width={244} height={105} className="h-auto w-[238px]" /></Link>
-          <nav aria-label="Painel do estudante" className="mx-auto flex h-full items-stretch gap-1">
+    <div className="min-h-screen overflow-x-hidden bg-[#f4f9ff] text-[#0b174c]">
+      <header className="relative z-40 border-b border-[#e6edf6] bg-white">
+        <div className="mx-auto flex min-h-[72px] max-w-[1510px] items-center gap-3 px-4 sm:min-h-[98px] sm:gap-7 sm:px-6">
+          <Link href="/" aria-label="DF Estágios — página inicial" className="shrink-0"><Image src="/logo.png" alt="DF Estágios" width={244} height={105} className="h-auto w-[148px] sm:w-[238px]" /></Link>
+          <nav aria-label="Painel do estudante" className="mx-auto hidden h-full items-stretch gap-1 lg:flex">
             {tabs.map((item) => <button key={item.id} type="button" onClick={() => selectTab(item.id)} aria-current={tab === item.id ? 'page' : undefined} className={'flex items-center gap-2 border-b-[3px] px-3 text-[15px] font-semibold transition-colors ' + (tab === item.id ? 'border-[#0866e9] text-[#0866e9]' : 'border-transparent text-[#465978] hover:text-[#0866e9]')}><PublicIcon name={item.icon} size={21} />{item.label}</button>)}
           </nav>
-          <div className="flex shrink-0 items-center gap-4">
+          <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-4">
             <button type="button" aria-label="Notificações" className="relative text-[#475d7c]"><PublicIcon name="bell" size={23} /></button>
-            <span className="h-10 w-px bg-[#dfe7f1]" />
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-[#0866e9] text-base font-extrabold text-white">{profile?.nome?.trim().slice(0, 2).toUpperCase() || '—'}</span>
-            <button type="button" onClick={async () => { await authService.signOut(); await router.push('/acesso-estudante'); }} className="flex items-center gap-2 text-[15px] font-bold text-[#253858]">Olá, {profile?.nome?.split(' ')[0] || 'estudante'}<PublicIcon name="chevronDown" size={17} /></button>
+            <span className="hidden h-10 w-px bg-[#dfe7f1] sm:block" />
+            <span className="grid h-10 w-10 place-items-center rounded-full bg-[#0866e9] text-sm font-extrabold text-white sm:h-12 sm:w-12 sm:text-base">{profile?.nome?.trim().slice(0, 2).toUpperCase() || '—'}</span>
+            <button type="button" onClick={async () => { await authService.signOut(); await router.push('/acesso-estudante'); }} className="hidden items-center gap-2 text-[15px] font-bold text-[#253858] lg:flex">Olá, {profile?.nome?.split(' ')[0] || 'estudante'}<PublicIcon name="chevronDown" size={17} /></button>
+            <button type="button" className="grid h-10 w-10 place-items-center lg:hidden" onClick={() => setMenuOpen((value) => !value)} aria-label={menuOpen ? 'Fechar menu' : 'Abrir menu'} aria-expanded={menuOpen}>
+              <Image src={menuOpen ? '/paulo/x.svg' : '/paulo/menu.svg'} alt="" width={26} height={26} />
+            </button>
           </div>
         </div>
+        {menuOpen && (
+          <nav aria-label="Menu do estudante" className="border-t border-[#e6edf6] bg-white px-4 py-3 shadow-[0_13px_23px_#073b7b26] lg:hidden">
+            {tabs.map((item) => (
+              <button key={item.id} type="button" onClick={() => selectTab(item.id)} aria-current={tab === item.id ? 'page' : undefined} className={'flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[15px] font-semibold ' + (tab === item.id ? 'bg-[#edf6ff] text-[#0866e9]' : 'text-[#465978]')}>
+                <PublicIcon name={item.icon} size={21} />{item.label}
+              </button>
+            ))}
+            <button type="button" onClick={async () => { setMenuOpen(false); await authService.signOut(); await router.push('/acesso-estudante'); }} className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-[15px] font-bold text-[#253858]">
+              Sair da conta
+            </button>
+          </nav>
+        )}
       </header>
-      <main className="mx-auto max-w-[1510px] px-6 py-8">
+      <main className="mx-auto max-w-[1510px] px-4 py-6 sm:px-6 sm:py-8">
         {dataError && <p role="alert" className="mb-6 rounded-xl bg-red-50 p-4 text-red-700">{dataError}</p>}
         {documentError && <p role="alert" className="mb-6 rounded-xl bg-red-50 p-4 text-red-700">{documentError}</p>}
 
@@ -185,28 +211,28 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
             <Card className="p-6"><p className="text-sm text-[#6a7b96]">Entrevistas agendadas</p><strong className="mt-2 block text-4xl text-[#0866e9]">{upcomingInterviews.length}</strong><button onClick={() => selectTab('candidaturas')} className="mt-4 font-bold text-[#0866e9]">Ver candidaturas <span aria-hidden>→</span></button></Card>
             <Card className="p-6"><p className="text-sm text-[#6a7b96]">Estágios ativos</p><strong className="mt-2 block text-4xl text-[#0866e9]">{activeInternships.length}</strong><button onClick={() => selectTab('estagios')} className="mt-4 font-bold text-[#0866e9]">Meus estágios <span aria-hidden>→</span></button></Card>
           </div>
-          <Card className="mt-6 !overflow-hidden !bg-[#0754c9] !p-0 text-white"><div className="grid min-h-[245px] items-center gap-6 px-8 py-8 md:grid-cols-[1fr_350px]"><div><h2 className="text-3xl font-extrabold">Seu futuro começa com uma oportunidade.</h2><p className="mt-3 max-w-xl text-lg text-blue-100">Mantenha seu perfil atualizado e aumente suas chances de encontrar uma vaga compatível.</p><button onClick={() => selectTab('perfil')} className="mt-6 rounded-lg bg-white px-6 py-3 font-bold text-[#0754c9]">Atualizar meu perfil <span aria-hidden>→</span></button></div><Image src="/panel-future.png" alt="" width={420} height={275} className="hidden w-full md:block" /></div></Card>
+          <Card className="mt-6 !overflow-hidden !bg-[#0754c9] !p-0 text-white"><div className="grid min-h-[200px] items-center gap-6 px-5 py-6 sm:min-h-[245px] sm:px-8 sm:py-8 md:grid-cols-[1fr_350px]"><div><h2 className="text-2xl font-extrabold sm:text-3xl">Seu futuro começa com uma oportunidade.</h2><p className="mt-3 max-w-xl text-base text-blue-100 sm:text-lg">Mantenha seu perfil atualizado e aumente suas chances de encontrar uma vaga compatível.</p><button onClick={() => selectTab('perfil')} className="mt-6 rounded-lg bg-white px-6 py-3 font-bold text-[#0754c9]">Atualizar meu perfil <span aria-hidden>→</span></button></div><Image src="/panel-future.png" alt="" width={420} height={275} className="hidden w-full md:block" /></div></Card>
         </>}
 
         {tab === 'vagas' && <>
           <SectionTitle title="Encontre sua próxima oportunidade" subtitle="Explore as vagas disponíveis e candidate-se às que combinam com você." />
-          <div className="mb-3 flex gap-3"><div className="flex flex-1 items-center gap-3 rounded-xl border border-[#dce7f3] bg-white px-5 py-3 shadow-sm"><PublicIcon name="search" size={23} className="text-[#50698d]" /><input aria-label="Buscar vagas" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cargo, área ou palavra-chave" className="w-full outline-none placeholder:text-[#9aa7b9]" /></div><button className="rounded-xl bg-[#0866e9] px-8 font-bold text-white shadow-sm">Buscar vagas</button></div>
-          <div className="mb-7 grid gap-3 rounded-xl border border-[#e2eaf3] bg-white p-3 shadow-sm md:grid-cols-4"><Filter label="Cidade" icon="mapPin" /><Filter label="Área de atuação" icon="briefcase" /><Filter label="Turno" icon="clock" /><Filter label="Modalidade" icon="monitor" /></div>
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row"><div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl border border-[#dce7f3] bg-white px-4 py-3 shadow-sm sm:px-5"><PublicIcon name="search" size={23} className="shrink-0 text-[#50698d]" /><input aria-label="Buscar vagas" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cargo, área ou palavra-chave" className="w-full min-w-0 outline-none placeholder:text-[#9aa7b9]" /></div><button className="rounded-xl bg-[#0866e9] px-6 py-3 font-bold text-white shadow-sm sm:px-8">Buscar vagas</button></div>
+          <div className="mb-7 grid gap-3 rounded-xl border border-[#e2eaf3] bg-white p-3 shadow-sm sm:grid-cols-2 md:grid-cols-4"><Filter label="Cidade" icon="mapPin" /><Filter label="Área de atuação" icon="briefcase" /><Filter label="Turno" icon="clock" /><Filter label="Modalidade" icon="monitor" /></div>
           {vacanciesLoading ? <p>Carregando vagas...</p> : vacanciesError ? <p>Não foi possível carregar as vagas agora.</p> : filteredVacancies.length === 0 ? <Card>Nenhuma vaga disponível no momento.</Card> : <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_445px]">
-            <section><h2 className="text-3xl font-extrabold">Vagas disponíveis</h2><p className="mb-4 text-lg text-[#71809a]">Oportunidades para você</p>{filteredVacancies.map((vacancy, index) => <VacancyCard key={vacancy.id} vacancy={vacancy} isNew={index === 0} onDetails={() => setSelectedVacancy(vacancy)} />)}</section>
-            <aside className="space-y-5"><Image src="/panel-future.png" alt="Seu futuro começa com uma oportunidade" width={560} height={365} className="-ml-12 w-[560px] max-w-none rounded-2xl" /><Card className="p-6"><div className="flex gap-4"><span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9]"><PublicIcon name="file" size={28} /></span><div><h3 className="text-xl font-extrabold">Minhas candidaturas</h3><p className="mt-1 text-[#71809a]">Acompanhe suas inscrições em um só lugar.</p><button onClick={() => selectTab('candidaturas')} className="mt-4 font-bold text-[#0866e9]">Ver candidaturas <span aria-hidden>→</span></button></div></div></Card></aside>
+            <section className="min-w-0"><h2 className="text-2xl font-extrabold sm:text-3xl">Vagas disponíveis</h2><p className="mb-4 text-base text-[#71809a] sm:text-lg">Oportunidades para você</p>{filteredVacancies.map((vacancy, index) => <VacancyCard key={vacancy.id} vacancy={vacancy} isNew={index === 0} onDetails={() => setSelectedVacancy(vacancy)} />)}</section>
+            <aside className="hidden space-y-5 lg:block"><Image src="/panel-future.png" alt="Seu futuro começa com uma oportunidade" width={560} height={365} className="h-auto w-full max-w-full rounded-2xl" /><Card className="p-6"><div className="flex gap-4"><span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9]"><PublicIcon name="file" size={28} /></span><div><h3 className="text-xl font-extrabold">Minhas candidaturas</h3><p className="mt-1 text-[#71809a]">Acompanhe suas inscrições em um só lugar.</p><button onClick={() => selectTab('candidaturas')} className="mt-4 font-bold text-[#0866e9]">Ver candidaturas <span aria-hidden>→</span></button></div></div></Card></aside>
           </div>}
         </>}
 
         {tab === 'candidaturas' && <>
           <SectionTitle title="Minhas candidaturas" subtitle="Acompanhe suas inscrições, entrevistas agendadas e oportunidades anteriores." />
           <div className="mb-6 grid gap-4 md:grid-cols-3"><Stat icon="calendar" value={upcomingInterviews.length} label="Entrevistas agendadas" /><Stat icon="users" value={pastInterviews.length} label="Entrevistas realizadas" /><Stat icon="file" value={interviews.length} label="Candidaturas enviadas" /></div>
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_445px]"><section>
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_445px]"><section className="min-w-0">
             <h2 className="mb-4 text-2xl font-extrabold">Próximas entrevistas</h2>
             {loadingData ? <p>Carregando...</p> : upcomingInterviews.length === 0 ? <Card>Nenhuma entrevista futura encontrada para seu telefone.</Card> : upcomingInterviews.map((item) => <InterviewCard key={item.candidate.id} item={item} />)}
             <h2 className="mb-4 mt-8 text-2xl font-extrabold">Histórico de entrevistas</h2>
             {pastInterviews.length === 0 ? <Card>Nenhuma entrevista passada.</Card> : pastInterviews.map((item) => <InterviewCard key={item.candidate.id} item={item} />)}
-          </section><aside className="space-y-5"><Image src="/panel-interview.png" alt="Prepare-se para sua entrevista" width={500} height={453} className="-ml-6 w-[500px] max-w-none rounded-2xl" /><Card className="p-6"><h3 className="text-xl font-extrabold">Precisa de ajuda?</h3><p className="mt-2 text-[#71809a]">Fale com a equipe DF Estágios pelo WhatsApp.</p><a href="https://wa.me/5561998109169" target="_blank" rel="noopener noreferrer" className="mt-4 inline-block font-bold text-[#0866e9]">Falar com a equipe <span aria-hidden>→</span></a></Card></aside></div>
+          </section><aside className="space-y-5"><Image src="/panel-interview.png" alt="Prepare-se para sua entrevista" width={500} height={453} className="hidden h-auto w-full max-w-full rounded-2xl lg:block" /><Card className="p-6"><h3 className="text-xl font-extrabold">Precisa de ajuda?</h3><p className="mt-2 text-[#71809a]">Fale com a equipe DF Estágios pelo WhatsApp.</p><a href="https://wa.me/5561998109169" target="_blank" rel="noopener noreferrer" className="mt-4 inline-block font-bold text-[#0866e9]">Falar com a equipe <span aria-hidden>→</span></a></Card></aside></div>
         </>}
 
         {tab === 'estagios' && <>
@@ -222,8 +248,8 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
         </>}
       </main>
 
-      {selectedVacancy && <div role="dialog" aria-modal="true" aria-label="Detalhes da vaga" className="fixed inset-0 z-50 grid place-items-center bg-[#071c43a8] p-4" onClick={() => setSelectedVacancy(null)}><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 sm:p-8" onClick={(event) => event.stopPropagation()}>
-        <div className="flex justify-between gap-4"><h2 className="text-2xl font-extrabold">{selectedVacancy.tituloVaga}</h2><button onClick={() => setSelectedVacancy(null)} aria-label="Fechar detalhes" className="text-2xl">×</button></div>
+      {selectedVacancy && <div role="dialog" aria-modal="true" aria-label="Detalhes da vaga" className="fixed inset-0 z-50 grid place-items-end bg-[#071c43a8] p-0 sm:place-items-center sm:p-4" onClick={() => setSelectedVacancy(null)}><div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl sm:p-8" onClick={(event) => event.stopPropagation()}>
+        <div className="flex justify-between gap-4"><h2 className="text-xl font-extrabold sm:text-2xl">{selectedVacancy.tituloVaga}</h2><button onClick={() => setSelectedVacancy(null)} aria-label="Fechar detalhes" className="shrink-0 text-2xl">×</button></div>
         <p className="mt-2 text-[#61718d]">{vacancyLocation(selectedVacancy)}</p>
         <div className="mt-5 space-y-4 text-[#334563]">
           <p><strong>Horário:</strong> {selectedVacancy.horarioTrabalho || 'A combinar'}</p>
@@ -232,7 +258,7 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
           <div><strong>Atividades</strong><p className="mt-1 whitespace-pre-line">{selectedVacancy.atividades}</p></div>
           <div><strong>Requisitos</strong><p className="mt-1 whitespace-pre-line">{selectedVacancy.requisitos}</p></div>
         </div>
-        <a href={vacancyWhatsAppUrl(selectedVacancy)} target="_blank" rel="noopener noreferrer" className="mt-6 inline-block rounded-lg bg-[#0866e9] px-5 py-3 font-bold text-white">Candidatar-se no WhatsApp →</a>
+        <a href={vacancyWhatsAppUrl(selectedVacancy)} target="_blank" rel="noopener noreferrer" className="mt-6 inline-block w-full rounded-lg bg-[#0866e9] px-5 py-3 text-center font-bold text-white sm:w-auto">Candidatar-se no WhatsApp →</a>
       </div></div>}
 
       {tcePreview && <div role="dialog" aria-modal="true" aria-label="Visualizar TCE" className="fixed inset-0 z-50 grid place-items-center bg-[#071c43cc] p-3" onClick={closeTce}><div className="flex h-[92vh] w-full max-w-5xl flex-col rounded-xl bg-white p-3" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between px-2 pb-2"><h2 className="font-bold">Visualizar TCE</h2><button onClick={closeTce} className="text-xl" aria-label="Fechar TCE">×</button></div>{tcePreview.kind === 'pdf' ? <iframe title="TCE do estágio" src={tcePreview.url + '#toolbar=0&navpanes=0'} referrerPolicy="no-referrer" className="min-h-0 flex-1 rounded-lg border border-[#dce7f3]" /> : <DocxPreview blob={tcePreview.blob} />}</div></div>}
@@ -273,7 +299,7 @@ function Stat({ icon, value, label }: { icon: PublicIconName; value: number; lab
 }
 
 function VacancyCard({ vacancy, isNew, onDetails }: { vacancy: Entrevista; isNew: boolean; onDetails: () => void }) {
-  return <Card className="mb-3 p-5"><div className="flex flex-wrap items-center gap-4"><span className="grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9]"><PublicIcon name="briefcase" size={32} /></span><div className="min-w-0 flex-1"><div className="flex items-center gap-3">{isNew && <span className="rounded-md bg-[#f6d36c] px-3 py-1 text-xs font-extrabold uppercase text-[#101d35]">Nova</span>}<h3 className="truncate text-xl font-extrabold">{vacancy.tituloVaga}</h3></div><p className="mt-1 text-[#536680]">{vacancyLocation(vacancy)}</p><div className="mt-3 flex flex-wrap gap-2 text-sm text-[#415777]"><span className="rounded-lg bg-[#f0f6fd] px-3 py-2">{vacancy.valorBolsa || 'Bolsa a combinar'}</span><span className="rounded-lg bg-[#f0f6fd] px-3 py-2"><PublicIcon name="sun" size={15} className="mr-1 inline" />{vacancy.horarioTrabalho || 'A combinar'}</span><span className="rounded-lg bg-[#f0f6fd] px-3 py-2"><PublicIcon name="mapPin" size={15} className="mr-1 inline" />Presencial</span></div></div><div className="flex shrink-0 gap-3"><button onClick={onDetails} className="rounded-lg border border-[#0866e9] px-5 py-3 font-bold text-[#0866e9]">Ver detalhes</button><a href={vacancyWhatsAppUrl(vacancy)} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-[#0866e9] px-5 py-3 font-bold text-white">Candidatar-se</a></div></div></Card>;
+  return <Card className="mb-3 p-4 sm:p-5"><div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center"><span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9] sm:h-16 sm:w-16"><PublicIcon name="briefcase" size={32} /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3">{isNew && <span className="rounded-md bg-[#f6d36c] px-3 py-1 text-xs font-extrabold uppercase text-[#101d35]">Nova</span>}<h3 className="break-words text-lg font-extrabold sm:truncate sm:text-xl">{vacancy.tituloVaga}</h3></div><p className="mt-1 text-sm text-[#536680] sm:text-base">{vacancyLocation(vacancy)}</p><div className="mt-3 flex flex-wrap gap-2 text-sm text-[#415777]"><span className="rounded-lg bg-[#f0f6fd] px-3 py-2">{vacancy.valorBolsa || 'Bolsa a combinar'}</span><span className="rounded-lg bg-[#f0f6fd] px-3 py-2"><PublicIcon name="sun" size={15} className="mr-1 inline" />{vacancy.horarioTrabalho || 'A combinar'}</span><span className="rounded-lg bg-[#f0f6fd] px-3 py-2"><PublicIcon name="mapPin" size={15} className="mr-1 inline" />Presencial</span></div></div><div className="flex w-full flex-col gap-3 sm:w-auto sm:shrink-0 sm:flex-row"><button onClick={onDetails} className="rounded-lg border border-[#0866e9] px-5 py-3 text-center font-bold text-[#0866e9]">Ver detalhes</button><a href={vacancyWhatsAppUrl(vacancy)} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-[#0866e9] px-5 py-3 text-center font-bold text-white">Candidatar-se</a></div></div></Card>;
 }
 
 function InterviewCard({ item }: { item: StudentInterview }) {
@@ -297,8 +323,8 @@ function InternshipCard({ item, profile, onTce, onCertificate, generating, varia
   const role = profile?.curso?.trim() || 'Estágio';
   const scholarship = profile?.estagioValorBolsa?.trim() || '—';
   const schedule = formatInternshipSchedule(profile);
-  if (variant === 'past') return <Card className="mb-3 !flex flex-wrap items-center gap-3 !p-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9]"><PublicIcon name="building" size={25} /></span><div className="min-w-[220px] flex-1"><h3 className="font-extrabold">{company?.nomeFantasia || company?.razaoSocial || 'Empresa não identificada'}</h3><p className="text-sm text-[#60718d]">{role}</p></div><div className="min-w-[220px] text-sm text-[#60718d]"><span>Período</span><strong className="ml-2 text-[#263b5f]">{formatIsoDate(item.startDate)} a {item.endDate ? formatIsoDate(item.endDate) : '—'}</strong></div><span className="rounded-full bg-[#eef1f4] px-4 py-2 text-xs font-bold text-[#66758d]">ENCERRADO</span>{item.tcePath && <button type="button" onClick={() => onTce(item.tcePath!)} className="rounded-lg border border-[#0866e9] px-4 py-2 font-bold text-[#0866e9]"><PublicIcon name="eye" size={18} className="mr-2 inline" />Visualizar TCE</button>}</Card>;
-  return <Card className="mb-5 p-6"><div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_493px]"><div><span className="inline-flex items-center gap-2 rounded-full bg-[#dff7e7] px-4 py-2 text-xs font-bold text-[#187b3f]"><span className="h-2.5 w-2.5 rounded-full bg-[#1caf5c]" />ESTÁGIO ATIVO</span><h3 className="mt-4 text-2xl font-extrabold">Estágio atual</h3><div className="mt-5 flex items-center gap-4"><span className="grid h-16 w-16 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9]"><PublicIcon name="building" size={33} /></span><div><h4 className="text-2xl font-extrabold">{company?.nomeFantasia || company?.razaoSocial || 'Empresa não identificada'}</h4><p className="text-lg text-[#64738d]">{role}</p></div></div><div className="mt-6 grid gap-5 border-t border-[#e6edf5] pt-5 sm:grid-cols-2"><Detail icon="building" label="Empresa" value={company?.nomeFantasia || company?.razaoSocial || '—'} /><Detail icon="briefcase" label="Área / curso" value={role} /><Detail icon="clock" label="Horário" value={schedule} /><Detail icon="calendar" label="Início" value={formatIsoDate(item.startDate)} /><Detail icon="coins" label="Bolsa-auxílio" value={scholarship} /><Detail icon="chart" label="Situação" value="Ativo" accent /></div></div><div className="rounded-2xl bg-[#eaf5ff] p-6"><h3 className="flex items-center gap-3 text-xl font-extrabold"><PublicIcon name="file" size={27} className="text-[#0866e9]" />Documentos do estágio</h3>{item.tcePath ? <button type="button" onClick={() => onTce(item.tcePath!)} className="mt-5 w-full rounded-lg border-2 border-[#0866e9] bg-white px-4 py-3 font-bold text-[#0866e9]"><PublicIcon name="eye" size={19} className="mr-2 inline" />Visualizar TCE</button> : <p className="mt-5 text-sm text-[#78859b]">TCE ainda não disponível</p>}<div className="my-5 h-px bg-[#d2e4f4]" /><h3 className="flex items-center gap-3 text-xl font-extrabold"><PublicIcon name="file" size={27} className="text-[#0866e9]" />Certificado de estágio</h3>{item.certificateEligible ? <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#d8f7df] px-3 py-2 text-sm font-bold text-[#17803c]"><PublicIcon name="check" size={17} />Disponível após 6 meses</span> : <p className="mt-3 text-sm text-[#71809a]">Disponível após 6 meses de duração.</p>}<button type="button" disabled={!item.certificateEligible || !company || generating} onClick={() => onCertificate(item)} className="mt-4 w-full rounded-lg bg-[#0866e9] px-4 py-3 font-bold text-white disabled:cursor-not-allowed disabled:bg-[#a9b9cf]"><PublicIcon name="file" size={19} className="mr-2 inline" />{generating ? 'Emitindo...' : 'Emitir certificado'}</button><p className="mt-3 text-sm text-[#71809a]">Disponível para estágios com pelo menos 6 meses de duração.</p></div></div></Card>;
+  if (variant === 'past') return <Card className="mb-3 !flex flex-wrap items-center gap-3 !p-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9]"><PublicIcon name="building" size={25} /></span><div className="min-w-0 flex-1 basis-full sm:basis-auto"><h3 className="font-extrabold">{company?.nomeFantasia || company?.razaoSocial || 'Empresa não identificada'}</h3><p className="text-sm text-[#60718d]">{role}</p></div><div className="min-w-0 text-sm text-[#60718d]"><span>Período</span><strong className="ml-2 text-[#263b5f]">{formatIsoDate(item.startDate)} a {item.endDate ? formatIsoDate(item.endDate) : '—'}</strong></div><span className="rounded-full bg-[#eef1f4] px-4 py-2 text-xs font-bold text-[#66758d]">ENCERRADO</span>{item.tcePath && <button type="button" onClick={() => onTce(item.tcePath!)} className="rounded-lg border border-[#0866e9] px-4 py-2 font-bold text-[#0866e9]"><PublicIcon name="eye" size={18} className="mr-2 inline" />Visualizar TCE</button>}</Card>;
+  return <Card className="mb-5 p-4 sm:p-6"><div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_493px]"><div className="min-w-0"><span className="inline-flex items-center gap-2 rounded-full bg-[#dff7e7] px-4 py-2 text-xs font-bold text-[#187b3f]"><span className="h-2.5 w-2.5 rounded-full bg-[#1caf5c]" />ESTÁGIO ATIVO</span><h3 className="mt-4 text-xl font-extrabold sm:text-2xl">Estágio atual</h3><div className="mt-5 flex items-center gap-4"><span className="grid h-14 w-14 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9] sm:h-16 sm:w-16"><PublicIcon name="building" size={33} /></span><div className="min-w-0"><h4 className="break-words text-xl font-extrabold sm:text-2xl">{company?.nomeFantasia || company?.razaoSocial || 'Empresa não identificada'}</h4><p className="text-base text-[#64738d] sm:text-lg">{role}</p></div></div><div className="mt-6 grid gap-5 border-t border-[#e6edf5] pt-5 sm:grid-cols-2"><Detail icon="building" label="Empresa" value={company?.nomeFantasia || company?.razaoSocial || '—'} /><Detail icon="briefcase" label="Área / curso" value={role} /><Detail icon="clock" label="Horário" value={schedule} /><Detail icon="calendar" label="Início" value={formatIsoDate(item.startDate)} /><Detail icon="coins" label="Bolsa-auxílio" value={scholarship} /><Detail icon="chart" label="Situação" value="Ativo" accent /></div></div><div className="rounded-2xl bg-[#eaf5ff] p-5 sm:p-6"><h3 className="flex items-center gap-3 text-lg font-extrabold sm:text-xl"><PublicIcon name="file" size={27} className="text-[#0866e9]" />Documentos do estágio</h3>{item.tcePath ? <button type="button" onClick={() => onTce(item.tcePath!)} className="mt-5 w-full rounded-lg border-2 border-[#0866e9] bg-white px-4 py-3 font-bold text-[#0866e9]"><PublicIcon name="eye" size={19} className="mr-2 inline" />Visualizar TCE</button> : <p className="mt-5 text-sm text-[#78859b]">TCE ainda não disponível</p>}<div className="my-5 h-px bg-[#d2e4f4]" /><h3 className="flex items-center gap-3 text-lg font-extrabold sm:text-xl"><PublicIcon name="file" size={27} className="text-[#0866e9]" />Certificado de estágio</h3>{item.certificateEligible ? <span className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#d8f7df] px-3 py-2 text-sm font-bold text-[#17803c]"><PublicIcon name="check" size={17} />Disponível após 6 meses</span> : <p className="mt-3 text-sm text-[#71809a]">Disponível após 6 meses de duração.</p>}<button type="button" disabled={!item.certificateEligible || !company || generating} onClick={() => onCertificate(item)} className="mt-4 w-full rounded-lg bg-[#0866e9] px-4 py-3 font-bold text-white disabled:cursor-not-allowed disabled:bg-[#a9b9cf]"><PublicIcon name="file" size={19} className="mr-2 inline" />{generating ? 'Emitindo...' : 'Emitir certificado'}</button><p className="mt-3 text-sm text-[#71809a]">Disponível para estágios com pelo menos 6 meses de duração.</p></div></div></Card>;
 }
 
 function Detail({ icon, label, value, accent = false }: { icon: PublicIconName; label: string; value: string; accent?: boolean }) {
