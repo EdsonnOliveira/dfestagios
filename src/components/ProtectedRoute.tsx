@@ -1,5 +1,7 @@
 import { useRouter } from 'next/router';
 import { useAuth } from '../hooks/useAuth';
+import { useEffect } from 'react';
+import { isStudentAccountEmail } from '../lib/studentAuth';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -8,6 +10,13 @@ interface ProtectedRouteProps {
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const isStudent = isStudentAccountEmail(user?.email);
+
+  useEffect(() => {
+    if (!loading && (!user || isStudent)) {
+      void router.replace(isStudent ? '/area-estudante' : '/login');
+    }
+  }, [loading, user, isStudent, router]);
 
   if (loading) {
     return (
@@ -20,10 +29,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
-  if (!user) {
-    router.push('/login');
-    return null;
-  }
+  if (!user || isStudent) return null;
 
   return <>{children}</>;
 }

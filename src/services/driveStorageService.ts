@@ -115,6 +115,13 @@ export const driveStorageService = {
     return data.signedUrl;
   },
 
+  async getFileBlob(fullPath: string): Promise<Blob> {
+    const supabase = getClient();
+    const { data, error } = await supabase.storage.from(DRIVE_BUCKET).download(fullPath);
+    if (error || !data) throw error ?? new Error('Arquivo indisponível.');
+    return data;
+  },
+
   async remove(fullPath: string): Promise<void> {
     const supabase = getClient();
     const { error } = await supabase.storage.from(DRIVE_BUCKET).remove([fullPath]);

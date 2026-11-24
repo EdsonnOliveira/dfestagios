@@ -5,6 +5,8 @@
 .header > a img { display: block; width: 285px; height: auto; }
 .headerAction { display: flex; align-items: center; gap: 17px; padding-top: 33px; font-size: 16px; }
 .headerAction button { min-width: 98px; min-height: 48px; border: 1.5px solid #0562e9; border-radius: 10px; background: #fff; color: #0062e3; font-size: 16px; font-weight: 700; cursor: default; }
+.headerLogin { display: grid; min-width: 98px; min-height: 48px; place-items: center; border: 1.5px solid #0562e9; border-radius: 10px; background: #fff; color: #0062e3; font-size: 16px; font-weight: 700; text-decoration: none; }
+.headerLogin:hover { background: #edf5ff; }
 .main { display: grid; grid-template-columns: minmax(0, 600px) minmax(0, 766px); gap: 54px; align-items: start; }
 .visualCopy { padding-top: 60px; }
 .eyebrow { color: #c8931c; font-size: 15px; font-weight: 700; letter-spacing: .13em; }
@@ -25,6 +27,7 @@
 .activeStep strong { font-weight: 700; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px 27px; }
 .grid label { display: flex; min-width: 0; flex-direction: column; gap: 8px; color: #0b1e4d; font-size: 15px; font-weight: 700; }
+.grid label small { display: inline; color: #748097; font-size: 13px; font-weight: 400; }
 .wide { grid-column: 1 / -1; }
 .input { display: flex; min-height: 51px; align-items: center; gap: 10px; padding: 0 14px; border: 1px solid #d8e1ec; border-radius: 8px; background: #fff; }
 .input:focus-within { border-color: #0866e8; outline: 2px solid #0866e828; }
@@ -40,8 +43,26 @@
 .back { padding: 10px 20px; border: 1px solid #0a61d6; border-radius: 8px; background: #fff; color: #0a61d6; font-size: 16px; cursor: pointer; }
 .footnote { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 16px 0 0; color: #748097; font-size: 14px; text-align: center; }
 .error { margin: 0 0 15px; padding: 10px; border-radius: 8px; background: #fff0ef; color: #a72d2d; font-size: 14px; }
+.location, .fileName { grid-column: 1 / -1; margin: 0; color: #62718a; font-size: 14px; }
+.fileInput { min-height: 55px; padding: 12px; border: 1px dashed #a9bddd; border-radius: 8px; background: #f8fbff; color: #334c73; font: inherit; font-weight: 400; }
+.fileInput::file-selector-button { margin-right: 12px; padding: 7px 11px; border: 0; border-radius: 6px; background: #e8f0fc; color: #0055ca; font-weight: 700; cursor: pointer; }
+.accessInfo { grid-column: 1 / -1; margin: 5px 0 8px; color: #50627f; font-size: 16px; line-height: 1.5; }
+.accessInfo strong { color: #0b174c; }
+.loginCard { min-height: 730px; margin-top: 20px; padding-top: 45px; }
+.loginIntro { max-width: 320px !important; }
+.loginOptions { display: flex; justify-content: space-between; gap: 15px; margin-top: 18px; color: #5b6983; font-size: 15px; }
+.loginOptions label { display: flex; align-items: center; gap: 8px; }
+.loginOptions a { color: #0064e9; font-weight: 700; }
+.loginDivider { display: flex; align-items: center; gap: 22px; margin: 28px 0 22px; color: #70809c; font-size: 16px; }
+.loginDivider::before, .loginDivider::after { height: 1px; flex: 1; background: #d8e1ec; content: ''; }
+.loginSignup { margin: 0; color: #62718a; font-size: 16px; text-align: center; }
+.loginSignup a { color: #0064e9; font-weight: 700; }
+.loginPrivacy { display: flex; justify-content: center; align-items: center; gap: 8px; margin: 32px 0 0; color: #70809c; font-size: 14px; }
+.loginPrivacy svg { color: #627697; }
+.showPassword { flex: 0 0 auto; border: 0; background: transparent; color: #0064e9; font-size: 13px; font-weight: 700; cursor: pointer; }
 .success { padding-top: 110px; text-align: center; }
 .success p { margin: 20px 0; color: #68748d; }
 @media (max-width: 1100px) { .header, .main { width: calc(100% - 50px); } .main { grid-template-columns: 42% 1fr; gap: 25px; } .card { padding: 30px; } .visualCopy h1 { font-size: 47px; } }
 @media (max-width: 760px) { .page { overflow: visible; } .background { object-position: 36% top; opacity: .45; } .header, .main { width: calc(100% - 32px); } .header { height: 85px; } .header > a img { width: 190px; } .headerAction { padding-top: 18px; font-size: 12px; } .headerAction button { min-width: 68px; min-height: 38px; font-size: 12px; } .main { display: block; } .visualCopy { padding: 20px 0 35px; } .visualCopy h1 { font-size: clamp(37px, 8vw, 53px); } .visualCopy p { font-size: 17px; } .card { min-height: 0; margin-bottom: 30px; } }
+@media (max-width: 760px) { .headerLogin { min-width: 68px; min-height: 38px; font-size: 12px; } .loginCard { min-height: 0; margin-top: 0; } }
 @media (max-width: 520px) { .headerAction span { display: none; } .card { padding: 24px 18px; } .grid { gap: 14px; } .grid label { grid-column: 1 / -1; } .step { font-size: 12px; } .card h2 { font-size: 31px; } .visualCopy h1 { font-size: 39px; } }

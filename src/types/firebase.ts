@@ -8,6 +8,9 @@ export interface Estagiario {
   dataNascimento?: string;
   email: string;
   cpf?: string;
+  authUid?: string;
+  curriculoStoragePath?: string;
+  curriculoNome?: string;
   rg?: string;
   orgaoEmissor?: string;
   uf: string;
@@ -185,6 +188,7 @@ export interface VinculacaoEstagiario {
   estagiarioId: string;
   dataVinculacao: Date;
   status: 'ativo' | 'inativo';
+  contratoPdfDrivePath?: string;
   createdAt: Date;
   updatedAt: Date;
 }

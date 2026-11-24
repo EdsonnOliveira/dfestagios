@@ -4,7 +4,8 @@ export type PublicIconName =
   | 'chevronDown' | 'user' | 'userPlus' | 'graduation' | 'building'
   | 'id' | 'calendar' | 'phone' | 'mail' | 'mapPin' | 'home'
   | 'briefcase' | 'headset' | 'megaphone' | 'chart' | 'coins' | 'handshake'
-  | 'users' | 'shield' | 'arrowRight' | 'lock';
+  | 'users' | 'shield' | 'arrowRight' | 'lock' | 'file' | 'eye' | 'clock'
+  | 'check' | 'info' | 'bell' | 'sliders' | 'monitor' | 'sun' | 'search';
 
 const shapes: Record<PublicIconName, ReactNode> = {
   chevronDown: <path d="m6 9 6 6 6-6" />,
@@ -28,6 +29,16 @@ const shapes: Record<PublicIconName, ReactNode> = {
   shield: <><path d="m12 2 9 4v6c0 5-3.5 8-9 10-5.5-2-9-5-9-10V6l9-4Z" /><path d="m8 12 3 3 5-6" /></>,
   arrowRight: <><path d="M4 12h16m-6-6 6 6-6 6" /></>,
   lock: <><rect x="4" y="10" width="16" height="12" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v3" /></>,
+  file: <><path d="M6 2h8l4 4v16H6z" /><path d="M14 2v5h5M9 12h6M9 16h6" /></>,
+  eye: <><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="2.5" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  check: <><circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5m0-8h.01" /></>,
+  bell: <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" /></>,
+  sliders: <><path d="M4 6h16M4 12h16M4 18h16" /><circle cx="8" cy="6" r="2" fill="white" /><circle cx="15" cy="12" r="2" fill="white" /><circle cx="10" cy="18" r="2" fill="white" /></>,
+  monitor: <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></>,
+  sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
+  search: <><circle cx="10.8" cy="10.8" r="6.8" /><path d="m16 16 5 5" /></>,
 };
 
 export default function PublicIcon({ name, size = 24, className = '' }: { name: PublicIconName; size?: number; className?: string }) {

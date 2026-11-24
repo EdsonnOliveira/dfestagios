@@ -795,6 +795,7 @@ export default function FormularioContratoEstagio() {
         await estagiariosService.update(estagiarioIdResult, {
           contratoPdfDrivePath: caminho
         });
+        await vinculacoesService.setContractPath(estagiarioIdResult, caminho);
       }
 
       await syncContratoPreenchidoStatus(estagiarioIdResult, clienteIdRaw);

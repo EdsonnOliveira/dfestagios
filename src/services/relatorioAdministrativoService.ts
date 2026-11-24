@@ -86,6 +86,11 @@ async function findEventoDuplicado(
 }
 
 export const relatorioAdministrativoService = {
+  async getByEstagiarioId(estagiarioId: string): Promise<RelatorioAdministrativoEvento[]> {
+    const q = query(collection(db, 'relatorioAdministrativoEventos'), where('estagiarioId', '==', estagiarioId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((item) => mapEvento(item.id, item.data() as Record<string, unknown>));
+  },
   async logContrato(params: {
     clienteId: string;
     clienteNome: string;

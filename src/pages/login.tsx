@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
+import { isStudentAccountEmail } from '../lib/studentAuth';
 import { authService } from '../services/firebase';
 
 export default function Login() {
@@ -17,8 +18,8 @@ export default function Login() {
     setError('');
 
     try {
-      await authService.signIn(email, senha);
-      router.push('/painel');
+      const user = await authService.signIn(email, senha);
+      router.push(isStudentAccountEmail(user.email) ? '/area-estudante' : '/painel');
     } catch (error: unknown) {
       console.error('Erro no login:', error);
       if (error && typeof error === 'object' && 'code' in error) {

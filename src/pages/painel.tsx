@@ -7,6 +7,8 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import { estagiariosService, clientesService, vinculacoesService } from '../services/firebase';
 import { formatBolsaDisplay, formatDatePtBr } from '../services/rescisaoCalcService';
 import { Estagiario, Cliente } from '../types/firebase';
+import { getDownloadURL, ref } from 'firebase/storage';
+import { storage } from '../lib/firebase';
 
 function formatDateDisplay(dataString: string | undefined): string {
   if (!dataString?.trim()) return '-';
@@ -41,6 +43,7 @@ export default function Painel() {
   >([]);
   const [loading, setLoading] = useState(true);
   const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
+  const [resumeError, setResumeError] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingEstagiario, setEditingEstagiario] = useState<Estagiario | null>(null);
   const [editForm, setEditForm] = useState({
@@ -637,6 +640,7 @@ export default function Painel() {
           <h1 className="text-2xl sm:text-3xl font-bold text-[#004085] dark:text-blue-400 mb-2 px-4 sm:px-0">Painel de Controle</h1>
           <p className="text-gray-600 dark:text-gray-300 text-sm sm:text-base px-4 sm:px-0">Gerencie todos os estagiários cadastrados</p>
         </div>
+        {resumeError && <p role="alert" className="mb-5 rounded-lg bg-red-50 p-3 text-red-700">{resumeError}</p>}
 
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-4 sm:p-6 mb-6 transition-colors">
           <h2 className="text-lg sm:text-xl font-bold text-[#004085] dark:text-blue-400 mb-4">Filtros</h2>
@@ -968,6 +972,26 @@ export default function Painel() {
                         {renderStatusBadge(estagiario)}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                        {estagiario.curriculoStoragePath && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setResumeError('');
+                              const target = window.open('', '_blank');
+                              try {
+                                const url = await getDownloadURL(ref(storage, estagiario.curriculoStoragePath));
+                                if (target) target.location.href = url;
+                                else window.location.href = url;
+                              } catch {
+                                target?.close();
+                                setResumeError('Não foi possível abrir o currículo. Confira as permissões do Storage.');
+                              }
+                            }}
+                            className="text-[#004085] dark:text-blue-400 hover:underline mr-3"
+                          >
+                            Currículo
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleEdit(estagiario)}

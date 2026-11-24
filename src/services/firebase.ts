@@ -17,7 +17,7 @@ import {
   User as FirebaseUser
 } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
-import { Estagiario, EstagiarioWithCompanyEntry, Grupo, Cliente, Entrevista, EntrevistaCandidato, ClienteContratoLink, ReposicaoPendente } from '../types/firebase';
+import { Estagiario, EstagiarioWithCompanyEntry, Grupo, Cliente, Entrevista, EntrevistaCandidato, ClienteContratoLink, ReposicaoPendente, VinculacaoEstagiario } from '../types/firebase';
 
 function parseFirestoreDate(value: unknown): Date | null {
   if (!value) return null;
@@ -36,6 +36,14 @@ function parseFirestoreDate(value: unknown): Date | null {
 import { mensalidadesService } from './mensalidadesService';
 
 export const estagiariosService = {
+  async getByCpf(cpf: string): Promise<Estagiario[]> {
+    const digits = cpf.replace(/\D/g, '');
+    if (digits.length !== 11) return [];
+    const masked = digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+    const q = query(collection(db, 'estagiarios'), where('cpf', 'in', [digits, masked]));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as Estagiario[];
+  },
   async add(estagiario: Omit<Estagiario, 'id' | 'createdAt' | 'updatedAt'>) {
     console.log('Tentando adicionar estagiário:', estagiario);
     const now = new Date();
@@ -445,6 +453,11 @@ export const clientesService = {
 };
 
 export const vinculacoesService = {
+  async getByEstagiarioId(estagiarioId: string) {
+    const q = query(collection(db, 'vinculacoes'), where('estagiarioId', '==', estagiarioId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as VinculacaoEstagiario[];
+  },
   async vincularEstagiario(
     clienteId: string,
     estagiarioId: string,
@@ -453,11 +466,13 @@ export const vinculacoesService = {
     const now = new Date();
     const dataVinculacao = dataVinculacaoOverride ?? now;
     try {
+      const estagiario = await estagiariosService.getById(estagiarioId);
       const docRef = await addDoc(collection(db, 'vinculacoes'), {
         clienteId,
         estagiarioId,
         dataVinculacao,
         status: 'ativo',
+        ...(estagiario?.contratoPdfDrivePath ? { contratoPdfDrivePath: estagiario.contratoPdfDrivePath } : {}),
         createdAt: now,
         updatedAt: now
       });
@@ -477,7 +492,6 @@ export const vinculacoesService = {
         }
       }
 
-      const estagiario = await estagiariosService.getById(estagiarioId);
       await clientesService.resolveReposicaoPendente(
         clienteId,
         estagiario?.empresaFilialId?.trim()
@@ -488,6 +502,12 @@ export const vinculacoesService = {
       console.error('Erro ao vincular estagiário:', error);
       throw error;
     }
+  },
+
+  async setContractPath(estagiarioId: string, path: string): Promise<void> {
+    const q = query(collection(db, 'vinculacoes'), where('estagiarioId', '==', estagiarioId), where('status', '==', 'ativo'));
+    const snapshot = await getDocs(q);
+    await Promise.all(snapshot.docs.map((item) => updateDoc(item.ref, { contratoPdfDrivePath: path, updatedAt: new Date() })));
   },
 
   async desvincularEstagiario(clienteId: string, estagiarioId: string) {
@@ -643,6 +663,14 @@ export const entrevistasService = {
 };
 
 export const entrevistaCandidatosService = {
+  async getByTelefone(telefone: string) {
+    const digits = telefone.replace(/\D/g, '');
+    if (digits.length < 10) return [] as EntrevistaCandidato[];
+    const variants = [digits, digits.startsWith('55') && digits.length > 11 ? digits.slice(2) : `55${digits}`];
+    const q = query(collection(db, 'entrevistaCandidatos'), where('telefone', 'in', variants));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as EntrevistaCandidato[];
+  },
   async add(
     candidato: Omit<EntrevistaCandidato, 'id' | 'createdAt' | 'updatedAt'>
   ) {
