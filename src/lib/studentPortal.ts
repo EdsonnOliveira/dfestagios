@@ -82,8 +82,12 @@ export function buildStudentInternships(
   for (const [index, link] of source.entries()) {
     const linkDate = link.dataVinculacao instanceof Date ? link.dataVinculacao : typeof link.dataVinculacao === 'object' && link.dataVinculacao && 'toDate' in link.dataVinculacao ? (link.dataVinculacao as { toDate: () => Date }).toDate() : null;
     const fallbackStart = linkDate && !Number.isNaN(linkDate.getTime()) ? isoTodayInBrasilia(linkDate) : '';
-    const matchingContract = [...contracts].reverse().find((event) => event.clienteId === link.clienteId && (event.dataReferencia <= fallbackStart || !fallbackStart));
-    const startDate = matchingContract?.dataReferencia || (index === 0 ? profile.estagioDataInicio : '') || fallbackStart;
+    const matchingContract = [...contracts].reverse().find((event) => event.clienteId === link.clienteId);
+    const startDate =
+      (index === 0 ? profile.estagioDataInicio?.trim() : '') ||
+      matchingContract?.dataReferencia?.trim() ||
+      profile.estagioDataInicio?.trim() ||
+      fallbackStart;
     if (!parseIsoDate(startDate)) continue;
     const termination = terminations.find((event) => event.clienteId === link.clienteId && event.dataReferencia >= startDate);
     const endDate = termination?.dataReferencia ?? null;

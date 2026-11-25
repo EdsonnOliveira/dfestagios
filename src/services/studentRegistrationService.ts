@@ -1,5 +1,5 @@
 import { browserLocalPersistence, browserSessionPersistence, createUserWithEmailAndPassword, deleteUser, setPersistence, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { deleteObject, ref, uploadBytes } from 'firebase/storage';
 import { auth, db, storage } from '../lib/firebase';
 import { studentAuthEmail } from '../lib/studentAuth';
@@ -40,4 +40,63 @@ export async function signInStudent(cpf: string, password: string, remember = fa
   const email = await studentAuthEmail(cpf);
   await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
   await signInWithEmailAndPassword(auth, email, password);
+}
+
+export type StudentProfileUpdate = {
+  nome: string;
+  email: string;
+  telefone1: string;
+  cep?: string;
+  endereco: string;
+  complemento?: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+  grauInstrucao: string;
+  curso?: string;
+};
+
+export async function updateStudentProfile(
+  uid: string,
+  data: StudentProfileUpdate,
+  resume: File | null
+): Promise<{ curriculoStoragePath?: string; curriculoNome?: string }> {
+  const payload: Partial<Estagiario> = {
+    nome: data.nome.trim(),
+    email: data.email.trim(),
+    telefone1: data.telefone1.replace(/\D/g, ''),
+    cep: data.cep?.replace(/\D/g, '') || '',
+    endereco: data.endereco.trim(),
+    complemento: data.complemento?.trim() || '',
+    bairro: data.bairro.trim(),
+    cidade: data.cidade.trim(),
+    uf: data.uf.trim().toUpperCase(),
+    grauInstrucao: data.grauInstrucao.trim(),
+    curso: data.curso?.trim() || '',
+  };
+
+  if (resume) {
+    const extension = resume.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx';
+    const storagePath = `curriculos/${uid}/curriculo.${extension}`;
+    const fileRef = ref(storage, storagePath);
+    await uploadBytes(fileRef, resume, {
+      contentType:
+        resume.type ||
+        (extension === 'pdf'
+          ? 'application/pdf'
+          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+    });
+    payload.curriculoStoragePath = storagePath;
+    payload.curriculoNome = resume.name;
+  }
+
+  await updateDoc(doc(db, 'estagiarios', uid), {
+    ...payload,
+    updatedAt: new Date(),
+  });
+
+  return {
+    curriculoStoragePath: payload.curriculoStoragePath,
+    curriculoNome: payload.curriculoNome,
+  };
 }

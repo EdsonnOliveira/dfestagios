@@ -1,25 +1,45 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import PublicIcon from '../components/PublicIcon';
+import { useAuth } from '../hooks/useAuth';
+import { isStudentAccountEmail } from '../lib/studentAuth';
+import { authService } from '../services/firebase';
 import { signInStudent } from '../services/studentRegistrationService';
 import styles from '../styles/StudentRegistration.module.css';
 
 export default function AcessoEstudante() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (user && isStudentAccountEmail(user.email)) {
+      void router.replace('/area-estudante');
+      return;
+    }
+    if (user && !isStudentAccountEmail(user.email)) {
+      setInfo('Há uma sessão do painel administrativo neste navegador. Entre com CPF e senha do estudante para acessar a área do aluno.');
+    }
+  }, [authLoading, user, router]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
+    setInfo('');
     setLoading(true);
     try {
+      if (user && !isStudentAccountEmail(user.email)) {
+        await authService.signOut();
+      }
       await signInStudent(cpf, password, remember);
       await router.push('/area-estudante');
     } catch {
@@ -45,6 +65,7 @@ export default function AcessoEstudante() {
         <div className={styles.card + ' ' + styles.loginCard}>
           <h2>Bem-vindo de volta!</h2>
           <p className={styles.subtitle}>Entre com seu CPF e senha para acessar sua conta.</p>
+          {info && <div className={styles.error} role="status" style={{ background: '#edf6ff', borderColor: '#0866e9', color: '#0b174c' }}>{info}</div>}
           {error && <div className={styles.error} role="alert">{error}</div>}
           <form onSubmit={submit}>
             <div className={styles.grid}>

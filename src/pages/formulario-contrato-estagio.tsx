@@ -245,9 +245,9 @@ function estagiarioToFormState(estagiario: Estagiario): FormState {
   if (isFreshContractLinkEstagiario(estagiario)) {
     return { ...initialForm };
   }
-  const hasFuncao = Boolean(estagiario.curso?.trim());
+  const hasFuncao = Boolean(estagiario.estagioFuncao?.trim());
   const { funcaoSelect, funcaoOutra } = hasFuncao
-    ? splitEstagioFuncao(estagiario.curso ?? '')
+    ? splitEstagioFuncao(estagiario.estagioFuncao ?? '')
     : { funcaoSelect: '', funcaoOutra: '' };
   const hasInstituicao = Boolean(
     estagiario.instituicaoEnsinoNome?.trim() ||
@@ -694,10 +694,10 @@ export default function FormularioContratoEstagio() {
         uf: ufFinal,
         cep: cepDigits,
         grauInstrucao: grauInstrucaoFromForm(form.estudando, form.nivelEnsino),
-        curso: funcaoFinal,
         status: 'ativo' as const,
         estagioDataInicio: form.dataInicioEstagio,
         estagioValorBolsa: form.valorBolsa.trim(),
+        estagioFuncao: funcaoFinal,
         estagioHorarioEntrada: form.horarioEntrada.trim(),
         estagioHorarioSaida: form.horarioSaida.trim(),
         instituicaoEnsinoNome:

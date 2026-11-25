@@ -165,6 +165,7 @@ export default function ClienteDetalhes() {
   const [estagiariosDisponiveis, setEstagiariosDisponiveis] = useState<Estagiario[]>([]);
   const [estagiariosFiltrados, setEstagiariosFiltrados] = useState<Estagiario[]>([]);
   const [filtroEstagiario, setFiltroEstagiario] = useState('');
+  const [buscaEstagiarioVinculado, setBuscaEstagiarioVinculado] = useState('');
   const [loadingVincular, setLoadingVincular] = useState(false);
   const [showDesvincularModal, setShowDesvincularModal] = useState(false);
   const [estagiarioParaDesvincular, setEstagiarioParaDesvincular] =
@@ -1861,7 +1862,25 @@ export default function ClienteDetalhes() {
     [cliente?.reposicoesPendentes]
   );
 
+  const termoBuscaEstagiarioVinculado = buscaEstagiarioVinculado.trim().toLowerCase();
+
+  const estagiariosVinculadosFiltrados = useMemo(() => {
+    if (!termoBuscaEstagiarioVinculado) return estagiarios;
+    return estagiarios.filter((estagiario) =>
+      estagiario.nome.toLowerCase().includes(termoBuscaEstagiarioVinculado)
+    );
+  }, [estagiarios, termoBuscaEstagiarioVinculado]);
+
+  const reposicoesPendentesFiltradas = useMemo(() => {
+    if (!termoBuscaEstagiarioVinculado) return reposicoesPendentes;
+    return reposicoesPendentes.filter((reposicao) =>
+      reposicao.estagiarioNome.toLowerCase().includes(termoBuscaEstagiarioVinculado)
+    );
+  }, [reposicoesPendentes, termoBuscaEstagiarioVinculado]);
+
   const totalEstagiariosExibidos = estagiarios.length + reposicoesPendentes.length;
+  const totalEstagiariosFiltrados =
+    estagiariosVinculadosFiltrados.length + reposicoesPendentesFiltradas.length;
 
   const mensalidadeQuadroDivergencia = useMemo(
     () =>
@@ -3492,11 +3511,23 @@ export default function ClienteDetalhes() {
               {/* Aba Estagiários */}
               {activeTab === 'estagiarios' && (
                 <div>
-                  <div className="flex justify-between items-center mb-6">
+                  <div className="flex flex-col gap-4 mb-6 lg:flex-row lg:items-center lg:justify-between">
                     <h2 className="text-xl font-bold text-[#004085] dark:text-blue-400">
-                      Estagiários Vinculados ({totalEstagiariosExibidos})
+                      Estagiários Vinculados (
+                      {termoBuscaEstagiarioVinculado
+                        ? `${totalEstagiariosFiltrados} de ${totalEstagiariosExibidos}`
+                        : totalEstagiariosExibidos}
+                      )
                     </h2>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                      <input
+                        type="search"
+                        value={buscaEstagiarioVinculado}
+                        onChange={(e) => setBuscaEstagiarioVinculado(e.target.value)}
+                        placeholder="Buscar por nome..."
+                        aria-label="Buscar estagiário vinculado por nome"
+                        className="w-full sm:w-64 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-[#004085] dark:focus:ring-blue-400 focus:border-transparent bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100"
+                      />
                       <button
                         type="button"
                         onClick={() => void loadEstagiarios()}
@@ -3535,6 +3566,7 @@ export default function ClienteDetalhes() {
                   ) : (
                     <div className="overflow-x-auto">
                       {totalEstagiariosExibidos > 0 ? (
+                        totalEstagiariosFiltrados > 0 ? (
                         <table className="w-full">
                           <thead className="bg-gray-50 dark:bg-slate-700">
                             <tr>
@@ -3565,7 +3597,7 @@ export default function ClienteDetalhes() {
                             </tr>
                           </thead>
                           <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {estagiarios.map((estagiario) => {
+                            {estagiariosVinculadosFiltrados.map((estagiario) => {
                               const filial = resolveEstagiarioFilial(cliente, estagiario);
                               return (
                               <tr
@@ -3720,7 +3752,7 @@ export default function ClienteDetalhes() {
                               </tr>
                             );
                             })}
-                            {reposicoesPendentes.map((reposicao) => {
+                            {reposicoesPendentesFiltradas.map((reposicao) => {
                               const filial = resolveReposicaoFilial(cliente, reposicao);
                               return (
                                 <tr
@@ -3810,6 +3842,13 @@ export default function ClienteDetalhes() {
                             })}
                           </tbody>
                         </table>
+                        ) : (
+                          <div className="text-center py-8">
+                            <p className="text-gray-500 dark:text-gray-400">
+                              Nenhum estagiário encontrado com &quot;{buscaEstagiarioVinculado.trim()}&quot;.
+                            </p>
+                          </div>
+                        )
                       ) : (
                         <div className="text-center py-8">
                           <p className="text-gray-500 dark:text-gray-400">Nenhum estagiário vinculado a este cliente.</p>

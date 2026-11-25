@@ -44,6 +44,7 @@ export interface Estagiario {
   estagioDataInicio?: string;
   oneYearContractCompanyNotifiedAt?: Date;
   estagioValorBolsa?: string;
+  estagioFuncao?: string;
   estagioHorarioEntrada?: string;
   estagioHorarioSaida?: string;
   instituicaoEnsinoNome?: string;

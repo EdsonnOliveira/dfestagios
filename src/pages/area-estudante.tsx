@@ -1,9 +1,10 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { isStudentAccountEmail } from '../lib/studentAuth';
+import { buildEntrevistaConfirmacaoMessage } from '../lib/entrevistaMessage';
 import { buildStudentInternships, buildStudentInterviews, formatIsoDate, type StudentInternship, type StudentInterview } from '../lib/studentPortal';
 import { vacancyLocation, vacancyWhatsAppUrl } from '../lib/publicVacancies';
 import { usePublicVacancies } from '../components/PublicVacancies';
@@ -11,12 +12,20 @@ import { authService, clientesService, estagiariosService, entrevistaCandidatosS
 import { relatorioAdministrativoService } from '../services/relatorioAdministrativoService';
 import { driveStorageService } from '../services/driveStorageService';
 import { downloadInternshipCertificate } from '../services/certificadoEstagioService';
+import { updateStudentProfile } from '../services/studentRegistrationService';
 import type { Cliente, Entrevista, Estagiario } from '../types/firebase';
 import PublicIcon, { type PublicIconName } from '../components/PublicIcon';
 
 type Tab = 'inicio' | 'vagas' | 'candidaturas' | 'estagios' | 'perfil';
 type AreaEstudanteProps = { initialTab?: Tab };
-type TcePreview = { kind: 'pdf'; url: string } | { kind: 'docx'; blob: Blob };
+type TcePreview = { path: string; url: string };
+
+function tcePreviewIframeSrc(drivePath: string, signedUrl: string): string {
+  if (/\.docx?$/i.test(drivePath)) {
+    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(signedUrl)}`;
+  }
+  return signedUrl + '#toolbar=0&navpanes=0';
+}
 const tabs: { id: Tab; label: string; icon: PublicIconName; href: string }[] = [
   { id: 'inicio', label: 'Início', icon: 'home', href: '/area-estudante' },
   { id: 'vagas', label: 'Vagas disponíveis', icon: 'briefcase', href: '/vagas-disponiveis' },
@@ -46,10 +55,12 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
   const [dataError, setDataError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedVacancy, setSelectedVacancy] = useState<Entrevista | null>(null);
+  const [selectedInterview, setSelectedInterview] = useState<StudentInterview | null>(null);
   const [tcePreview, setTcePreview] = useState<TcePreview | null>(null);
   const [documentError, setDocumentError] = useState('');
   const [generatingCertificate, setGeneratingCertificate] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -62,13 +73,16 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
   }, [initialTab, router.isReady, router.query.aba]);
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !accountMenuOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false);
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        setAccountMenuOpen(false);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [menuOpen]);
+  }, [menuOpen, accountMenuOpen]);
 
   useEffect(() => {
     if (loading) return;
@@ -77,7 +91,14 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
       return;
     }
     if (!isStudentAccountEmail(user.email)) {
-      void router.replace('/painel');
+      void (async () => {
+        try {
+          await authService.signOut();
+        } catch {
+          void 0;
+        }
+        void router.replace('/acesso-estudante');
+      })();
       return;
     }
     let active = true;
@@ -138,19 +159,14 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
   async function openTce(path: string) {
     setDocumentError('');
     try {
-      const blob = await driveStorageService.getFileBlob(path);
-      if (path.toLowerCase().endsWith('.docx')) {
-        setTcePreview({ kind: 'docx', blob });
-      } else {
-        setTcePreview({ kind: 'pdf', url: URL.createObjectURL(blob) });
-      }
+      const url = await driveStorageService.getSignedDownloadUrl(path);
+      setTcePreview({ path, url });
     } catch {
       setDocumentError('Não foi possível abrir o TCE agora.');
     }
   }
 
   function closeTce() {
-    if (tcePreview?.kind === 'pdf') URL.revokeObjectURL(tcePreview.url);
     setTcePreview(null);
   }
 
@@ -181,7 +197,22 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
             <button type="button" aria-label="Notificações" className="relative text-[#475d7c]"><PublicIcon name="bell" size={23} /></button>
             <span className="hidden h-10 w-px bg-[#dfe7f1] sm:block" />
             <span className="grid h-10 w-10 place-items-center rounded-full bg-[#0866e9] text-sm font-extrabold text-white sm:h-12 sm:w-12 sm:text-base">{profile?.nome?.trim().slice(0, 2).toUpperCase() || '—'}</span>
-            <button type="button" onClick={async () => { await authService.signOut(); await router.push('/acesso-estudante'); }} className="hidden items-center gap-2 text-[15px] font-bold text-[#253858] lg:flex">Olá, {profile?.nome?.split(' ')[0] || 'estudante'}<PublicIcon name="chevronDown" size={17} /></button>
+            <div className="relative hidden lg:block">
+              <button type="button" onClick={() => setAccountMenuOpen((value) => !value)} aria-expanded={accountMenuOpen} aria-haspopup="menu" className="flex items-center gap-2 text-[15px] font-bold text-[#253858]">
+                Olá, {profile?.nome?.split(' ')[0] || 'estudante'}
+                <PublicIcon name="chevronDown" size={17} />
+              </button>
+              {accountMenuOpen && (
+                <div role="menu" className="absolute right-0 z-50 mt-2 w-48 overflow-hidden rounded-xl border border-[#e6edf6] bg-white shadow-[0_13px_23px_#073b7b26]">
+                  <button type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); selectTab('perfil'); }} className="block w-full px-4 py-3 text-left text-sm font-semibold text-[#253858] hover:bg-[#edf6ff]">
+                    Meu perfil
+                  </button>
+                  <button type="button" role="menuitem" onClick={async () => { setAccountMenuOpen(false); await authService.signOut(); await router.push('/acesso-estudante'); }} className="block w-full px-4 py-3 text-left text-sm font-semibold text-red-600 hover:bg-red-50">
+                    Sair da conta
+                  </button>
+                </div>
+              )}
+            </div>
             <button type="button" className="grid h-10 w-10 place-items-center lg:hidden" onClick={() => setMenuOpen((value) => !value)} aria-label={menuOpen ? 'Fechar menu' : 'Abrir menu'} aria-expanded={menuOpen}>
               <Image src={menuOpen ? '/paulo/x.svg' : '/paulo/menu.svg'} alt="" width={26} height={26} />
             </button>
@@ -229,9 +260,9 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
           <div className="mb-6 grid gap-4 md:grid-cols-3"><Stat icon="calendar" value={upcomingInterviews.length} label="Entrevistas agendadas" /><Stat icon="users" value={pastInterviews.length} label="Entrevistas realizadas" /><Stat icon="file" value={interviews.length} label="Candidaturas enviadas" /></div>
           <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_445px]"><section className="min-w-0">
             <h2 className="mb-4 text-2xl font-extrabold">Próximas entrevistas</h2>
-            {loadingData ? <p>Carregando...</p> : upcomingInterviews.length === 0 ? <Card>Nenhuma entrevista futura encontrada para seu telefone.</Card> : upcomingInterviews.map((item) => <InterviewCard key={item.candidate.id} item={item} />)}
+            {loadingData ? <p>Carregando...</p> : upcomingInterviews.length === 0 ? <Card>Nenhuma entrevista futura encontrada para seu telefone.</Card> : upcomingInterviews.map((item) => <InterviewCard key={item.candidate.id} item={item} onDetails={() => setSelectedInterview(item)} />)}
             <h2 className="mb-4 mt-8 text-2xl font-extrabold">Histórico de entrevistas</h2>
-            {pastInterviews.length === 0 ? <Card>Nenhuma entrevista passada.</Card> : pastInterviews.map((item) => <InterviewCard key={item.candidate.id} item={item} />)}
+            {pastInterviews.length === 0 ? <Card>Nenhuma entrevista passada.</Card> : pastInterviews.map((item) => <InterviewCard key={item.candidate.id} item={item} onDetails={() => setSelectedInterview(item)} />)}
           </section><aside className="space-y-5"><Image src="/panel-interview.png" alt="Prepare-se para sua entrevista" width={500} height={453} className="hidden h-auto w-full max-w-full rounded-2xl lg:block" /><Card className="p-6"><h3 className="text-xl font-extrabold">Precisa de ajuda?</h3><p className="mt-2 text-[#71809a]">Fale com a equipe DF Estágios pelo WhatsApp.</p><a href="https://wa.me/5561998109169" target="_blank" rel="noopener noreferrer" className="mt-4 inline-block font-bold text-[#0866e9]">Falar com a equipe <span aria-hidden>→</span></a></Card></aside></div>
         </>}
 
@@ -243,8 +274,8 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
         </>}
 
         {tab === 'perfil' && <>
-          <SectionTitle title="Meu perfil" subtitle="Confira os dados informados no seu cadastro." />
-          {profile ? <Card className="grid gap-x-12 gap-y-6 sm:grid-cols-2 lg:grid-cols-3"><ProfileField label="Nome completo" value={profile.nome} /><ProfileField label="CPF" value={profile.cpf} /><ProfileField label="E-mail" value={profile.email} /><ProfileField label="Celular" value={profile.telefone1} /><ProfileField label="Cidade / UF" value={[profile.cidade, profile.uf].filter(Boolean).join(' / ')} /><ProfileField label="Endereço" value={[profile.endereco, profile.complemento].filter(Boolean).join(', ')} /><ProfileField label="Escolaridade" value={profile.grauInstrucao} /><ProfileField label="Curso" value={profile.curso || '—'} /><ProfileField label="Currículo" value={profile.curriculoNome || 'Não enviado'} /></Card> : <Card>Carregando perfil...</Card>}
+          <SectionTitle title="Meu perfil" subtitle="Atualize seus dados cadastrais para aumentar suas chances nas vagas." />
+          {profile ? <ProfileEditor profile={profile} onSaved={setProfile} /> : <Card>Carregando perfil...</Card>}
         </>}
       </main>
 
@@ -261,33 +292,242 @@ export default function AreaEstudante({ initialTab = 'inicio' }: AreaEstudantePr
         <a href={vacancyWhatsAppUrl(selectedVacancy)} target="_blank" rel="noopener noreferrer" className="mt-6 inline-block w-full rounded-lg bg-[#0866e9] px-5 py-3 text-center font-bold text-white sm:w-auto">Candidatar-se no WhatsApp →</a>
       </div></div>}
 
-      {tcePreview && <div role="dialog" aria-modal="true" aria-label="Visualizar TCE" className="fixed inset-0 z-50 grid place-items-center bg-[#071c43cc] p-3" onClick={closeTce}><div className="flex h-[92vh] w-full max-w-5xl flex-col rounded-xl bg-white p-3" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between px-2 pb-2"><h2 className="font-bold">Visualizar TCE</h2><button onClick={closeTce} className="text-xl" aria-label="Fechar TCE">×</button></div>{tcePreview.kind === 'pdf' ? <iframe title="TCE do estágio" src={tcePreview.url + '#toolbar=0&navpanes=0'} referrerPolicy="no-referrer" className="min-h-0 flex-1 rounded-lg border border-[#dce7f3]" /> : <DocxPreview blob={tcePreview.blob} />}</div></div>}
+      {selectedInterview && <div role="dialog" aria-modal="true" aria-label="Detalhes da entrevista" className="fixed inset-0 z-50 grid place-items-end bg-[#071c43a8] p-0 sm:place-items-center sm:p-4" onClick={() => setSelectedInterview(null)}><div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl sm:p-8" onClick={(event) => event.stopPropagation()}>
+        <div className="flex justify-between gap-4"><h2 className="text-xl font-extrabold sm:text-2xl">Mensagem de entrevista confirmada</h2><button onClick={() => setSelectedInterview(null)} aria-label="Fechar detalhes" className="shrink-0 text-2xl">×</button></div>
+        <p className="mt-2 text-[#61718d]">{selectedInterview.interview.tituloVaga} — {selectedInterview.interview.empresaNome}</p>
+        <pre className="mt-5 whitespace-pre-wrap rounded-xl border border-[#e6edf6] bg-[#f7fbff] p-4 font-sans text-sm leading-relaxed text-[#334563]">{buildEntrevistaConfirmacaoMessage(selectedInterview.interview)}</pre>
+      </div></div>}
+
+      {tcePreview && <div role="dialog" aria-modal="true" aria-label="Visualizar TCE" className="fixed inset-0 z-50 grid place-items-center bg-[#071c43cc] p-3" onClick={closeTce}><div className="flex h-[92vh] w-full max-w-5xl flex-col rounded-xl bg-white p-3" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between px-2 pb-2"><h2 className="font-bold">Visualizar TCE</h2><button onClick={closeTce} className="text-xl" aria-label="Fechar TCE">×</button></div><iframe title="TCE do estágio" src={tcePreviewIframeSrc(tcePreview.path, tcePreview.url)} referrerPolicy="no-referrer" className="min-h-0 flex-1 rounded-lg border border-[#dce7f3] bg-white" /></div></div>}
     </div>
   );
 }
 
-function DocxPreview({ blob }: { blob: Blob }) {
-  const container = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    let active = true;
-    const render = async () => {
-      if (!container.current) return;
-      try {
-        const { renderAsync } = await import('docx-preview');
-        if (active && container.current) await renderAsync(blob, container.current, container.current, { breakPages: true, renderHeaders: true, renderFooters: true });
-      } catch {
-        if (active) setError('Não foi possível visualizar este TCE.');
-      }
-    };
-    void render();
-    return () => { active = false; };
-  }, [blob]);
-  return <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-[#dce7f3] bg-[#e8eef5] p-4">{error ? <p role="alert" className="rounded-lg bg-white p-4 text-red-700">{error}</p> : <div ref={container} />}</div>;
+type ProfileFormState = {
+  nome: string;
+  email: string;
+  telefone1: string;
+  cep: string;
+  endereco: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+  grauInstrucao: string;
+  curso: string;
+};
+
+function maskPhoneDisplay(value: string): string {
+  const n = value.replace(/\D/g, '').slice(0, 11);
+  if (n.length <= 2) return n ? '(' + n : '';
+  if (n.length <= 6) return '(' + n.slice(0, 2) + ') ' + n.slice(2);
+  return '(' + n.slice(0, 2) + ') ' + n.slice(2, n.length === 11 ? 7 : 6) + '-' + n.slice(n.length === 11 ? 7 : 6);
 }
 
-function ProfileField({ label, value }: { label: string; value: string | undefined }) {
-  return <div><span className="block text-sm text-[#6b7b95]">{label}</span><strong className="block break-words">{value || '—'}</strong></div>;
+function maskCepDisplay(value: string): string {
+  const n = value.replace(/\D/g, '').slice(0, 8);
+  if (n.length <= 5) return n;
+  return n.slice(0, 5) + '-' + n.slice(5);
+}
+
+function profileToForm(profile: Estagiario): ProfileFormState {
+  return {
+    nome: profile.nome ?? '',
+    email: profile.email ?? '',
+    telefone1: maskPhoneDisplay(profile.telefone1 ?? ''),
+    cep: maskCepDisplay(profile.cep ?? ''),
+    endereco: profile.endereco ?? '',
+    complemento: profile.complemento ?? '',
+    bairro: profile.bairro ?? '',
+    cidade: profile.cidade ?? '',
+    uf: profile.uf ?? '',
+    grauInstrucao: profile.grauInstrucao ?? '',
+    curso: profile.curso ?? '',
+  };
+}
+
+function ProfileEditor({ profile, onSaved }: { profile: Estagiario; onSaved: (next: Estagiario) => void }) {
+  const [form, setForm] = useState<ProfileFormState>(() => profileToForm(profile));
+  const [resume, setResume] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setForm(profileToForm(profile));
+    setResume(null);
+    setMessage('');
+    setError('');
+  }, [profile]);
+
+  function setField<K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profile.id) return;
+    setSaving(true);
+    setMessage('');
+    setError('');
+    try {
+      const uploaded = await updateStudentProfile(
+        profile.id,
+        {
+          nome: form.nome,
+          email: form.email,
+          telefone1: form.telefone1,
+          cep: form.cep,
+          endereco: form.endereco,
+          complemento: form.complemento,
+          bairro: form.bairro,
+          cidade: form.cidade,
+          uf: form.uf,
+          grauInstrucao: form.grauInstrucao,
+          curso: form.curso,
+        },
+        resume
+      );
+      onSaved({
+        ...profile,
+        nome: form.nome.trim(),
+        email: form.email.trim(),
+        telefone1: form.telefone1.replace(/\D/g, ''),
+        cep: form.cep.replace(/\D/g, ''),
+        endereco: form.endereco.trim(),
+        complemento: form.complemento.trim(),
+        bairro: form.bairro.trim(),
+        cidade: form.cidade.trim(),
+        uf: form.uf.trim().toUpperCase(),
+        grauInstrucao: form.grauInstrucao.trim(),
+        curso: form.curso.trim(),
+        ...(uploaded.curriculoStoragePath
+          ? {
+              curriculoStoragePath: uploaded.curriculoStoragePath,
+              curriculoNome: uploaded.curriculoNome,
+            }
+          : {}),
+        updatedAt: new Date(),
+      });
+      setResume(null);
+      setMessage('Perfil atualizado com sucesso.');
+    } catch {
+      setError('Não foi possível salvar o perfil. Tente novamente.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputClass =
+    'mt-1 w-full rounded-xl border border-[#dce7f3] bg-white px-4 py-3 text-[#0b174c] outline-none focus:border-[#0866e9]';
+
+  return (
+    <Card>
+      <form onSubmit={submit} className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <label className="block text-sm text-[#6b7b95]">
+          Nome completo
+          <input required value={form.nome} onChange={(e) => setField('nome', e.target.value)} className={inputClass} />
+        </label>
+        <label className="block text-sm text-[#6b7b95]">
+          CPF
+          <input value={profile.cpf || '—'} readOnly className={inputClass + ' bg-[#f4f7fb] text-[#71809a]'} />
+        </label>
+        <label className="block text-sm text-[#6b7b95]">
+          E-mail
+          <input required type="email" value={form.email} onChange={(e) => setField('email', e.target.value)} className={inputClass} />
+        </label>
+        <label className="block text-sm text-[#6b7b95]">
+          Celular
+          <input
+            required
+            inputMode="tel"
+            value={form.telefone1}
+            onChange={(e) => setField('telefone1', maskPhoneDisplay(e.target.value))}
+            className={inputClass}
+          />
+        </label>
+        <label className="block text-sm text-[#6b7b95]">
+          CEP
+          <input
+            inputMode="numeric"
+            value={form.cep}
+            onChange={(e) => setField('cep', maskCepDisplay(e.target.value))}
+            className={inputClass}
+          />
+        </label>
+        <label className="block text-sm text-[#6b7b95]">
+          Cidade
+          <input required value={form.cidade} onChange={(e) => setField('cidade', e.target.value)} className={inputClass} />
+        </label>
+        <label className="block text-sm text-[#6b7b95]">
+          UF
+          <input
+            required
+            maxLength={2}
+            value={form.uf}
+            onChange={(e) => setField('uf', e.target.value.toUpperCase().slice(0, 2))}
+            className={inputClass}
+          />
+        </label>
+        <label className="block text-sm text-[#6b7b95] sm:col-span-2">
+          Endereço
+          <input required value={form.endereco} onChange={(e) => setField('endereco', e.target.value)} className={inputClass} />
+        </label>
+        <label className="block text-sm text-[#6b7b95]">
+          Complemento
+          <input value={form.complemento} onChange={(e) => setField('complemento', e.target.value)} className={inputClass} />
+        </label>
+        <label className="block text-sm text-[#6b7b95]">
+          Bairro
+          <input required value={form.bairro} onChange={(e) => setField('bairro', e.target.value)} className={inputClass} />
+        </label>
+        <label className="block text-sm text-[#6b7b95]">
+          Escolaridade
+          <select
+            required
+            value={form.grauInstrucao}
+            onChange={(e) => setField('grauInstrucao', e.target.value)}
+            className={inputClass}
+          >
+            <option value="">Selecione</option>
+            <option value="fundamental">Fundamental</option>
+            <option value="medio">Médio</option>
+            <option value="superior">Superior</option>
+            <option value="tecnico">Técnico</option>
+            <option value="eja">EJA</option>
+            <option value="nao_estudando">Não está estudando</option>
+          </select>
+        </label>
+        <label className="block text-sm text-[#6b7b95]">
+          Curso
+          <input value={form.curso} onChange={(e) => setField('curso', e.target.value)} className={inputClass} />
+        </label>
+        <label className="block text-sm text-[#6b7b95] sm:col-span-2 lg:col-span-3">
+          Currículo (PDF ou DOCX)
+          <input
+            type="file"
+            accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(e) => setResume(e.target.files?.[0] ?? null)}
+            className={inputClass}
+          />
+          <span className="mt-2 block text-sm text-[#71809a]">
+            Atual: {resume?.name || profile.curriculoNome || 'Não enviado'}
+          </span>
+        </label>
+        <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-lg bg-[#0866e9] px-6 py-3 font-bold text-white disabled:cursor-not-allowed disabled:bg-[#a9b9cf]"
+          >
+            {saving ? 'Salvando...' : 'Salvar alterações'}
+          </button>
+          {message && <p className="text-sm font-semibold text-[#17803c]">{message}</p>}
+          {error && <p role="alert" className="text-sm font-semibold text-red-600">{error}</p>}
+        </div>
+      </form>
+    </Card>
+  );
 }
 
 function Filter({ label, icon }: { label: string; icon: PublicIconName }) {
@@ -302,10 +542,10 @@ function VacancyCard({ vacancy, isNew, onDetails }: { vacancy: Entrevista; isNew
   return <Card className="mb-3 p-4 sm:p-5"><div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center"><span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9] sm:h-16 sm:w-16"><PublicIcon name="briefcase" size={32} /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3">{isNew && <span className="rounded-md bg-[#f6d36c] px-3 py-1 text-xs font-extrabold uppercase text-[#101d35]">Nova</span>}<h3 className="break-words text-lg font-extrabold sm:truncate sm:text-xl">{vacancy.tituloVaga}</h3></div><p className="mt-1 text-sm text-[#536680] sm:text-base">{vacancyLocation(vacancy)}</p><div className="mt-3 flex flex-wrap gap-2 text-sm text-[#415777]"><span className="rounded-lg bg-[#f0f6fd] px-3 py-2">{vacancy.valorBolsa || 'Bolsa a combinar'}</span><span className="rounded-lg bg-[#f0f6fd] px-3 py-2"><PublicIcon name="sun" size={15} className="mr-1 inline" />{vacancy.horarioTrabalho || 'A combinar'}</span><span className="rounded-lg bg-[#f0f6fd] px-3 py-2"><PublicIcon name="mapPin" size={15} className="mr-1 inline" />Presencial</span></div></div><div className="flex w-full flex-col gap-3 sm:w-auto sm:shrink-0 sm:flex-row"><button onClick={onDetails} className="rounded-lg border border-[#0866e9] px-5 py-3 text-center font-bold text-[#0866e9]">Ver detalhes</button><a href={vacancyWhatsAppUrl(vacancy)} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-[#0866e9] px-5 py-3 text-center font-bold text-white">Candidatar-se</a></div></div></Card>;
 }
 
-function InterviewCard({ item }: { item: StudentInterview }) {
+function InterviewCard({ item, onDetails }: { item: StudentInterview; onDetails: () => void }) {
   const { interview, past, daysRemaining } = item;
   return <Card className={'mb-3 p-5 ' + (!past ? 'border-l-[6px] border-l-[#0866e9]' : '')}>
-    <div className="flex flex-wrap items-start justify-between gap-4"><div className="flex items-start gap-4"><span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9]"><PublicIcon name="building" size={28} /></span><div><span className={'rounded-full px-3 py-1 text-xs font-bold ' + (past ? 'bg-[#eef1f4] text-[#61718d]' : 'bg-[#dff3ff] text-[#0866e9]')}>{interview.status === 'cancelada' ? 'Cancelada' : past ? 'Realizada' : 'Agendada'}</span><h3 className="mt-2 text-xl font-extrabold">{interview.tituloVaga}</h3><p className="text-[#60718d]">{interview.empresaNome}</p></div></div>{!past && daysRemaining !== null && <strong className="text-[#0866e9]">{daysRemaining === 0 ? 'É hoje' : 'Faltam ' + daysRemaining + ' dias'}</strong>}<button type="button" className="rounded-lg border border-[#0866e9] px-4 py-2 font-bold text-[#0866e9]"><PublicIcon name="eye" size={18} className="mr-2 inline" />Ver detalhes</button></div>
+    <div className="flex flex-wrap items-start justify-between gap-4"><div className="flex items-start gap-4"><span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9]"><PublicIcon name="building" size={28} /></span><div><span className={'rounded-full px-3 py-1 text-xs font-bold ' + (past ? 'bg-[#eef1f4] text-[#61718d]' : 'bg-[#dff3ff] text-[#0866e9]')}>{interview.status === 'cancelada' ? 'Cancelada' : past ? 'Realizada' : 'Agendada'}</span><h3 className="mt-2 text-xl font-extrabold">{interview.tituloVaga}</h3><p className="text-[#60718d]">{interview.empresaNome}</p></div></div>{!past && daysRemaining !== null && <strong className="text-[#0866e9]">{daysRemaining === 0 ? 'É hoje' : 'Faltam ' + daysRemaining + ' dias'}</strong>}<button type="button" onClick={onDetails} className="rounded-lg border border-[#0866e9] px-4 py-2 font-bold text-[#0866e9]"><PublicIcon name="eye" size={18} className="mr-2 inline" />Ver detalhes</button></div>
     <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-[#e9eef5] pt-4 text-sm text-[#4f6282]"><span><PublicIcon name="calendar" size={17} className="mr-1 inline text-[#0866e9]" />{formatIsoDate(interview.dataEntrevista)}</span><span><PublicIcon name="clock" size={17} className="mr-1 inline text-[#0866e9]" />{interview.horarioEntrevista}</span><span><PublicIcon name="mapPin" size={17} className="mr-1 inline text-[#0866e9]" />{interview.bairro}, {interview.cidade}/DF</span><span><PublicIcon name={interview.tipoEntrevista === 'online' ? 'monitor' : 'building'} size={17} className="mr-1 inline text-[#0866e9]" />{interview.tipoEntrevista === 'online' ? 'Online' : 'Presencial'}</span></div>
     {!past && <p className="mt-4 border-t border-[#e9eef5] pt-3 text-sm text-[#5d6f8a]"><PublicIcon name="info" size={17} className="mr-2 inline text-[#0866e9]" />Compareça com 10 minutos de antecedência.</p>}
   </Card>;
@@ -320,7 +560,7 @@ function formatInternshipSchedule(profile: Estagiario | null): string {
 
 function InternshipCard({ item, profile, onTce, onCertificate, generating, variant }: { item: StudentInternship; profile: Estagiario | null; onTce: (path: string) => void; onCertificate: (item: StudentInternship) => void; generating: boolean; variant: 'active' | 'past' }) {
   const company = item.client;
-  const role = profile?.curso?.trim() || 'Estágio';
+  const role = profile?.estagioFuncao?.trim() || profile?.curso?.trim() || 'Estágio';
   const scholarship = profile?.estagioValorBolsa?.trim() || '—';
   const schedule = formatInternshipSchedule(profile);
   if (variant === 'past') return <Card className="mb-3 !flex flex-wrap items-center gap-3 !p-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#edf6ff] text-[#0866e9]"><PublicIcon name="building" size={25} /></span><div className="min-w-0 flex-1 basis-full sm:basis-auto"><h3 className="font-extrabold">{company?.nomeFantasia || company?.razaoSocial || 'Empresa não identificada'}</h3><p className="text-sm text-[#60718d]">{role}</p></div><div className="min-w-0 text-sm text-[#60718d]"><span>Período</span><strong className="ml-2 text-[#263b5f]">{formatIsoDate(item.startDate)} a {item.endDate ? formatIsoDate(item.endDate) : '—'}</strong></div><span className="rounded-full bg-[#eef1f4] px-4 py-2 text-xs font-bold text-[#66758d]">ENCERRADO</span>{item.tcePath && <button type="button" onClick={() => onTce(item.tcePath!)} className="rounded-lg border border-[#0866e9] px-4 py-2 font-bold text-[#0866e9]"><PublicIcon name="eye" size={18} className="mr-2 inline" />Visualizar TCE</button>}</Card>;

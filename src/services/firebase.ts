@@ -11,9 +11,11 @@ import {
   orderBy
 } from 'firebase/firestore';
 import {
+  browserLocalPersistence,
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  setPersistence,
   User as FirebaseUser
 } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
@@ -163,6 +165,7 @@ export const estagiariosService = {
 export const authService = {
   async signIn(email: string, password: string) {
     try {
+      await setPersistence(auth, browserLocalPersistence);
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       return userCredential.user;
     } catch (error) {
