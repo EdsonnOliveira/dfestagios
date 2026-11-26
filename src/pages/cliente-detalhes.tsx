@@ -1887,7 +1887,7 @@ export default function ClienteDetalhes() {
       getMensalidadeQuadroDivergencia({
         valorPorEstagiario: cliente?.valorPorEstagiario,
         validarQuadroFinanceiro: cliente?.validarQuadroFinanceiro,
-        ativosCount: getAtivosCount(estagiarios.length, reposicoesPendentes.length),
+        ativosCount: getAtivosCount(estagiarios.length),
         mensalidades: mensalidades.map((item) => ({
           valor: item.valor,
           status: item.status,
@@ -1897,7 +1897,6 @@ export default function ClienteDetalhes() {
       cliente?.valorPorEstagiario,
       cliente?.validarQuadroFinanceiro,
       estagiarios.length,
-      reposicoesPendentes.length,
       mensalidades,
     ]
   );

@@ -32,11 +32,8 @@ export function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export function getAtivosCount(
-  estagiariosVinculadosCount: number,
-  reposicoesPendentesCount = 0
-): number {
-  return estagiariosVinculadosCount + reposicoesPendentesCount;
+export function getAtivosCount(estagiariosVinculadosCount: number): number {
+  return estagiariosVinculadosCount;
 }
 
 export function shouldValidateMensalidadeQuadro(

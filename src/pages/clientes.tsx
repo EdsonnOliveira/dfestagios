@@ -963,10 +963,7 @@ export default function Clientes() {
   const clienteTemDivergenciaQuadro = useCallback(
     (cliente: Cliente) => {
       if (!cliente.id) return false;
-      const ativosCount = getAtivosCount(
-        getEstagiariosCount(cliente),
-        getReposicoesPendentesCount(cliente)
-      );
+      const ativosCount = getAtivosCount(getEstagiariosCount(cliente));
       const clienteMensalidades = mensalidadesPorCliente.get(cliente.id) ?? [];
       return getMensalidadeQuadroDivergencia({
         valorPorEstagiario: cliente.valorPorEstagiario,
@@ -978,11 +975,7 @@ export default function Clientes() {
         })),
       }).hasDivergence;
     },
-    [
-      getEstagiariosCount,
-      getReposicoesPendentesCount,
-      mensalidadesPorCliente,
-    ]
+    [getEstagiariosCount, mensalidadesPorCliente]
   );
 
   const filtrarClientes = () => {
