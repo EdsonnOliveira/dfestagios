@@ -8,6 +8,7 @@ import { authService } from '../services/firebase';
 export default function Login() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -18,7 +19,7 @@ export default function Login() {
     setError('');
 
     try {
-      const user = await authService.signIn(email, senha);
+      const user = await authService.signIn(email, senha, remember);
       router.push(isStudentAccountEmail(user.email) ? '/area-estudante' : '/painel');
     } catch (error: unknown) {
       console.error('Erro no login:', error);
@@ -93,6 +94,8 @@ export default function Login() {
               <label className="flex items-center">
                 <input
                   type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
                   className="mr-2 h-4 w-4 accent-[#004085] text-[#004085] focus:ring-2 focus:ring-[#004085] border-gray-300 rounded cursor-pointer"
                   disabled={loading}
                 />
