@@ -155,27 +155,27 @@ export default function PainelHeader() {
 
   return (
     <header className="bg-white dark:bg-slate-800 shadow-lg fixed top-0 left-0 right-0 z-50 transition-colors">
-      <div className="max-w-7xl mx-auto flex justify-between items-center py-4 px-4">
-        <div className="flex items-center">
+      <div className="max-w-7xl mx-auto flex items-center gap-3 py-3 px-4">
+        <div className="flex items-center shrink-0">
           <Image 
             src="/logo.png" 
             alt="DF ESTÁGIOS" 
             width={200} 
             height={60} 
-            className="h-12 w-auto"
+            className="h-10 w-auto"
           />
         </div>
         
-        <nav className="hidden md:flex items-center gap-6">
+        <nav className="hidden md:flex flex-1 min-w-0 items-center justify-center flex-wrap gap-x-3 gap-y-1">
           <button
             onClick={() => handleNavigation('/painel')}
-            className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+            className="whitespace-nowrap text-sm text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
           >
             Estagiários
           </button>
           <button
             onClick={() => handleNavigation('/relatorio-administrativo')}
-            className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+            className="whitespace-nowrap text-sm text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
           >
             Relatório Admin.
           </button>
@@ -183,37 +183,37 @@ export default function PainelHeader() {
             <>
               <button
                 onClick={() => handleNavigation('/entrevistas')}
-                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+                className="whitespace-nowrap text-sm text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
               >
                 Entrevistas
               </button>
               <button
                 onClick={() => handleNavigation('/clientes')}
-                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+                className="whitespace-nowrap text-sm text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
               >
                 Clientes
               </button>
               <button
                 onClick={() => handleNavigation('/mensalidades')}
-                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+                className="whitespace-nowrap text-sm text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
               >
                 Mensalidades
               </button>
               <button
                 onClick={() => handleNavigation('/drive')}
-                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+                className="whitespace-nowrap text-sm text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
               >
                 Drive
               </button>
               <button
                 onClick={() => handleNavigation('/configuracoes')}
-                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+                className="whitespace-nowrap text-sm text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
               >
                 Configurações
               </button>
               <button
                 onClick={() => handleNavigation('/formularios')}
-                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+                className="whitespace-nowrap text-sm text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
               >
                 Formulários
               </button>
@@ -221,13 +221,13 @@ export default function PainelHeader() {
           )}
           <button
             onClick={() => handleNavigation('/painel-grupos')}
-            className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+            className="whitespace-nowrap text-sm text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
           >
             Grupos WhatsApp
           </button>
         </nav>
         
-        <div className="hidden md:flex items-center gap-4">
+        <div className="hidden md:flex items-center gap-3 shrink-0">
           <span className="text-xs text-gray-500 dark:text-gray-400">
             {isDark ? 'Escuro' : 'Claro'}
           </span>
@@ -248,7 +248,7 @@ export default function PainelHeader() {
           </button>
           <button 
             onClick={handleLogout}
-            className="bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+            className="bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-3 rounded-lg transition-colors text-sm"
           >
             Sair
           </button>
