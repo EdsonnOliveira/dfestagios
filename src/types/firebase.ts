@@ -274,3 +274,35 @@ export const ENTREVISTA_CANDIDATO_STATUS_LABELS: Record<
   contrato_pendente: 'Contrato pendente',
   contrato_preenchido: 'Contrato preenchido',
 };
+
+export type FormFieldType = 'text' | 'textarea' | 'email' | 'tel' | 'select';
+
+export interface FormField {
+  id: string;
+  label: string;
+  name: string;
+  type: FormFieldType;
+  required: boolean;
+  placeholder?: string;
+  options?: string[];
+  order: number;
+}
+
+export interface DynamicForm {
+  id?: string;
+  title: string;
+  slug: string;
+  description?: string;
+  isActive: boolean;
+  fields: FormField[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface FormResponse {
+  id?: string;
+  formId: string;
+  formSlug: string;
+  answers: Record<string, string>;
+  createdAt: Date;
+}

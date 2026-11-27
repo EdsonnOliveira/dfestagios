@@ -211,6 +211,12 @@ export default function PainelHeader() {
               >
                 Configurações
               </button>
+              <button
+                onClick={() => handleNavigation('/formularios')}
+                className="text-[#004085] dark:text-blue-400 hover:text-[#0056B3] dark:hover:text-blue-300 font-medium transition-colors"
+              >
+                Formulários
+              </button>
             </>
           )}
           <button
@@ -419,6 +425,15 @@ export default function PainelHeader() {
                     className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
                   >
                     Configurações
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleNavigation('/formularios');
+                      closeMobileMenu();
+                    }}
+                    className="text-left py-2 px-4 rounded-lg transition-colors text-[#004085] dark:text-blue-400 hover:bg-[#004085] dark:hover:bg-blue-400 hover:text-white font-medium"
+                  >
+                    Formulários
                   </button>
                 </>
               )}
