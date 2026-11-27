@@ -11,8 +11,8 @@ import {
   orderBy
 } from 'firebase/firestore';
 import {
-  browserLocalPersistence,
   browserSessionPersistence,
+  indexedDBLocalPersistence,
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
@@ -168,7 +168,7 @@ export const authService = {
     try {
       await setPersistence(
         auth,
-        remember ? browserLocalPersistence : browserSessionPersistence
+        remember ? indexedDBLocalPersistence : browserSessionPersistence
       );
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       return userCredential.user;

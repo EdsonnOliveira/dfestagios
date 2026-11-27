@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
+import { useAuth } from '../hooks/useAuth';
 import { isStudentAccountEmail } from '../lib/studentAuth';
 import { authService } from '../services/firebase';
 
@@ -12,6 +13,14 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    void router.replace(
+      isStudentAccountEmail(user.email) ? '/area-estudante' : '/painel'
+    );
+  }, [authLoading, user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
